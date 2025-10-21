@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- A unique name for this task -->
+    <key>Label</key>
+    <string>com.mattmurphy.userscript-bundler</string>
+
+    <!-- The command and its arguments -->
+    <key>ProgramArguments</key>
+    <array>
+        <!-- Path to the Node.js executable -->
+        <string>/opt/homebrew/bin/node</string>
+        <!-- Full path to the file watcher script -->
+        <string>/Users/matthewmurphy/projects/userscript-bundler/watch-and-bundle.js</string>
+    </array>
+
+    <!-- Keep the process running -->
+    <key>KeepAlive</key>
+    <true/>
+
+    <!-- (Optional but Recommended) Where to save log files -->
+    <key>StandardOutPath</key>
+    <string>/Users/matthewmurphy/projects/userscript-bundler/watcher.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/matthewmurphy/projects/userscript-bundler/watcher.err</string>
+
+    <!-- (Optional but Recommended) Run the task as soon as it's loaded to test it -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- Working directory -->
+    <key>WorkingDirectory</key>
+    <string>/Users/matthewmurphy/projects/userscript-bundler</string>
+
+    <!-- Environment variables -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+</dict>
+</plist>
