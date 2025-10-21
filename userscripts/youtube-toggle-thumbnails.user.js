@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         YouTube - Toggle Thumbnails
+// @name         YouTube - Toggle Thumbnails (Optimized)
 // @namespace    http://tampermonkey.net/
-// @version      1.2
-// @description  Adds a button to toggle video thumbnails on YouTube, waiting for elements to appear and handling dynamically loaded content.
+// @version      1.3
+// @description  Adds a button to toggle video thumbnails on YouTube, optimized for performance.
 // @author       Gemini
 // @match        https://www.youtube.com/*
 // @grant        none
@@ -11,56 +11,70 @@
 
 (function() {
     'use strict';
-    console.log('Userscript "YouTube - Toggle Thumbnails" loaded.');
 
-    let hidden = false;
-    let buttonSetup = false
+    let thumbnailsHidden = sessionStorage.getItem('thumbnailsHidden') === 'true';
+    toggleAllThumbnails(thumbnailsHidden);
 
-    // Function to hide or show all thumbnails currently in the DOM
+    /**
+     * Applies the appropriate style to an element to hide or show it.
+     * @param {HTMLElement} el The element to style.
+     * @param {boolean} hide Whether to hide the element.
+     */
+    function applyThumbnailStyle(el, hide) {
+        el.style.visibility = hide ? 'hidden' : '';
+    }
+
+    /**
+     * Toggles the visibility of all thumbnails currently on the page.
+     * @param {boolean} hide Whether to hide the thumbnails.
+     */
     function toggleAllThumbnails(hide) {
-        document.querySelectorAll('yt-thumbnail-view-model').forEach(el => {
-            applyThumbnailStyle(el, hide);
+        // Hide video previews
+        document.querySelectorAll('#video-preview').forEach(videoPreview => {
+            applyThumbnailStyle(videoPreview, hide);
+        });
+        // Hide both kinds of thumbnails
+        document.querySelectorAll('ytd-thumbnail').forEach(thumbnail => {
+            applyThumbnailStyle(thumbnail, hide);
+        });
+        document.querySelectorAll('yt-thumbnail-view-model').forEach(thumbnail => {
+            applyThumbnailStyle(thumbnail, hide);
         });
     }
 
-    // Applies the style to a single thumbnail element
-    function applyThumbnailStyle(el, hide) {
-        el.style.position = hide ? 'absolute' : '';
-        el.style.left = hide ? '-999999px' : '';
-        el.style.top = hide ? '-999999px' : '';
-    }
-
-    // Check for dark mode
+    /**
+     * Checks if the system is in dark mode.
+     * @returns {boolean} True if in dark mode, false otherwise.
+     */
     function isDarkMode() {
-        return window.matchMedia &&
-               window.matchMedia('(prefers-color-scheme: dark)').matches;
+        return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
     }
 
-    // Main function to create and set up the toggle button
+    /**
+     * Creates and sets up the thumbnail toggle button.
+     * @param {HTMLElement} createBtn The original "Create" button to be replaced.
+     */
     function setupButton(createBtn) {
-        buttonSetup = true
-        console.log('setupButton called for:', createBtn);
-        // Prevent re-creating the button
         if (document.getElementById('thumbnail-toggle-btn')) {
-            console.log('Button already exists.');
-            return;
+            return; // Button already exists
         }
 
         const toggleBtn = document.createElement('button');
         toggleBtn.id = 'thumbnail-toggle-btn';
         toggleBtn.title = "Toggle Thumbnails";
-        toggleBtn.style.height = createBtn.offsetHeight + 'px';
-        toggleBtn.style.width = createBtn.offsetWidth + 'px';
-        toggleBtn.style.display = 'flex';
-        toggleBtn.style.alignItems = 'center';
-        toggleBtn.style.justifyContent = 'center';
-        toggleBtn.style.background = 'transparent';
-        toggleBtn.style.border = 'none';
-        toggleBtn.style.cursor = 'pointer';
-        toggleBtn.style.padding = '0';
-        toggleBtn.style.position = 'relative';
+        Object.assign(toggleBtn.style, {
+            height: `${createBtn.offsetHeight}px`,
+            width: `${createBtn.offsetWidth}px`,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            background: 'transparent',
+            border: 'none',
+            cursor: 'pointer',
+            padding: '0',
+            position: 'relative'
+        });
 
-        // SVG elements from user's code
         const svgNS = "http://www.w3.org/2000/svg";
         const svg = document.createElementNS(svgNS, "svg");
         svg.setAttribute("viewBox", "0 0 24 24");
@@ -94,86 +108,102 @@
         line.setAttribute("stroke-linecap", "round");
         line.style.display = "none";
 
-        function setIconColor() {
+        const setIconColor = () => {
             const isDark = isDarkMode();
-            const main = isDark ? '#fff' : '#0f0f0f';
-            const strike = isDark ? '#D8D8D8' : '#252525';
-            rect.setAttribute("stroke", main);
-            sun.setAttribute("fill", main);
-            mountain.setAttribute("fill", main);
+            const mainColor = isDark ? '#fff' : '#0f0f0f';
+            const strikeColor = isDark ? '#D8D8D8' : '#252525';
+            rect.setAttribute("stroke", mainColor);
+            sun.setAttribute("fill", mainColor);
+            mountain.setAttribute("fill", mainColor);
             mountain.setAttribute("opacity", "0.4");
-            line.setAttribute("stroke", strike);
-        }
+            line.setAttribute("stroke", strikeColor);
+        };
 
-        function attachThemeListeners() {
-            setIconColor();
-            if (window.matchMedia) {
-                window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', setIconColor);
-            }
-        }
-
-        svg.appendChild(rect);
-        svg.appendChild(sun);
-        svg.appendChild(mountain);
-        svg.appendChild(line);
+        svg.append(rect, sun, mountain, line);
         toggleBtn.appendChild(svg);
 
         toggleBtn.addEventListener('mouseenter', () => {
-            if (!hidden) line.style.display = "block";
+            if (!thumbnailsHidden) line.style.display = "block";
         });
         toggleBtn.addEventListener('mouseleave', () => {
-            if (!hidden) line.style.display = "none";
+            if (!thumbnailsHidden) line.style.display = "none";
         });
         toggleBtn.addEventListener('click', () => {
-            hidden = !hidden;
-            console.log('toggle thumbnails')
-            toggleAllThumbnails(hidden);
-            line.style.display = hidden ? "block" : "none";
+            thumbnailsHidden = !thumbnailsHidden;
+            sessionStorage.setItem('thumbnailsHidden', thumbnailsHidden);
+            toggleAllThumbnails(thumbnailsHidden);
+            line.style.display = thumbnailsHidden ? "block" : "none";
         });
 
         createBtn.replaceWith(toggleBtn);
-        console.log('Replaced createBtn with toggleBtn.');
-        attachThemeListeners();
-        setTimeout(setIconColor, 5);
+
+        // Set initial icon color and listen for changes
+        setIconColor();
+        window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', setIconColor);
     }
 
-    // Use a MutationObserver to wait for the create video button and watch for new thumbnails
-    const observer = new MutationObserver((mutationsList, obs) => {
-        console.log('11:32.2 Observer callback fired.');
-        if (!buttonSetup) {
-            console.log(" Checking for create video button...");
-            const createBtn = document.querySelector('button[aria-label="Create"]').closest('ytd-button-renderer');
-            if (createBtn) {
-                console.log('Create button FOUND:', createBtn);
-                setupButton(createBtn);
-            }
-        }
-
-        console.log("going to hide thumbnails if hidden");
-        if (hidden) {
-            console.log("hiding thumbnails");
-            for (const mutation of mutationsList) {
-                if (mutation.type === 'childList') {
-                    mutation.addedNodes.forEach(node => {
-                        if (node.nodeType === Node.ELEMENT_NODE) {
-                            if (node.matches('yt-thumbnail-view-model')) {
-                                applyThumbnailStyle(node, true);
-                            }
-                            node.querySelectorAll('yt-thumbnail-view-model').forEach(el => {
-                                applyThumbnailStyle(el, true);
-                            });
+    /**
+     * Handles mutations to the DOM, looking for new thumbnails and the create button.
+     * @param {MutationRecord[]} mutationsList The list of mutations.
+     */
+    function handleMutations(mutationsList) {
+        for (const mutation of mutationsList) {
+            if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
+                // First, check for the create button if it's not there yet
+                if (!document.getElementById('thumbnail-toggle-btn')) {
+                    const createBtn = document.querySelector('button[aria-label="Create"]');
+                    if (createBtn) {
+                        const parentButtonRenderer = createBtn.closest('ytd-button-renderer');
+                        if (parentButtonRenderer) {
+                           setupButton(parentButtonRenderer);
                         }
-                    });
+                    }
                 }
+                
+                // ! DOES NOT WORK:
+                // If thumbnails are hidden, hide any newly added ones
+                if (thumbnailsHidden) {
+                        console.log('thumbs hidden...hiding');
+                        toggleAllThumbnails(true)
+                    //     mutation.addedNodes.forEach(node => {
+                        //         if (node.nodeType === Node.ELEMENT_NODE) {
+                            //             if (node.matches && (node.matches('ytd-thumbnail') || node.matches('ytm-media-item')) || (node.matches('yt-thumbnail-view-model'))) {
+                                
+                //             }
+                //         }
+                //     });
+                }   
             }
         }
-    });
+    }
 
-    // Start observing the entire document body for changes
-    console.log('Starting observer.');
+    // --- Main Execution ---
+
+    console.log('start observer. 12:44');
+    
+    // More targeted observer
+    const observer = new MutationObserver(handleMutations);
+
+    // We can start by observing the body, but once we find the main content area,
+    // we can narrow our focus.
     observer.observe(document.body, {
         childList: true,
         subtree: true
     });
+
+    // An alternative, more focused approach is to wait for a key element to appear
+    // and then observe that. For example, YouTube's main content area.
+    const interval = setInterval(() => {
+        const content = document.querySelector('ytd-page-manager');
+        if (content) {
+            clearInterval(interval);
+            // Disconnect the broad observer and connect a more focused one
+            observer.disconnect();
+            observer.observe(content, {
+                childList: true,
+                subtree: true
+            });
+        }
+    }, 500);
 
 })();
