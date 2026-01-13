@@ -6,53 +6,74 @@
 // @match       https://www.perplexity.ai/*
 // ==/UserScript==
 
-(() => {
-  console.log('removing banners')
-  const removeBanners = () => {
-    removeUpgradeToMaxBanner();
-    removeUpgradeNowBanner();
-  }
-  const removeUpgradeToMaxBanner = () => {
-    // Find the element containing "Upgrade to Max"
-    const upgradeBtn = Array.from(document.querySelectorAll('div'))
-      .find(el => el.textContent.trim() === 'Upgrade to Max');
+;(() => {
+	console.log("removing banners")
+	const removeBanners = () => {
+		removeUpgradeToMaxBanner()
+		removeUpgradeNowBanner()
+		removeTryThisAnswerBanner()
+	}
+	const removeUpgradeToMaxBanner = () => {
+		// Find the element containing "Upgrade to Max"
+		const upgradeBtn = Array.from(document.querySelectorAll("div")).find((el) => el.textContent.trim() === "Upgrade to Max")
 
-    if (!upgradeBtn) return;
+		if (!upgradeBtn) return
 
-    // Closest ancestor with shadow-xl likely marks full banner
-    const banner = upgradeBtn.closest('.shadow-xl');
-    if (banner) {
-      banner.remove();
-    } else {
-      // Fallback: Remove parent stack if .shadow-xl not found
-      let parent = upgradeBtn;
-      for (let i = 0; i < 3; i++) {
-        if (parent.parentElement & parent.id !== 'root') parent = parent.parentElement;
-      }
-      parent.remove();
-    }
-  };
-  const removeUpgradeNowBanner = () => {
-    // Find the element containing "Upgrade to Max"
-    const upgradeBtn = Array.from(document.querySelectorAll('div'))
-      .find(el => el.textContent.trim() === 'Upgrade now');
+		// Closest ancestor with shadow-xl likely marks full banner
+		const banner = upgradeBtn.closest(".shadow-xl")
+		if (banner) {
+			banner.remove()
+		} else {
+			// Fallback: Remove parent stack if .shadow-xl not found
+			let parent = upgradeBtn
+			for (let i = 0; i < 3; i++) {
+				if (parent.parentElement & (parent.id !== "root")) parent = parent.parentElement
+			}
+			parent.remove()
+		}
+	}
+	const removeUpgradeNowBanner = () => {
+		// Find the element containing "Upgrade to Max"
+		const upgradeBtn = Array.from(document.querySelectorAll("div")).find((el) => el.textContent.trim() === "Upgrade now")
 
-    if (!upgradeBtn) return;
+		if (!upgradeBtn) return
 
-    // Closest ancestor with shadow-xl likely marks full banner
-    const banner = upgradeBtn.closest('.shadow-md');
-    if (banner) {
-      banner.remove();
-    } else {
-      // Fallback: Remove parent stack if .shadow-xl not found
-      let parent = upgradeBtn;
-      for (let i = 0; i < 3; i++) {
-        if (parent.parentElement & parent.id !== 'root') parent = parent.parentElement;
-      }
-      parent.remove();
-    }
-  };
+		// Closest ancestor with shadow-xl likely marks full banner
+		const banner = upgradeBtn.closest(".shadow-md")
+		if (banner) {
+			banner.remove()
+		} else {
+			// Fallback: Remove parent stack if .shadow-xl not found
+			let parent = upgradeBtn
+			for (let i = 0; i < 3; i++) {
+				if (parent.parentElement & (parent.id !== "root")) parent = parent.parentElement
+			}
+			parent.remove()
+		}
+	}
 
-  // Run the remover every 500ms in case the banner reappears via SPA navigation
-  setInterval(removeBanners, 500);
-})();
+	const getOwnText = (el) => {
+		return Array.from(el.childNodes)
+			.filter((n) => n.nodeType === Node.TEXT_NODE)
+			.map((n) => n.textContent)
+			.join("")
+			.trim()
+	}
+
+	const removeTryThisAnswerBanner = () => {
+		const target = Array.from(document.querySelectorAll("*")).find((el) => {
+			const own = getOwnText(el)
+			if (!own.startsWith("Try this answer with")) return false
+
+			// ensure no descendant is a more specific match
+			return !Array.from(el.querySelectorAll("*")).some((child) => getOwnText(child).startsWith("Try this answer with"))
+		})
+
+		if (target && target.parentElement && target.parentElement.parentElement) {
+			target.parentElement.parentElement.remove()
+		}
+	}
+
+	// Run the remover every 500ms in case the banner reappears via SPA navigation
+	setInterval(removeBanners, 500)
+})()
