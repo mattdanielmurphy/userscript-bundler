@@ -2,21 +2,21 @@
 
 /**
  * Userscript Bundler
- * 
+ *
  * This Node.js script automates the creation of a single, CSP-safe JavaScript file
  * (userscript_bundle.js) which will be loaded by a userscript manager (like Tampermonkey)
  * via a single local @require line. The bundled file contains logic to check the current
  * page URL and conditionally execute code from separate source files.
  */
 
-const fs = require('fs');
-const path = require('path');
+const fs = require("fs")
+const path = require("path")
 
 // Constants
-const MANIFEST_FILE = 'script_manifest.json';
-const OUTPUT_FILE = 'userscript_bundle.js';
-const SOURCE_DIR = './';
-const USERSCRIPTS_DIR = './userscripts/';
+const MANIFEST_FILE = "script_manifest.json"
+const OUTPUT_FILE = "userscript_bundle.js"
+const SOURCE_DIR = "./"
+const USERSCRIPTS_DIR = "./userscripts/"
 
 /**
  * Parse userscript header to extract @name and @match information
@@ -24,75 +24,73 @@ const USERSCRIPTS_DIR = './userscripts/';
  * @returns {Object|null} - Object with name, match, and file properties, or null if parsing fails
  */
 function parseUserscriptHeader(filePath) {
-    try {
-        const content = fs.readFileSync(filePath, 'utf8');
-        const lines = content.split('\n');
-        
-        let name = null;
-        let match = null;
-        let inHeader = false;
-        
-        for (const line of lines) {
-            const trimmedLine = line.trim();
-            
-            // Check for start of userscript header
-            if (trimmedLine === '// ==UserScript==') {
-                inHeader = true;
-                continue;
-            }
-            
-            // Check for end of userscript header
-            if (trimmedLine === '// ==/UserScript==') {
-                break;
-            }
-            
-            // Parse header directives
-            if (inHeader) {
-                const nameMatch = trimmedLine.match(/^\/\/\s*@name\s+(.+)$/);
-                if (nameMatch) {
-                    name = nameMatch[1].trim();
-                    continue;
-                }
-                
-                const matchMatch = trimmedLine.match(/^\/\/\s*@match\s+(.+)$/);
-                if (matchMatch) {
-                    match = matchMatch[1].trim();
-                    continue;
-                }
-            }
-        }
-        
-        // Extract domain from match pattern for simpler matching
-        let domain = null;
-        if (match) {
-            // Handle the universal match pattern, which should always run.
-            // We'll use a special value that the dispatcher can check for.
-            if (match === '*://*/*') {
-                domain = '*';
-            } else {
-                // Extract domain from URL pattern (e.g., "https://www.youtube.com/results*" -> "youtube.com")
-                // Handle wildcard patterns like "https://*.wikipedia.org/*"
-                const domainMatch = match.match(/(?:https?|\*):\/\/(?:\*\.)?([^\/\*]+)/);
-                if (domainMatch) {
-                    domain = domainMatch[1];
-                }
-            }
-        }
-        
-        if (name && domain) {
-            return {
-                name: name,
-                match: domain,
-                file: path.basename(filePath),
-                fullMatch: match
-            };
-        }
-        
-        return null;
-    } catch (error) {
-        console.warn(`⚠️  Error parsing userscript header for ${filePath}:`, error.message);
-        return null;
-    }
+	try {
+		const content = fs.readFileSync(filePath, "utf8")
+		const lines = content.split("\n")
+
+		let name = null
+		let matches = []
+		let inHeader = false
+
+		for (const line of lines) {
+			const trimmedLine = line.trim()
+
+			// Check for start of userscript header
+			if (trimmedLine === "// ==UserScript==") {
+				inHeader = true
+				continue
+			}
+
+			// Check for end of userscript header
+			if (trimmedLine === "// ==/UserScript==") {
+				break
+			}
+
+			// Parse header directives
+			if (inHeader) {
+				const nameMatch = trimmedLine.match(/^\/\/\s*@name\s+(.+)$/)
+				if (nameMatch) {
+					name = nameMatch[1].trim()
+					continue
+				}
+
+				const matchMatch = trimmedLine.match(/^\/\/\s*@match\s+(.+)$/)
+				if (matchMatch) {
+					const matchPattern = matchMatch[1].trim()
+
+					// Extract domain from match pattern for simpler matching
+					let domain = null
+					if (matchPattern === "*://*/*") {
+						domain = "*"
+					} else {
+						const domainMatch = matchPattern.match(/(?:https?|\*):\/\/(?:\*\.)?([^\/\*]+)/)
+						if (domainMatch) {
+							domain = domainMatch[1]
+						}
+					}
+
+					if (domain) {
+						matches.push(domain)
+					}
+					continue
+				}
+			}
+		}
+
+		if (name && matches.length > 0) {
+			return {
+				name: name,
+				match: matches[0], // Keep for backward compatibility if needed
+				matches: matches,
+				file: path.basename(filePath),
+			}
+		}
+
+		return null
+	} catch (error) {
+		console.warn(`⚠️  Error parsing userscript header for ${filePath}:`, error.message)
+		return null
+	}
 }
 
 /**
@@ -100,95 +98,163 @@ function parseUserscriptHeader(filePath) {
  * @returns {Array} - Array of manifest entries
  */
 function generateManifestFromUserscripts() {
-    console.log(`🔍 Scanning userscripts directory: ${USERSCRIPTS_DIR}`);
-    
-    if (!fs.existsSync(USERSCRIPTS_DIR)) {
-        throw new Error(`Userscripts directory not found: ${USERSCRIPTS_DIR}`);
-    }
-    
-    const files = fs.readdirSync(USERSCRIPTS_DIR);
-    const jsFiles = files.filter(file => file.endsWith('.js') && !file.includes('.disabled.'));
-    
-    if (jsFiles.length === 0) {
-        throw new Error(`No JavaScript files found in ${USERSCRIPTS_DIR}`);
-    }
-    
-    console.log(`📁 Found ${jsFiles.length} JavaScript files: ${jsFiles.join(', ')}`);
-    
-    const manifest = [];
-    
-    for (const file of jsFiles) {
-        const filePath = path.join(USERSCRIPTS_DIR, file);
-        console.log(`📋 Parsing userscript: ${file}`);
-        
-        const parsed = parseUserscriptHeader(filePath);
-        if (parsed) {
-            manifest.push({
-                file: parsed.file,
-                match: parsed.match,
-                name: parsed.name,
-                fullMatch: parsed.fullMatch
-            });
-            console.log(`✅ Parsed: "${parsed.name}" -> matches "${parsed.match}"`);
-        } else {
-            console.warn(`⚠️  Could not parse userscript header for: ${file}`);
-        }
-    }
-    
-    if (manifest.length === 0) {
-        throw new Error('No valid userscripts found with proper @name and @match headers');
-    }
-    
-    console.log(`📊 Generated manifest with ${manifest.length} entries`);
-    return manifest;
+	console.log(`🔍 Scanning userscripts directory: ${USERSCRIPTS_DIR}`)
+
+	if (!fs.existsSync(USERSCRIPTS_DIR)) {
+		throw new Error(`Userscripts directory not found: ${USERSCRIPTS_DIR}`)
+	}
+
+	const files = fs.readdirSync(USERSCRIPTS_DIR)
+	const jsFiles = files.filter((file) => file.endsWith(".js") && !file.includes(".disabled."))
+
+	if (jsFiles.length === 0) {
+		throw new Error(`No JavaScript files found in ${USERSCRIPTS_DIR}`)
+	}
+
+	console.log(`📁 Found ${jsFiles.length} JavaScript files: ${jsFiles.join(", ")}`)
+
+	const manifest = []
+
+	for (const file of jsFiles) {
+		const filePath = path.join(USERSCRIPTS_DIR, file)
+		console.log(`📋 Parsing userscript: ${file}`)
+
+		const parsed = parseUserscriptHeader(filePath)
+		if (parsed) {
+			manifest.push({
+				file: parsed.file,
+				matches: parsed.matches,
+				name: parsed.name,
+			})
+			console.log(`✅ Parsed: "${parsed.name}" -> matches [${parsed.matches.join(", ")}]`)
+		} else {
+			console.warn(`⚠️  Could not parse userscript header for: ${file}`)
+		}
+	}
+
+	if (manifest.length === 0) {
+		throw new Error("No valid userscripts found with proper @name and @match headers")
+	}
+
+	console.log(`📊 Generated manifest with ${manifest.length} entries`)
+	return manifest
 }
 
 /**
  * Main bundler function
  */
 async function bundleUserscripts() {
+	try {
+		console.log("🚀 Starting userscript bundling process...")
+
+		// Step 1: Auto-generate manifest from userscript files
+		console.log("📋 Auto-generating manifest from userscript files...")
+		const manifest = generateManifestFromUserscripts()
+
+		console.log(`✅ Generated manifest with ${manifest.length} script entries`)
+
+		// Step 2: Initialize code bundle string
+		let bundleCode = ""
+		bundleCode += "// Userscript Bundle - Auto-generated by bundler.js\n"
+		const generationDate = new Date().toISOString()
+		bundleCode += "// Generated on: " + generationDate + "\n\n"
+
+		// Dynamic Reload Hack - Bypasses ScriptCat/Tampermonkey caching
+		const buildId = Date.now().toString()
+		const bundleUrl = `https://localhost:8765/${OUTPUT_FILE}`
+
+		bundleCode += `
+console.log("📦 [Bundler] Userscript Bundle Loaded! (Build: ${buildId})");
+try {
+// Auto-reload disabled by configuration
+if (false) {
+/**
+ * Dynamic Reload Hack
+ * Checks for a new version ONCE on page load to prevent infinite loops.
+ */
+(async function autoReloadBundle() {
+    const currentBuildId = "${buildId}";
+    const bundleUrl = "${bundleUrl}";
+    const sessionKey = "userscript_last_reloaded_build";
+    
+    const extractBuildId = (code) => {
+        const match = code.match(/const __BUILD_ID__ = "([^"]+)"/);
+        return match ? match[1] : null;
+    };
+
+    const attemptReload = (newCode) => {
+        const fetchedBuildId = extractBuildId(newCode);
+        if (!fetchedBuildId || fetchedBuildId === currentBuildId) {
+            console.log("ℹ️ [Bundler] Bundle is up to date (Build: " + currentBuildId + ")");
+            return false;
+        }
+
+        const lastTried = sessionStorage.getItem(sessionKey);
+        if (fetchedBuildId === lastTried) {
+            console.warn("⚠️ [Bundler] Reload attempt failed. Still on old build (" + currentBuildId + "). Manager is caching the file:// URL aggressively.");
+            return false;
+        }
+
+        console.log("♻️ [Bundler] Update found: " + currentBuildId + " -> " + fetchedBuildId + ". Reloading...");
+        sessionStorage.setItem(sessionKey, fetchedBuildId);
+        location.reload();
+        return true;
+    };
+
     try {
-        console.log('🚀 Starting userscript bundling process...');
-        
-        // Step 1: Auto-generate manifest from userscript files
-        console.log('📋 Auto-generating manifest from userscript files...');
-        const manifest = generateManifestFromUserscripts();
-        
-        console.log(`✅ Generated manifest with ${manifest.length} script entries`);
-        
-        // Step 2: Initialize code bundle string
-        let bundleCode = '';
-        bundleCode += '// Userscript Bundle - Auto-generated by bundler.js\n';
-        bundleCode += '// Generated on: ' + new Date().toISOString() + '\n\n';
-        
-        // Step 3: Iterative wrapping - process each manifest entry
-        const processedManifest = [];
-        
-        for (let i = 0; i < manifest.length; i++) {
-            const entry = manifest[i];
-            
-            if (!entry.file || !entry.match) {
-                console.warn(`⚠️  Skipping invalid manifest entry at index ${i}: missing file or match property`);
-                continue;
-            }
-            
-            console.log(`📦 Processing script ${i + 1}/${manifest.length}: ${entry.file}`);
-            
-            // Generate unique, safe function name
-            const functionName = `script_func_${i}`;
-            
-            // Read source file content
-            const sourcePath = path.join(USERSCRIPTS_DIR, entry.file);
-            
-            if (!fs.existsSync(sourcePath)) {
-                console.warn(`⚠️  Source file not found: ${sourcePath}, skipping...`);
-                continue;
-            }
-            
-            const sourceContent = fs.readFileSync(sourcePath, 'utf8');
-            
-            // Wrap content into function definition template with DOM ready logic
-            const wrappedFunction = `const ${functionName} = () => {
+        const response = await fetch(bundleUrl + "?" + Date.now(), { 
+            cache: "no-store",
+            headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' }
+        });
+        const newCode = await response.text();
+        if (attemptReload(newCode)) return;
+        console.log("ℹ️ [Bundler] Bundle is up to date (Build: " + currentBuildId + ")");
+    } catch (e) {
+        const gmReq = typeof GM_xmlhttpRequest !== 'undefined' ? GM_xmlhttpRequest : 
+                     (typeof GM !== 'undefined' && GM.xmlHttpRequest ? GM.xmlHttpRequest : null);
+        if (gmReq) {
+            gmReq({
+                method: "GET",
+                url: bundleUrl + "?" + Date.now(),
+                nocache: true,
+                onload: (res) => attemptReload(res.responseText)
+            });
+        }
+    }
+})();
+}
+const __BUILD_ID__ = "${buildId}";
+
+`
+
+		// Step 3: Iterative wrapping - process each manifest entry
+		const processedManifest = []
+
+		for (let i = 0; i < manifest.length; i++) {
+			const entry = manifest[i]
+
+			if (!entry.file || !entry.matches) {
+				console.warn(`⚠️  Skipping invalid manifest entry at index ${i}: missing file or match property`)
+				continue
+			}
+
+			console.log(`📦 Processing script ${i + 1}/${manifest.length}: ${entry.file}`)
+
+			// Generate unique, safe function name
+			const functionName = `script_func_${i}`
+
+			// Read source file content
+			const sourcePath = path.join(USERSCRIPTS_DIR, entry.file)
+
+			if (!fs.existsSync(sourcePath)) {
+				console.warn(`⚠️  Source file not found: ${sourcePath}, skipping...`)
+				continue
+			}
+
+			const sourceContent = fs.readFileSync(sourcePath, "utf8")
+
+			// Wrap content into function definition template with DOM ready logic
+			const wrappedFunction = `const ${functionName} = () => {
     // Wait for DOM to be ready before executing
     const executeScript = () => {
 ${sourceContent}
@@ -207,26 +273,26 @@ ${sourceContent}
 // Expose function to global scope for dispatcher access
 window.${functionName} = ${functionName};
 
-`;
-            
-            // Append wrapped function to bundle
-            bundleCode += wrappedFunction;
-            
-            // Update processed manifest with function name
-            processedManifest.push({
-                functionName: functionName,
-                match: entry.match,
-                originalFile: entry.file,
-                name: entry.name
-            });
-            
-            console.log(`✅ Wrapped ${entry.file} as ${functionName}`);
-        }
-        
-        // Step 4: Append execution logic (Dispatcher)
-        console.log('🔧 Adding execution dispatcher...');
-        
-        const dispatcherCode = `
+`
+
+			// Append wrapped function to bundle
+			bundleCode += wrappedFunction
+
+			// Update processed manifest with function name
+			processedManifest.push({
+				functionName: functionName,
+				matches: entry.matches,
+				originalFile: entry.file,
+				name: entry.name,
+			})
+
+			console.log(`✅ Wrapped ${entry.file} as ${functionName}`)
+		}
+
+		// Step 4: Append execution logic (Dispatcher)
+		console.log("🔧 Adding execution dispatcher...")
+
+		const dispatcherCode = `
 // Execution Dispatcher - Wait for DOM ready before URL matching
 (function() {
     'use strict';
@@ -234,12 +300,13 @@ window.${functionName} = ${functionName};
     
     /**
      * Simple pattern matching function
-     * Checks if window.location.href contains the pattern string
-     * @param {string} pattern - The pattern to match against the URL
-     * @returns {boolean} - True if pattern is found in URL
+     * Checks if window.location.href contains any of the pattern strings in the array
+     * @param {Array} matchPatterns - The patterns to match against the URL
+     * @returns {boolean} - True if any pattern is found in URL
      */
-    function matchesPattern(pattern) {
-        return pattern === '*' || window.location.href.includes(pattern);
+    function matchesPattern(matchPatterns) {
+        if (!Array.isArray(matchPatterns)) matchPatterns = [matchPatterns];
+        return matchPatterns.some(pattern => pattern === '*' || window.location.href.includes(pattern));
     }
     
     /**
@@ -253,10 +320,10 @@ window.${functionName} = ${functionName};
         // Iterate over manifest and execute matching scripts
         processedManifest.forEach((entry, index) => {
             try {
-                const urlMatches = matchesPattern(entry.match);
+                const urlMatches = matchesPattern(entry.matches);
                 
                 if (urlMatches) {
-                    console.log(\`"\${entry.name}" script loaded because it matches the URL pattern "\${entry.match}"\`);
+                    console.log(\`"\${entry.name}" script loaded because it matches the URL pattern(s) [\${entry.matches.join(', ')}]\`);
                     
                     // Call the corresponding function
                     if (typeof window[entry.functionName] === 'function') {
@@ -281,49 +348,60 @@ window.${functionName} = ${functionName};
         executeDispatcher();
     }
 })();
-`;
-        
-        bundleCode += dispatcherCode;
-        
-        // Step 5: Write output file
-        console.log(`💾 Writing bundle to: ${OUTPUT_FILE}`);
-        fs.writeFileSync(OUTPUT_FILE, bundleCode, 'utf8');
-        
-        // Get file size for reporting
-        const stats = fs.statSync(OUTPUT_FILE);
-        const fileSizeKB = (stats.size / 1024).toFixed(2);
-        
-        console.log('🎉 Bundling completed successfully!');
-        console.log(`📊 Bundle statistics:`);
-        console.log(`   - Output file: ${OUTPUT_FILE}`);
-        console.log(`   - File size: ${fileSizeKB} KB`);
-        console.log(`   - Scripts processed: ${processedManifest.length}`);
-        console.log(`   - Generated functions: ${processedManifest.map(e => e.functionName).join(', ')}`);
-        
-        // Display usage instructions
-        console.log('\n📖 Usage Instructions:');
-        console.log('1. Install the generated userscript_bundle.js in your userscript manager');
-        console.log('2. Create a master userscript with the following content:');
-        console.log('');
-        console.log('// ==UserScript==');
-        console.log('// @name         Local Userscript Dynamic Loader');
-        console.log('// @match        *://*/*');
-        console.log('// @grant        none');
-        console.log('// @run-at       document-start');
-        console.log(`// @require      file:///path/to/local/scripts/${OUTPUT_FILE}`);
-        console.log('// ==/UserScript==');
-        console.log('');
-        console.log('3. The bundle will automatically detect the current page URL and execute the appropriate scripts');
-        
-    } catch (error) {
-        console.error('❌ Bundling failed:', error.message);
-        process.exit(1);
-    }
+} catch (e) {
+    console.error("❌ [Bundler] Critical Error executing bundle:", e);
+}
+`
+
+		bundleCode += dispatcherCode
+
+		// Step 5: Write output file
+		console.log(`💾 Writing bundle to: ${OUTPUT_FILE}`)
+		fs.writeFileSync(OUTPUT_FILE, bundleCode, "utf8")
+
+		// Get file size for reporting
+		const stats = fs.statSync(OUTPUT_FILE)
+		const fileSizeKB = (stats.size / 1024).toFixed(2)
+
+		console.log("🎉 Bundling completed successfully!")
+		console.log(`📊 Bundle statistics:`)
+		console.log(`   - Output file: ${OUTPUT_FILE}`)
+		console.log(`   - File size: ${fileSizeKB} KB`)
+		console.log(`   - Scripts processed: ${processedManifest.length}`)
+		console.log(`   - Generated functions: ${processedManifest.map((e) => e.functionName).join(", ")}`)
+
+		// Display usage instructions
+		console.log("\n📖 Usage Instructions:")
+		console.log("1. Install the generated userscript_bundle.js in your userscript manager")
+		console.log("2. Create a master userscript with the following content:")
+		console.log("")
+		console.log("// ==UserScript==")
+		console.log("// @name         Local Userscript Dynamic Loader")
+		console.log("// @match        *://*/*")
+		console.log("// @grant        GM_xmlhttpRequest")
+		console.log("// @run-at       document-start")
+		console.log(`// @require      https://localhost:8765/${OUTPUT_FILE}`)
+		console.log("// ==/UserScript==")
+		console.log("\n💡 For the most reliable experience (manager caching bypass), use this loader instead:")
+		console.log("// ==UserScript==")
+		console.log("// @name         Local Userscript Dev Loader")
+		console.log("// @match        *://*/*")
+		console.log("// @grant        none")
+		console.log("// @run-at       document-start")
+		console.log("// @require      https://localhost:8765/userscript_bundle.js?dev")
+		console.log("// ==/UserScript==")
+		console.log("")
+		console.log("// NOTE: You must visit https://localhost:8765/userscript_bundle.js in your browser once to accept the cert!")
+		console.log("3. The bundle will automatically detect the current page URL and execute the appropriate scripts")
+	} catch (error) {
+		console.error("❌ Bundling failed:", error.message)
+		process.exit(1)
+	}
 }
 
 // Execute the bundler if this script is run directly
 if (require.main === module) {
-    bundleUserscripts();
+	bundleUserscripts()
 }
 
-module.exports = { bundleUserscripts };
+module.exports = { bundleUserscripts }
