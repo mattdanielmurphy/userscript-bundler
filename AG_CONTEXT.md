@@ -10,10 +10,11 @@ A tool for bundling userscripts, likely with a watcher and auto-bundling capabil
 - `userscript_bundle.js`: The bundled output
 
 ## Conventions
-- Uses `mv` instead of `rm` for safety (user rule)
-- Updates `AG_CONTEXT.md` with durable knowledge
-- Userscripts are in `userscripts/` directory
-- Userscript bundle includes a **Dynamic Reload Hack** to detect local file changes and bypass manager caching by auto-reloading the page.
+- **Safety**: Uses `mv` instead of `rm` for recovery.
+- **Sync**: `userscript_bundle.js` is strictly ignored and untracked to prevent build artifacts in Git.
+- **Durable Knowledge**: Update `AG_CONTEXT.md` with repo changes.
+- **Structure**: Userscripts live in `userscripts/`.
+- **Dynamic Reload Hack**: The bundle includes a script to detect local file changes and bypass manager caching.
 - YouTube Master Script features: Refresh on unavailable, toggle thumbnails, remove members-only (enhanced for sidebar), hide shorts, hide low view videos (<1k), get transcript button, search exclusion, max quality, and **ignore number keys (seeking)**.
 - Perplexity script features: Hides "Upgrade to Max" and "Upgrade now" banners, removes "Try this answer with" advertisements, and **automatically focuses the input field when a new thread is created**.
 - TorrentMac script: Removes fake "Download Now" buttons by text content.
