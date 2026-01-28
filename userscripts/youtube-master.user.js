@@ -173,10 +173,11 @@
 		// Only run on channel pages for efficiency, but keep it broad for now as the original was broad.
 		// if (!isChannelPage()) return;
 
-		const elements = Array.from(document.querySelectorAll("p")).filter((el) => el.textContent.trim() === "Members only")
+		// YouTube uses different structures for badges. We look for the common ones.
+		const elements = Array.from(document.querySelectorAll(".yt-badge-shape__text, p, span, yt-formatted-string")).filter((el) => el.textContent.trim() === "Members only")
 
 		elements.forEach((el) => {
-			const videoItem = el.closest("ytd-rich-item-renderer, ytd-grid-video-renderer, ytd-video-renderer")
+			const videoItem = el.closest("ytd-rich-item-renderer, ytd-grid-video-renderer, ytd-video-renderer, ytd-compact-video-renderer, yt-lockup-view-model, ytd-rich-grid-media")
 			if (videoItem) {
 				videoItem.remove()
 			}
@@ -212,7 +213,48 @@
 		removeShortsSearchGrid()
 	}
 
-	// --- 5. YOUTUBE GET TRANSCRIPT BUTTON (Watch Page Only) ---
+	// --- 5. YOUTUBE HIDE LOW VIEW VIDEOS ---
+	function parseViews(viewText) {
+		if (!viewText) return Infinity // Don't hide if we can't find text
+		const cleanText = viewText.toLowerCase().replace(/,/g, "").trim()
+		if (cleanText.includes("no views")) return 0
+
+		const match = cleanText.match(/([\d.]+)\s*([kmbt]?)\s*view/)
+		if (!match) return Infinity
+
+		let count = parseFloat(match[1])
+		const multiplier = match[2]
+
+		if (multiplier === "k") count *= 1000
+		else if (multiplier === "m") count *= 1000000
+		else if (multiplier === "b") count *= 1000000000
+
+		return count
+	}
+
+	function hideLowViewVideos() {
+		const VIEW_THRESHOLD = 1000
+
+		// Find elements that look like view counts
+		const viewElements = Array.from(document.querySelectorAll(".yt-badge-shape__text, p, span, yt-formatted-string")).filter((el) => {
+			const text = el.textContent.toLowerCase()
+			return (text.includes("view") || text.includes("no views")) && /[\d.]/.test(text)
+		})
+
+		viewElements.forEach((el) => {
+			const text = el.textContent.trim()
+			const views = parseViews(text)
+
+			if (views < VIEW_THRESHOLD) {
+				const videoItem = el.closest("ytd-rich-item-renderer, ytd-grid-video-renderer, ytd-video-renderer, ytd-compact-video-renderer, yt-lockup-view-model, ytd-rich-grid-media")
+				if (videoItem) {
+					videoItem.remove()
+				}
+			}
+		})
+	}
+
+	// --- 6. YOUTUBE GET TRANSCRIPT BUTTON (Watch Page Only) ---
 	let _transcriptInterval = null
 
 	async function setupTranscriptButton() {
@@ -306,7 +348,7 @@
 		}
 	}
 
-	// --- 6. YOUTUBE SEARCH EXCLUDE TERMS (Search Page Only) ---
+	// --- 7. YOUTUBE SEARCH EXCLUDE TERMS (Search Page Only) ---
 	let resultsObserver = null
 	let _ytExclResizeHandler = null
 	let _ytExclScrollHandler = null
@@ -561,7 +603,7 @@
 		window.addEventListener("scroll", _ytExclScrollHandler, { passive: true })
 	}
 
-	// --- 7. YOUTUBE MAX QUALITY (Event-based) ---
+	// --- 8. YOUTUBE MAX QUALITY (Event-based) ---
 	// Full content of youtube-max-quality.js, adapted to fit the master script's IIFE.
 
 	const DEBUG = false
@@ -894,7 +936,7 @@ min-height: " +
 		}
 	}
 
-	// --- 8. IGNORE NUMBER KEYS (Prevent accidental seeking) ---
+	// --- 9. IGNORE NUMBER KEYS (Prevent accidental seeking) ---
 	function setupIgnoreNumberKeys() {
 		window.addEventListener(
 			"keydown",
@@ -933,6 +975,9 @@ min-height: " +
 
 		// 3. Hide Shorts
 		runShortsRemovers()
+
+		// 3b. Hide Low View Videos
+		hideLowViewVideos()
 
 		// 4. Refresh on Error (Watch Page)
 		checkAndRefresh()

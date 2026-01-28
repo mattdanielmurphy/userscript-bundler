@@ -15,7 +15,9 @@
 //     3. Change Thread Dropdown Menu Buttons to Delete Buttons
 //     4. Remove sidebar and set main content to full-width
 //     5. Remove Perplexity for Mac Ad
+//     6. Autofocus when input changes to body (when new thread is created)
 
+//// THE FOLLOWING IS TEMPORARILY DISABLED BECAUSE PERPLEXITY IN SAFARI WILL CRASH OTHERWISE
 //!		 1. Text Selection Follow-Up Tooltip
 ;(() => {
 	// Create tooltip element
@@ -212,7 +214,7 @@
 					path.setAttribute("fill", "currentColor")
 					path.setAttribute(
 						"d",
-						"M177.1 48h93.7c2.7 0 5.2 1.3 6.7 3.6l19 28.4h-145l19-28.4c1.5-2.2 4-3.6 6.7-3.6zM354.2 80L317.5 24.9C307.1 9.4 289.6 0 270.9 0H177.1c-18.7 0-36.2 9.4-46.6 24.9L93.8 80H80.1 32 24C10.7 80 0 90.7 0 104s10.7 24 24 24H35.6L59.6 452.7c2.5 33.4 30.3 59.3 63.8 59.3H324.6c33.5 0 61.3-25.9 63.8-59.3L412.4 128H424c13.3 0 24-10.7 24-24s-10.7-24-24-24h-8H367.9 354.2zm10.1 48L340.5 449.2c-.6 8.4-7.6 14.8-16 14.8H123.4c-8.4 0-15.3-6.5-16-14.8L83.7 128H364.3z"
+						"M177.1 48h93.7c2.7 0 5.2 1.3 6.7 3.6l19 28.4h-145l19-28.4c1.5-2.2 4-3.6 6.7-3.6zM354.2 80L317.5 24.9C307.1 9.4 289.6 0 270.9 0H177.1c-18.7 0-36.2 9.4-46.6 24.9L93.8 80H80.1 32 24C10.7 80 0 90.7 0 104s10.7 24 24 24H35.6L59.6 452.7c2.5 33.4 30.3 59.3 63.8 59.3H324.6c33.5 0 61.3-25.9 63.8-59.3L412.4 128H424c13.3 0 24-10.7 24-24s-10.7-24-24-24h-8H367.9 354.2zm10.1 48L340.5 449.2c-.6 8.4-7.6 14.8-16 14.8H123.4c-8.4 0-15.3-6.5-16-14.8L83.7 128H364.3z",
 					)
 
 					deleteIcon.appendChild(path)
@@ -386,4 +388,76 @@
 	if (grid && grid.children.length === 4) {
 		grid.remove()
 	}
+})()
+
+//!		 6. Autofocus when input changes to body (when new thread is created)
+;(() => {
+	const style = document.createElement("style")
+	style.textContent = `
+		#debug-console {
+			position: fixed;
+			top: 20px;
+			right: 20px;
+			z-index: 99999;
+			padding: 12px 20px;
+			background: rgba(0, 0, 0, 0.85);
+			color: #fff;
+			border-radius: 8px;
+			font-family: monospace;
+			font-size: 13px;
+			box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+			pointer-events: none;
+			transition: opacity 0.3s ease;
+			opacity: 0;
+			max-width: 400px;
+			white-space: pre-wrap;
+		}
+	`
+	document.head.appendChild(style)
+
+	function flashLog(message) {
+		let consoleEl = document.querySelector("#debug-console")
+		if (!consoleEl) {
+			consoleEl = document.createElement("div")
+			consoleEl.id = "debug-console"
+			document.body.appendChild(consoleEl)
+		}
+
+		const text = typeof message === "object" ? JSON.stringify(message, null, 2) : String(message)
+		consoleEl.innerText = text
+		consoleEl.style.opacity = "1"
+
+		if (window._flashLogTimeout) clearTimeout(window._flashLogTimeout)
+		window._flashLogTimeout = setTimeout(() => {
+			consoleEl.style.opacity = "0"
+		}, 1500)
+	}
+
+	let focusSearchInterval = null
+	function startFocusSearch() {
+		if (focusSearchInterval) clearInterval(focusSearchInterval)
+		let attempts = 0
+		focusSearchInterval = setInterval(() => {
+			const input = document.querySelector("#ask-input")
+			if (input) {
+				input.focus()
+				if (document.activeElement === input) {
+					clearInterval(focusSearchInterval)
+					focusSearchInterval = null
+					flashLog("Focused input")
+				}
+			}
+			if (++attempts > 30) {
+				clearInterval(focusSearchInterval)
+				focusSearchInterval = null
+			}
+		}, 100)
+	}
+
+	document.addEventListener("keydown", (e) => {
+		if (e.key === "k" && e.metaKey) {
+			// Wait for 200ms before starting search to allow Perplexity to handle the keypress/navigation
+			setTimeout(startFocusSearch, 200)
+		}
+	})
 })()
