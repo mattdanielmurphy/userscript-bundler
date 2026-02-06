@@ -159,70 +159,11 @@ async function bundleUserscripts() {
 		const generationDate = new Date().toISOString()
 		bundleCode += "// Generated on: " + generationDate + "\n\n"
 
-		// Dynamic Reload Hack - Bypasses ScriptCat/Tampermonkey caching
 		const buildId = Date.now().toString()
-		const bundleUrl = `https://localhost:8765/${OUTPUT_FILE}`
 
 		bundleCode += `
 console.log("📦 [Bundler] Userscript Bundle Loaded! (Build: ${buildId})");
 try {
-// Auto-reload disabled by configuration
-if (false) {
-/**
- * Dynamic Reload Hack
- * Checks for a new version ONCE on page load to prevent infinite loops.
- */
-(async function autoReloadBundle() {
-    const currentBuildId = "${buildId}";
-    const bundleUrl = "${bundleUrl}";
-    const sessionKey = "userscript_last_reloaded_build";
-    
-    const extractBuildId = (code) => {
-        const match = code.match(/const __BUILD_ID__ = "([^"]+)"/);
-        return match ? match[1] : null;
-    };
-
-    const attemptReload = (newCode) => {
-        const fetchedBuildId = extractBuildId(newCode);
-        if (!fetchedBuildId || fetchedBuildId === currentBuildId) {
-            console.log("ℹ️ [Bundler] Bundle is up to date (Build: " + currentBuildId + ")");
-            return false;
-        }
-
-        const lastTried = sessionStorage.getItem(sessionKey);
-        if (fetchedBuildId === lastTried) {
-            console.warn("⚠️ [Bundler] Reload attempt failed. Still on old build (" + currentBuildId + "). Manager is caching the file:// URL aggressively.");
-            return false;
-        }
-
-        console.log("♻️ [Bundler] Update found: " + currentBuildId + " -> " + fetchedBuildId + ". Reloading...");
-        sessionStorage.setItem(sessionKey, fetchedBuildId);
-        location.reload();
-        return true;
-    };
-
-    try {
-        const response = await fetch(bundleUrl + "?" + Date.now(), { 
-            cache: "no-store",
-            headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' }
-        });
-        const newCode = await response.text();
-        if (attemptReload(newCode)) return;
-        console.log("ℹ️ [Bundler] Bundle is up to date (Build: " + currentBuildId + ")");
-    } catch (e) {
-        const gmReq = typeof GM_xmlhttpRequest !== 'undefined' ? GM_xmlhttpRequest : 
-                     (typeof GM !== 'undefined' && GM.xmlHttpRequest ? GM.xmlHttpRequest : null);
-        if (gmReq) {
-            gmReq({
-                method: "GET",
-                url: bundleUrl + "?" + Date.now(),
-                nocache: true,
-                onload: (res) => attemptReload(res.responseText)
-            });
-        }
-    }
-})();
-}
 const __BUILD_ID__ = "${buildId}";
 
 `
@@ -371,6 +312,7 @@ window.${functionName} = ${functionName};
 		console.log(`   - Generated functions: ${processedManifest.map((e) => e.functionName).join(", ")}`)
 
 		// Display usage instructions
+		const absoluteBundlePath = path.resolve(OUTPUT_FILE)
 		console.log("\n📖 Usage Instructions:")
 		console.log("1. Install the generated userscript_bundle.js in your userscript manager")
 		console.log("2. Create a master userscript with the following content:")
@@ -378,20 +320,11 @@ window.${functionName} = ${functionName};
 		console.log("// ==UserScript==")
 		console.log("// @name         Local Userscript Dynamic Loader")
 		console.log("// @match        *://*/*")
-		console.log("// @grant        GM_xmlhttpRequest")
-		console.log("// @run-at       document-start")
-		console.log(`// @require      https://localhost:8765/${OUTPUT_FILE}`)
-		console.log("// ==/UserScript==")
-		console.log("\n💡 For the most reliable experience (manager caching bypass), use this loader instead:")
-		console.log("// ==UserScript==")
-		console.log("// @name         Local Userscript Dev Loader")
-		console.log("// @match        *://*/*")
 		console.log("// @grant        none")
 		console.log("// @run-at       document-start")
-		console.log("// @require      https://localhost:8765/userscript_bundle.js?dev")
+		console.log(`// @require      file://${absoluteBundlePath}`)
 		console.log("// ==/UserScript==")
 		console.log("")
-		console.log("// NOTE: You must visit https://localhost:8765/userscript_bundle.js in your browser once to accept the cert!")
 		console.log("3. The bundle will automatically detect the current page URL and execute the appropriate scripts")
 	} catch (error) {
 		console.error("❌ Bundling failed:", error.message)

@@ -15,10 +15,6 @@
 
 	const url = window.location.href
 	const isYouTube = url.includes("youtube.com/embed/")
-	console.log(`(5:16pm)
-🛠️ [Unblocker] Loaded in frame: ${url}
-(5:16pm)`)
-
 	/**
 	 * PART 1: THE COORDINATOR (Runs in all parent frames)
 	 */
@@ -205,7 +201,7 @@
 					}
 				}
 			},
-			true
+			true,
 		)
 
 		// Initial check
@@ -249,7 +245,7 @@
 					console.log("📤 [Hijacker] Sending TOGGLE_FS to parent...")
 					window.parent.postMessage({ type: "TOGGLE_FS" }, "*")
 				},
-				true
+				true,
 			)
 			nativeBtn.dataset.hijacked = "true"
 		}
@@ -302,7 +298,7 @@
 					}
 				}
 			},
-			true
+			true,
 		)
 
 		window.addEventListener(
@@ -315,7 +311,7 @@
 					e.preventDefault()
 				}
 			},
-			true
+			true,
 		)
 
 		hijackNativeButton()
@@ -331,7 +327,7 @@
 					window.parent.postMessage({ type: "TOGGLE_FS" }, "*")
 				}
 			},
-			true
+			true,
 		)
 	}
 })()

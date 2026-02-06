@@ -14,10 +14,44 @@
 ;(function () {
 	"use strict"
 
+	console.log("new version loaded")
+
 	// --- UTILITIES ---
 	const isWatchPage = () => window.location.pathname === "/watch"
 	const isSearchPage = () => window.location.pathname === "/results"
 	const isChannelPage = () => window.location.pathname.startsWith("/@") || window.location.pathname.startsWith("/channel/")
+
+	function showToast(message, duration = 3000) {
+		const toast = document.createElement("div")
+		toast.textContent = message
+		Object.assign(toast.style, {
+			position: "fixed",
+			bottom: "100px",
+			left: "50%",
+			transform: "translateX(-50%)",
+			backgroundColor: "rgba(28, 28, 28, 0.95)",
+			color: "white",
+			padding: "12px 24px",
+			borderRadius: "8px",
+			zIndex: "100000",
+			fontFamily: "Roboto, Arial, sans-serif",
+			fontSize: "14px",
+			boxShadow: "0 4px 20px rgba(0,0,0,0.6)",
+			transition: "opacity 0.3s, transform 0.3s",
+			opacity: "0",
+			pointerEvents: "none",
+		})
+		document.body.appendChild(toast)
+		setTimeout(() => {
+			toast.style.opacity = "1"
+			toast.style.transform = "translateX(-50%) translateY(-10px)"
+		}, 10)
+		setTimeout(() => {
+			toast.style.opacity = "0"
+			toast.style.transform = "translateX(-50%) translateY(0)"
+			setTimeout(() => toast.remove(), 300)
+		}, duration)
+	}
 
 	// --- 1. YOUTUBE REFRESH ON UNAVAILABLE VIDEO (Watch Page Only) ---
 	const REFRESH_KEY = "yt_refresh_on_error_count"
@@ -260,16 +294,24 @@
 	async function setupTranscriptButton() {
 		if (!isWatchPage()) return
 
-		const shareBtnContainer = document.querySelector("#above-the-fold #top-level-buttons-computed")
-		if (!shareBtnContainer || shareBtnContainer.children.length < 2) {
-			return
-		}
-		const shareBtn = shareBtnContainer.children[1].querySelector('button[aria-label="Share"]')
-
-		if (!shareBtn || shareBtn.hasAttribute("data-transcript-button-processed")) {
+		const shareBtnContainer = document.querySelector("#above-the-fold #top-level-buttons-computed, #top-level-buttons-computed, #actions-inner #top-level-buttons-computed")
+		if (!shareBtnContainer) {
+			console.log("[Transcript] Share button container not found yet.")
 			return
 		}
 
+		const shareBtn = shareBtnContainer.querySelector('button[aria-label="Share"]')
+
+		if (!shareBtn) {
+			console.log("[Transcript] Share button not found yet.")
+			return
+		}
+
+		if (shareBtn.hasAttribute("data-transcript-button-processed")) {
+			return
+		}
+
+		console.log("[Transcript] Found Share button, applying 'Get transcript' override.")
 		shareBtn.setAttribute("data-transcript-button-processed", "true")
 
 		// Change button text
@@ -280,70 +322,354 @@
 			shareBtn.innerText = "Get transcript"
 		}
 
-		// Set click handler (keeping the async logic)
-		shareBtn.onclick = async function () {
-			const showTranscriptBtn = document.querySelector('button[aria-label="Show transcript"]')
-			if (showTranscriptBtn) {
-				showTranscriptBtn.click()
-			} else {
-				alert('No "Show transcript" button found!')
-				return
-			}
+		shareBtn.onclick = async function (e) {
+			e.preventDefault()
+			e.stopPropagation()
 
-			let maxTries = 200,
-				tries = 0
-			let transcriptContainer = null
-			while (!transcriptContainer && tries < maxTries) {
-				await new Promise((res) => setTimeout(res, 20))
-				transcriptContainer = document.querySelector("#segments-container")
-				tries++
-			}
-			if (!transcriptContainer) {
-				alert("Transcript container not found!")
-				return
-			}
+			console.log("[Transcript] 'Get transcript' clicked. Starting search...")
 
-			let lines = transcriptContainer.innerText.split("\n")
-			let processed = []
-			let lastTime = null
-			const timecodeRegex = /^(?:\d{1,2}:)?\d{2}$/
-			const audioDescRegex = /^\[.*\]$/
-
-			for (let i = 0; i < lines.length; i++) {
-				const line = lines[i].trim()
-				if (line === "") continue
-
-				if (!isNaN(Number(line.replace(":", ""))) && timecodeRegex.test(line)) {
-					lastTime = line
-					if (lines[i + 1] && audioDescRegex.test(lines[i + 1].trim())) {
-						i++
-						lastTime = null
-					}
-				} else if (audioDescRegex.test(line)) {
-					lastTime = null
-					continue
-				} else if (lastTime) {
-					processed.push(`[${lastTime}] ${line}`)
-					lastTime = null
-				} else {
-					processed.push(line)
+			// 1. Trigger functionality to show transcript
+			let showTranscriptBtn = document.querySelector('button[aria-label="Show transcript"]')
+			if (!showTranscriptBtn) {
+				console.log("[Transcript] 'Show transcript' button not found in main view. Checking description...")
+				const description = document.querySelector("#description")
+				if (description) {
+					showTranscriptBtn = description.querySelector('button[aria-label="Show transcript"]')
 				}
 			}
 
-			const finalTranscript = processed.join("\n").replace(/\n{3,}/g, "\n\n")
-			const transcriptPanel = transcriptContainer.closest("ytd-engagement-panel-section-list-renderer")
+			if (showTranscriptBtn) {
+				console.log("[Transcript] Clicking 'Show transcript' button...")
+				showTranscriptBtn.click()
+			} else {
+				console.log("[Transcript] 'Show transcript' button not visible. Attempting to expand description...")
+				const expandSelectors = ["#description #expand", "ytd-text-inline-expander #expand", "#description-inline-expander #expand", "tp-yt-paper-button#expand"]
+				let expandBtn = null
+				for (const sel of expandSelectors) {
+					expandBtn = document.querySelector(sel)
+					if (expandBtn) break
+				}
 
-			try {
-				transcriptPanel.querySelector("#visibility-button button").click()
-			} catch (err) {
-				console.log("Failed to close panel:", err)
+				if (expandBtn) {
+					expandBtn.click()
+					await new Promise((res) => setTimeout(res, 300))
+					showTranscriptBtn = document.querySelector('button[aria-label="Show transcript"]')
+					if (showTranscriptBtn) {
+						console.log("[Transcript] Found 'Show transcript' button after expand. Clicking...")
+						showTranscriptBtn.click()
+					} else {
+						console.warn("[Transcript] Still could not find 'Show transcript' button after expand.")
+					}
+				} else {
+					console.warn("[Transcript] Expand description button not found.")
+				}
 			}
+
+			// 2. Wait for container with Shadow DOM piercing
+			console.log("[Transcript] Waiting for transcript container to appear...")
+			let maxTries = 100,
+				tries = 0
+			let transcriptContainer = null
+
+			// Helper: Find element piercing shadow roots
+			function querySelectorDeep(selector, root = document) {
+				let element = root.querySelector(selector)
+				if (element) return element
+				const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT, null, false)
+				while (walker.nextNode()) {
+					const node = walker.currentNode
+					if (node.shadowRoot) {
+						element = querySelectorDeep(selector, node.shadowRoot)
+						if (element) return element
+					}
+				}
+				return null
+			}
+
+			while (!transcriptContainer && tries < maxTries) {
+				await new Promise((res) => setTimeout(res, 50))
+
+				// A. Check for any expanded panel first (Modern YouTube often uses a unified panel)
+				const activePanel = document.querySelector('ytd-engagement-panel-section-list-renderer[visibility="ENGAGEMENT_PANEL_VISIBILITY_EXPANDED"]')
+				if (activePanel) {
+					// Check if it's a tabbed panel and we need to switch to Transcript tab
+					const transcriptTab = activePanel.querySelector('button[role="tab"][aria-label="Transcript"]')
+					if (transcriptTab && transcriptTab.getAttribute("aria-selected") !== "true") {
+						console.log("[Transcript] Found Transcript tab (not selected). Clicking...")
+						transcriptTab.click()
+						await new Promise((res) => setTimeout(res, 300))
+					}
+
+					transcriptContainer =
+						activePanel.querySelector("#segments-container") ||
+						activePanel.querySelector("ytd-transcript-segment-list-renderer") ||
+						activePanel.querySelector("ytd-macro-markers-list-renderer") ||
+						activePanel.querySelector("ytd-transcript-renderer")
+				}
+
+				// B. Try standard selectors globally
+				if (!transcriptContainer) {
+					transcriptContainer = document.querySelector("#segments-container") || document.querySelector("ytd-transcript-segment-list-renderer") || document.querySelector("ytd-transcript-renderer")
+				}
+
+				// C. Try looking specifically inside known panels by ID (even if hidden/old)
+				if (!transcriptContainer) {
+					const panels = document.querySelectorAll(
+						'ytd-engagement-panel-section-list-renderer[target-id="PAmodern_transcript_view"], ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-searchable-transcript"]',
+					)
+					for (const panel of panels) {
+						transcriptContainer = panel.querySelector("#segments-container") || panel.querySelector("ytd-transcript-segment-list-renderer") || panel.querySelector("ytd-macro-markers-list-renderer")
+						if (transcriptContainer) break
+					}
+				}
+
+				// D. Try deep search if still not found
+				if (!transcriptContainer) {
+					transcriptContainer = querySelectorDeep("#segments-container") || querySelectorDeep("ytd-transcript-segment-list-renderer")
+				}
+
+				tries++
+			}
+
+			if (!transcriptContainer) {
+				console.error("[Transcript] FAILED: Transcript container could not be found after 5 seconds.")
+				const allPanels = document.querySelectorAll("ytd-engagement-panel-section-list-renderer")
+				allPanels.forEach((p, i) => {
+					console.log(`[Transcript Debug] Panel ${i} target-id:`, p.getAttribute("target-id"))
+					console.log(`[Transcript Debug] Panel ${i} visibility:`, p.getAttribute("visibility"))
+					console.log(`[Transcript Debug] Panel ${i} title:`, p.querySelector("#title-text")?.innerText)
+				})
+
+				showToast("Transcript container not found! Check console for details.")
+				return
+			}
+
+			console.log("[Transcript] Container found. Waiting for content to populate...")
+
+			// 2. Wait for content to load (Replacing hardcoded delays with MutationObserver)
+			await new Promise((resolve) => {
+				const checkReady = () => {
+					const hasSegments = transcriptContainer.querySelector("ytd-transcript-segment-renderer, transcript-segment-view-model, ytw-transcript-segment-view-model, .ytw-transcript-segment-view-model")
+					const isLoading = transcriptContainer.querySelector("tp-yt-paper-spinner, #spinner, ytd-continuation-item-renderer, #loading-message")
+					return hasSegments && !isLoading
+				}
+
+				if (checkReady()) {
+					resolve()
+					return
+				}
+
+				const observer = new MutationObserver(() => {
+					if (checkReady()) {
+						observer.disconnect()
+						resolve()
+					}
+				})
+				observer.observe(transcriptContainer, { childList: true, subtree: true })
+				setTimeout(() => {
+					observer.disconnect()
+					resolve()
+				}, 7000) // 7s absolute max wait
+			})
+
+			// 3. Extract Text (Try Fast Data Extraction first, then fallback to innerText, then Ultra-Fast Sweep)
+			console.time("[Transcript] Extraction Time")
+			let finalTranscript = ""
+
+			// Helper: Format MS to YT Time
+			const formatMs = (ms) => {
+				if (!ms && ms !== 0) return ""
+				const totalSeconds = Math.floor(ms / 1000)
+				const h = Math.floor(totalSeconds / 3600)
+				const m = Math.floor((totalSeconds % 3600) / 60)
+				const s = totalSeconds % 60
+				if (h > 0) return `${h}:${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`
+				return `${m}:${s.toString().padStart(2, "0")}`
+			}
+
+			// Helper: Parse YT Time to Seconds
+			const tsToSec = (ts) => {
+				if (!ts) return 0
+				const p = ts.split(":").map(Number)
+				if (p.length === 3) return p[0] * 3600 + p[1] * 60 + p[2]
+				if (p.length === 2) return p[0] * 60 + p[1]
+				return p[0] || 0
+			}
+
+			// A. Attempt Instant Extraction from YT Internals
+			const getInstantData = () => {
+				try {
+					// 1. Check for data attached to the DOM element
+					const renderer = transcriptContainer.closest("ytd-transcript-renderer") || transcriptContainer.querySelector("ytd-transcript-renderer") || transcriptContainer
+					const domData = renderer.data || renderer.__data || renderer.segmentsViewModel
+
+					// 2. Check global app response (most authoritative)
+					const app = document.querySelector("ytd-app")
+					const panels = app?.data?.response?.engagementPanels || []
+					let rawRenderer = null
+					for (const p of panels) {
+						const r = p.engagementPanelSectionListRenderer
+						if (r?.targetId === "engagement-panel-searchable-transcript" || r?.targetId === "PAmodern_transcript_view") {
+							rawRenderer = r.content?.transcriptRenderer
+							break
+						}
+					}
+
+					const data = domData || rawRenderer
+					if (!data) return null
+
+					let segments = null
+					if (data.body?.transcriptBodyRenderer?.cueGroups) {
+						segments = data.body.transcriptBodyRenderer.cueGroups.map((g) => {
+							const cue = g.transcriptCueGroupRenderer.cues[0].transcriptCueRenderer
+							const time = cue.startOffsetMs !== undefined ? formatMs(cue.startOffsetMs) : cue.label?.simpleText
+							const text = cue.cue.simpleText || cue.cue.runs?.map((r) => r.text).join("") || ""
+							return { time, text: text.trim(), sec: tsToSec(time) }
+						})
+					} else if (data.segments && Array.isArray(data.segments)) {
+						segments = data.segments
+							.map((s) => {
+								const vm = s.transcriptSegmentViewModel
+								if (vm) {
+									const time = vm.timestampText?.simpleText || vm.timestampText?.runs?.map((r) => r.text).join("")
+									const text = vm.bodyText?.simpleText || vm.bodyText?.runs?.map((r) => r.text).join("")
+									return { time, text: text?.trim(), sec: tsToSec(time) }
+								}
+								return null
+							})
+							.filter(Boolean)
+					}
+
+					if (segments && segments.length > 0) {
+						return segments
+							.sort((a, b) => a.sec - b.sec)
+							.map((s) => `[${s.time}] ${s.text}`)
+							.join("\n")
+					}
+				} catch (e) {}
+				return null
+			}
+
+			finalTranscript = getInstantData()
+
+			if (finalTranscript) {
+				console.log("[Transcript] Success! Extracted instantly from internal data.")
+			} else {
+				// B. Fallback: Instant innerText parsing (User suggestion)
+				console.log("[Transcript] Attempting instant DOM text extraction...")
+				const segments = []
+				const timecodeRegex = /^(\d{1,2}:)?\d{1,2}:\d{2}$/
+				const metadataRegex = /^(\d+ (hour|minute|second)s?,? ?)+$/i
+				const allTextLines = transcriptContainer.innerText
+					.split("\n")
+					.map((l) => l.trim())
+					.filter(Boolean)
+
+				let lastTime = null
+				let currentText = []
+				let segmentCounter = 0
+
+				for (const line of allTextLines) {
+					if (timecodeRegex.test(line)) {
+						if (lastTime && currentText.length > 0) {
+							segments.push({ time: lastTime, text: currentText.join(" "), sec: tsToSec(lastTime), order: segmentCounter++ })
+						}
+						lastTime = line
+						currentText = []
+					} else if (line.startsWith("Chapter ")) {
+						if (lastTime && currentText.length > 0) {
+							segments.push({ time: lastTime, text: currentText.join(" "), sec: tsToSec(lastTime), order: segmentCounter++ })
+						}
+						// Add chapter marker - slightly before current time to keep sequence
+						segments.push({ time: null, text: "\n" + line, sec: (lastTime ? tsToSec(lastTime) : 0) - 0.001, order: segmentCounter++ })
+						lastTime = null
+						currentText = []
+					} else {
+						// Filter out common non-dialogue metadata like "7 seconds"
+						if (!metadataRegex.test(line)) {
+							currentText.push(line)
+						}
+					}
+				}
+				// Push final
+				if (lastTime && currentText.length > 0) {
+					segments.push({ time: lastTime, text: currentText.join(" "), sec: tsToSec(lastTime), order: segmentCounter++ })
+				}
+
+				if (segments.length > 5) {
+					finalTranscript = segments
+						.sort((a, b) => (a.sec !== b.sec ? a.sec - b.sec : a.order - b.order))
+						.map((s) => (s.time ? `[${s.time}] ${s.text}` : s.text))
+						.join("\n")
+					console.log("[Transcript] Success! Extracted via innerText. Segments:", segments.length)
+				}
+			}
+
+			// C. Fallback: Ultra-Fast sweep (If others fail or seem incomplete)
+			if (!finalTranscript) {
+				console.log("[Transcript] Falling back to Rapid Sweep extraction...")
+				const scrollable = transcriptContainer.querySelector("#segments-container") || transcriptContainer.closest("ytd-transcript-segment-list-renderer") || transcriptContainer
+
+				scrollable.scrollTop = 0
+				await new Promise((res) => setTimeout(res, 50))
+
+				let allSegments = new Map()
+				let lastSize = -1
+				let sameSizeCount = 0
+				const maxSteps = 200
+				const sweepDelay = 25
+				const jumpMultiplier = 4.0
+
+				for (let i = 0; i < maxSteps; i++) {
+					const nodes = transcriptContainer.querySelectorAll("ytd-transcript-segment-renderer, transcript-segment-view-model, ytw-transcript-segment-view-model, .ytw-transcript-segment-view-model")
+
+					nodes.forEach((n) => {
+						const d = n.data || n.segmentsViewModel
+						let time = "",
+							text = ""
+						if (d && d.timestampText && d.bodyText) {
+							time = d.timestampText.simpleText || d.timestampText.runs?.map((r) => r.text).join("")
+							text = d.bodyText.simpleText || d.bodyText.runs?.map((r) => r.text).join("")
+						} else {
+							time = (n.querySelector("#segment-timestamp, .ytwTranscriptSegmentViewModelTimestamp, .timestamp")?.innerText || "").trim()
+							text = (n.querySelector(".segment-text, #segment-text, .segment-text-content, [role='text']")?.innerText || "").trim()
+						}
+						if (time && !allSegments.has(time)) {
+							allSegments.set(time, { text, sec: tsToSec(time) })
+						}
+					})
+
+					if (allSegments.size === lastSize) {
+						sameSizeCount++
+						if (sameSizeCount > 12 || scrollable.scrollTop + scrollable.clientHeight >= scrollable.scrollHeight - 10) break
+					} else {
+						lastSize = allSegments.size
+						sameSizeCount = 0
+					}
+
+					scrollable.scrollTop += scrollable.clientHeight * jumpMultiplier
+					await new Promise((res) => setTimeout(res, sweepDelay))
+				}
+
+				if (allSegments.size > 0) {
+					const sorted = Array.from(allSegments.entries()).sort((a, b) => a[1].sec - b[1].sec)
+					finalTranscript = sorted.map(([time, data]) => `[${time}] ${data.text}`).join("\n")
+				} else {
+					console.warn("[Transcript] Sweep failed. Using whatever text is visible.")
+					finalTranscript = transcriptContainer.innerText
+				}
+			}
+
+			finalTranscript = finalTranscript.replace(/\n{3,}/g, "\n\n")
+			console.timeEnd("[Transcript] Extraction Time")
 
 			try {
 				await navigator.clipboard.writeText(finalTranscript)
-				alert("Transcript copied to clipboard!")
+				console.log("[Transcript] Success! Transcript copied to clipboard.")
+				showToast("Transcript copied to clipboard!")
 			} catch (err) {
-				alert("Failed to copy transcript: " + err)
+				console.error("[Transcript] Clipboard write failed:", err)
+				showToast("Failed to copy transcript: " + err)
 			}
 		}
 	}
@@ -699,7 +1025,7 @@
 				ytPlayer,
 				null,
 				XPathResult.FIRST_ORDERED_NODE_TYPE,
-				null
+				null,
 			).singleNodeValue
 			if (qualityMenuButton) unwrapElement(qualityMenuButton).click()
 
@@ -708,7 +1034,7 @@
 				ytPlayer,
 				null,
 				XPathResult.FIRST_ORDERED_NODE_TYPE,
-				null
+				null,
 			).singleNodeValue
 			if (qualityButton) unwrapElement(qualityButton).click()
 			debugLog("(Buttons) Resolution Set To: " + res)
@@ -883,7 +1209,7 @@ min-height: " +
 						}
 					}
 				},
-				true
+				true,
 			)
 		}
 	}
@@ -919,19 +1245,19 @@ min-height: " +
 					Object.keys(maxQualitySettings).map((k) => {
 						let newval = GM.getValue(k)
 						return newval.then((v) => [k, v])
-					})
+					}),
 				).then((c) =>
 					c.forEach(([nk, nv]) => {
 						if (maxQualitySettings[nk] !== null && nk !== "overwriteStoredSettings") {
 							maxQualitySettings[nk] = nv
 						}
-					})
+					}),
 				)
 			}
 			debugLog(
 				Object.entries(maxQualitySettings)
 					.map(([k, v]) => k + " | " + v)
-					.join(", ")
+					.join(", "),
 			)
 		}
 	}
@@ -953,7 +1279,7 @@ min-height: " +
 					}
 				}
 			},
-			true
+			true,
 		)
 	}
 
