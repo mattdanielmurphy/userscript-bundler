@@ -45,6 +45,87 @@
             margin-left: 5px;
             margin-right: 5px;
         }
+
+        /* Dark Mode Extensions - Refined 2026-03-08 */
+        @media (prefers-color-scheme: dark) {
+            body, html { background-color: #121212 !important; color: #e0e0e0 !important; }
+            .contentContainer, .mainMenu, .questionSlide, section, header, footer, div, span, p, label, li, a {
+                color: #e0e0e0 !important;
+            }
+            .contentContainer { background-color: #121212 !important; }
+
+            /* Page Title & Breadcrumbs */
+            .pageTitle, .breadCumb, .breadCumbTitle, .breadCumbMenu__item a, #CourseTitle, #UnitTitle, #LessonTitle, #SlidesTitle {
+                color: #ffffff !important;
+            }
+            .breadCumb i { color: #8ab4f8 !important; } /* Blueish icons for breadcrumbs */
+            .breadCumbMenu {
+                background-color: #2a2a2a !important;
+                border: 1px solid #444 !important;
+                box-shadow: 0 4px 8px rgba(0,0,0,0.4) !important;
+            }
+            .breadCumbMenu__item a { color: #ffffff !important; }
+            .breadCumbMenu__item:hover { background-color: #3d3d3d !important; }
+
+            /* Player Controls */
+            .mediaPlayer__controls {
+                background-color: #1e1e1e !important;
+                border: 1px solid #333 !important;
+                border-radius: 8px !important;
+                margin-top: 5px !important;
+                padding: 5px !important;
+            }
+            .mediaPlayer__button {
+                background-color: transparent !important;
+                border: none !important;
+                color: #ffffff !important;
+                transition: background-color 0.2s !important;
+            }
+            .mediaPlayer__button i, .mediaPlayer__button--showslides i {
+                color: #ffffff !important;
+            }
+            .mediaPlayer__button:hover {
+                background-color: #333 !important;
+                border-radius: 4px !important;
+            }
+            .mediaPlayer__button--showslides {
+                background-color: #2a2a2a !important;
+                border: 1px solid #444 !important;
+                border-radius: 4px !important;
+                padding: 2px 10px !important;
+            }
+            .mediaPlayer__track { background-color: transparent !important; }
+
+            /* Seekbar & Volume Range inputs */
+            input[type="range"] {
+                accent-color: #bb86fc !important;
+                background-color: #444 !important;
+            }
+
+            /* Generic text colors for dark mode */
+            h1, h2, h3, h4, h5, h6 { color: #ffffff !important; }
+            a { color: #bb86fc !important; }
+
+            /* Buttons and Inputs */
+            input[type="text"], input[type="number"], select, textarea {
+                background-color: #1e1e1e !important;
+                color: #ffffff !important;
+                border-color: #444 !important;
+            }
+
+            /* Custom button color tweaks for visibility */
+            .questionSlide__button {
+                background-color: #2a2a2a !important;
+                border-color: #444 !important;
+                color: #e0e0e0 !important;
+            }
+            .questionSlide__button:hover {
+                background-color: #3d3d3d !important;
+            }
+            .auto-show-answer-container label {
+                color: #e0e0e0 !important;
+            }
+        }
     `
 	document.head.appendChild(style)
 
@@ -307,6 +388,115 @@
 	const initialTargetNum = initialTargetSlide ? parseInt(initialTargetSlide) : null
 	console.log(`[Userscript] Target slide from URL: ${initialTargetSlide || "none"}`)
 
+	const findInIframes = (win, selector) => {
+		try {
+			const el = win.document.querySelector(selector)
+			if (el) return { el, doc: win.document }
+
+			const iframes = win.document.querySelectorAll("iframe")
+			for (const iframe of iframes) {
+				try {
+					const res = findInIframes(iframe.contentWindow, selector)
+					if (res.el) return res
+				} catch (e) {
+					// Ignore cross-origin errors
+				}
+			}
+		} catch (e) {
+			// Ignore cross-origin errors
+		}
+		return { el: null, doc: null }
+	}
+
+	const applyDarkMode = () => {
+		const isDark = window.matchMedia("(prefers-color-scheme: dark)").matches
+		if (!isDark) return
+
+		// 1. Target the canvas specifically inside its iframe
+		const { el: canvas, doc: canvasDoc } = findInIframes(window, "canvas#dw")
+		if (canvas && !canvas.dataset.darkModeApplied) {
+			console.log("[Userscript] Applying dark mode filter to canvas.")
+			canvas.style.filter = "invert(1) hue-rotate(180deg) contrast(0.9)"
+			canvas.dataset.darkModeApplied = "true"
+			if (canvasDoc && canvasDoc.body) {
+				canvasDoc.body.style.backgroundColor = "black"
+				canvasDoc.body.style.color = "#ececec"
+			}
+		}
+
+		// 2. Recursive Iframe Dark Mode Injection
+		const injectStylesIntoIframe = (win) => {
+			try {
+				const doc = win.document
+				if (doc && doc.body && !doc.querySelector("#userscript-dm-overlay")) {
+					console.log("[Userscript] Injecting dark mode into nested iframe/shadow document.")
+					const style = doc.createElement("style")
+					style.id = "userscript-dm-overlay"
+					style.innerHTML = `
+						body, html { background-color: #121212 !important; color: #e0e0e0 !important; }
+						* { border-color: #333 !important; }
+						
+						/* Page Title & Breadcrumbs */
+						.pageTitle, .breadCumb, .breadCumbTitle, .breadCumbMenu__item a, #CourseTitle, #UnitTitle, #LessonTitle, #SlidesTitle {
+							color: #ffffff !important;
+						}
+						.breadCumb i { color: #8ab4f8 !important; }
+						.breadCumbMenu {
+							background-color: #2a2a2a !important;
+							border: 1px solid #444 !important;
+						}
+
+						/* Player Controls (within iframes) */
+						.mediaPlayer__controls {
+							background-color: #1e1e1e !important;
+							border: 1px solid #333 !important;
+							border-radius: 8px !important;
+						}
+						.mediaPlayer__button {
+							background-color: transparent !important;
+							border: none !important;
+							color: #ffffff !important;
+						}
+						.mediaPlayer__button i { color: #ffffff !important; }
+						.mediaPlayer__button--showslides {
+							background-color: #2a2a2a !important;
+							border: 1px solid #444 !important;
+							border-radius: 4px !important;
+						}
+						
+						input[type="text"], input[type="number"], select, textarea, button { 
+							background-color: #1e1e1e !important; 
+							color: #ffffff !important; 
+							border: 1px solid #444 !important;
+						}
+						a { color: #bb86fc !important; }
+						
+						/* Handle iframe backgrounds specifically if they are white */
+						body { background-color: #121212 !important; }
+					`
+					// Special case for the canvas host iframe body being white
+					if (doc.querySelector("canvas#dw")) {
+						style.innerHTML += ` body { background-color: black !important; } `
+					}
+					doc.head.appendChild(style)
+				}
+				// Recurse into nested iframes
+				const iframes = doc.querySelectorAll("iframe")
+				for (const frame of iframes) {
+					try {
+						injectStylesIntoIframe(frame.contentWindow)
+					} catch (e) {
+						/* Cross-origin */
+					}
+				}
+			} catch (e) {
+				/* Cross-origin */
+			}
+		}
+
+		injectStylesIntoIframe(window)
+	}
+
 	const playCanvas = () => {
 		console.log("[Userscript] [playCanvas] Triggered.")
 		const { el: canvas, doc: canvasDoc } = findInIframes(window, "canvas#dw")
@@ -467,6 +657,7 @@
 		syncSlideState()
 		performInitialSync()
 		setupPrintChaining()
+		applyDarkMode()
 	}
 
 	const observer = new MutationObserver(drive)
@@ -489,27 +680,6 @@
 			}
 		}
 	})
-
-	// Helper functions from Untitled-1.js
-	function findInIframes(win, selector) {
-		try {
-			const el = win.document.querySelector(selector)
-			if (el) return { el, doc: win.document }
-
-			const iframes = win.document.querySelectorAll("iframe")
-			for (const iframe of iframes) {
-				try {
-					const res = findInIframes(iframe.contentWindow, selector)
-					if (res.el) return res
-				} catch (e) {
-					// Ignore cross-origin errors
-				}
-			}
-		} catch (e) {
-			// Ignore cross-origin errors
-		}
-		return { el: null, doc: null }
-	}
 
 	function getIndexInList(listSelector, titleValue, excludeKeywords = []) {
 		const { el: list } = findInIframes(window, listSelector)
