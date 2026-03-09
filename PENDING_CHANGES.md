@@ -1,2 +1,4 @@
 ## Pending Changes
-- feat(userscripts): integrate canvas capture automation into contentconnections.js — added Opt+D shortcut and automation logic for PlayerView pages.
+- feat(contentconnections): append unit and lesson numbering to slide filenames — to allow sequential slide stitching across multiple lessons
+- feat(contentconnections): always click canvas to initiate playback on new slides — for seamless navigation in PlayerView
+

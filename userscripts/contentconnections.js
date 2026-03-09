@@ -12,7 +12,7 @@
 ;(function () {
 	"use strict"
 
-	console.log("[Userscript] ContentConnections Practice Enhancements loaded! 10:45am")
+	console.log("[Userscript] ContentConnections Practice Enhancements loaded! 3:19pm")
 
 	// 1. Hide #whiteBoard and .mainMenu
 	const style = document.createElement("style")
@@ -295,24 +295,187 @@
 		}
 	}
 
-	// Use MutationObserver because these slides might be loaded dynamically
-	const observer = new MutationObserver(() => {
+	let isAutomationRunning = false
+	let lastCurrentSlide = -1
+	let initialSyncDone = false
+	let lastSyncLogTime = 0
+	let initialJumpTriggered = false
+
+	// Capture target slide from URL once at the very beginning
+	const urlParams = new URLSearchParams(window.location.search)
+	const initialTargetSlide = urlParams.get("slide")
+	const initialTargetNum = initialTargetSlide ? parseInt(initialTargetSlide) : null
+	console.log(`[Userscript] Target slide from URL: ${initialTargetSlide || "none"}`)
+
+	const playCanvas = () => {
+		console.log("[Userscript] [playCanvas] Triggered.")
+		const { el: canvas, doc: canvasDoc } = findInIframes(window, "canvas#dw")
+		if (canvas && canvasDoc) {
+			console.log("[Userscript] [playCanvas] Found canvas #dw in iframe. Calculating center...")
+			const rect = canvas.getBoundingClientRect()
+			const centerX = rect.left + rect.width / 2
+			const centerY = rect.top + rect.height / 2
+			console.log(`[Userscript] [playCanvas] Center coordinates: ${centerX.toFixed(2)}, ${centerY.toFixed(2)}`)
+
+			const clickOpts = {
+				view: canvasDoc.defaultView || window,
+				bubbles: true,
+				cancelable: true,
+				clientX: centerX,
+				clientY: centerY,
+				button: 0,
+			}
+
+			console.log("[Userscript] [playCanvas] Dispatching mousedown/mouseup/click sequence...")
+			canvas.dispatchEvent(new MouseEvent("mousedown", clickOpts))
+			canvas.dispatchEvent(new MouseEvent("mouseup", clickOpts))
+			canvas.dispatchEvent(new MouseEvent("click", clickOpts))
+			console.log("[Userscript] [playCanvas] All events dispatched.")
+		} else {
+			console.warn("[Userscript] [playCanvas] FAILED: Could not find canvas#dw in any iframe.")
+		}
+	}
+
+	const syncSlideState = () => {
+		const { el: slideIndicator } = findInIframes(window, "button.mediaPlayer__button--showslides")
+
+		// Periodic status log (every 10s if not finding anything)
+		const now = Date.now()
+		if (!slideIndicator) {
+			if (now - lastSyncLogTime > 10000) {
+				console.log("[Userscript] [syncSlideState] Still searching for slide indicator...")
+				lastSyncLogTime = now
+			}
+			return
+		}
+
+		const text = slideIndicator.textContent.trim()
+		const match = text.match(/Slide (\d+) of (\d+)/i)
+		if (!match) {
+			if (now - lastSyncLogTime > 10000) {
+				console.log(`[Userscript] [syncSlideState] Found indicator but text doesn't match: "${text}"`)
+				lastSyncLogTime = now
+			}
+			return
+		}
+
+		const currentSlide = parseInt(match[1])
+
+		// Perform initial sync verification
+		if (!initialSyncDone && initialTargetNum) {
+			if (currentSlide === initialTargetNum) {
+				console.log(`[Userscript] [syncSlideState] Target reached (${currentSlide}). Initial sync COMPLETE.`)
+				initialSyncDone = true
+			} else if (initialJumpTriggered) {
+				// We triggered a jump but haven't arrived yet. Stay quiet.
+				return
+			}
+		} else if (!initialTargetNum) {
+			initialSyncDone = true
+		}
+
+		// Perform URL persistence (ONLY after initial jump is confirmed and settled)
+		if (initialSyncDone) {
+			const url = new URL(window.location.href)
+			if (url.searchParams.get("slide") !== String(currentSlide)) {
+				console.log(`[Userscript] [syncSlideState] Updating URL parameter: ?slide=${currentSlide}`)
+				url.searchParams.set("slide", currentSlide)
+				window.history.replaceState({}, "", url)
+			}
+		}
+
+		// Handle playback on slide change (excluding automation and initial load jump)
+		if (currentSlide !== lastCurrentSlide) {
+			console.log(`[Userscript] [syncSlideState] SLIDE CHANGE DETECTED: ${lastCurrentSlide} -> ${currentSlide}`)
+			lastCurrentSlide = currentSlide
+
+			// Only trigger auto-play if we are finished with initial navigation
+			if (!isAutomationRunning && initialSyncDone) {
+				console.log("[Userscript] [syncSlideState] Triggering auto-playback sequence in 1.5s...")
+				setTimeout(() => {
+					console.log("[Userscript] [syncSlideState] Executing delayed playCanvas call...")
+					playCanvas()
+				}, 1500)
+			} else if (!initialSyncDone) {
+				console.log("[Userscript] [syncSlideState] Slide found, but initial sync jump is still pending. Skipping playback for now.")
+			}
+		}
+	}
+
+	const performInitialSync = () => {
+		if (initialSyncDone || initialJumpTriggered) return
+
+		if (!initialTargetNum) {
+			initialSyncDone = true
+			return
+		}
+
+		const { el: slidesList } = findInIframes(window, "#slidesList")
+		if (!slidesList) return // Retry on next driver iteration
+
+		console.log(`[Userscript] [performInitialSync] Attempting to navigate to Slide ${initialTargetNum}`)
+		const links = Array.from(slidesList.querySelectorAll("li a"))
+		if (links.length === 0) return
+
+		// 1. Precise text-based search (e.g., "Page 12")
+		let linkToClick = links.find((a) => {
+			const txt = (a.getAttribute("title") || a.textContent || "").trim().toLowerCase()
+			return txt === `page ${initialTargetNum}` || txt === String(initialTargetNum)
+		})
+
+		// 2. Handle "Last Page" specifically if the target matches total known slides
+		if (!linkToClick) {
+			const { el: ind } = findInIframes(window, "button.mediaPlayer__button--showslides")
+			const totalMatch = ind ? ind.textContent.match(/of (\d+)/i) : null
+			if (totalMatch && initialTargetNum === parseInt(totalMatch[1])) {
+				linkToClick = links.find((a) => (a.getAttribute("title") || a.textContent || "").toLowerCase().includes("last"))
+			}
+		}
+
+		// 3. Positional fallback
+		if (!linkToClick) {
+			console.log("[Userscript] [performInitialSync] No text match. Using index-based selection.")
+			linkToClick = links[initialTargetNum - 1]
+		}
+
+		if (linkToClick) {
+			const label = (linkToClick.getAttribute("title") || linkToClick.textContent || "").trim()
+			console.log(`[Userscript] [performInitialSync] EXPLICIT CLICK: Link for Slide ${initialTargetNum} ("${label}")`)
+			console.log(`[Userscript] [performInitialSync] Target HTML: ${linkToClick.outerHTML}`)
+
+			initialJumpTriggered = true
+			linkToClick.click()
+
+			// Safety timeout: If we don't arrive at target in 5s, release the lock
+			setTimeout(() => {
+				if (!initialSyncDone) {
+					console.warn("[Userscript] [performInitialSync] Jump timeout! Releasing initialSync lock.")
+					initialSyncDone = true
+				}
+			}, 5000)
+		} else {
+			console.warn(`[Userscript] [performInitialSync] CRITICAL: Could not find any suitable link for Slide ${initialTargetNum}`)
+			initialSyncDone = true
+		}
+	}
+
+	// Combined drive (Observer + Periodic Poll)
+	const drive = () => {
 		addCustomButtons()
 		addAutoShowCheckbox()
 		attemptAutoShowAnswer()
-		// Video play moved to click handlers
+		syncSlideState()
+		performInitialSync()
 		setupPrintChaining()
-	})
+	}
 
+	const observer = new MutationObserver(drive)
 	observer.observe(document.body, { childList: true, subtree: true })
+	setInterval(drive, 1000) // Poll every 1s to catch iframe changes that observer miss
 
 	// Initial call
 	uncheckAllAnswers()
-	addCustomButtons()
-	addAutoShowCheckbox()
-	attemptAutoShowAnswer()
-	// Video play moved to click handlers
-	setupPrintChaining()
+	drive()
 
 	// 7. Canvas Capture Automation (Triggered by Alt+D / Opt+D)
 	window.addEventListener("keydown", (e) => {
@@ -348,6 +511,30 @@
 		return { el: null, doc: null }
 	}
 
+	function getIndexInList(listSelector, titleValue, excludeKeywords = []) {
+		const { el: list } = findInIframes(window, listSelector)
+		if (!list) return ""
+
+		const anchors = Array.from(list.querySelectorAll("li a"))
+		let index = 1
+
+		for (const a of anchors) {
+			const itemText = (a.getAttribute("title") || a.textContent).trim()
+
+			const shouldExclude = excludeKeywords.some((kw) => itemText.toLowerCase().includes(kw.toLowerCase()))
+			if (shouldExclude) continue
+
+			const itemTextClean = itemText.replace(/\s+/g, " ")
+			const titleValueClean = titleValue.replace(/\s+/g, " ")
+
+			if (itemTextClean === titleValueClean || titleValueClean.includes(itemTextClean)) {
+				return index
+			}
+			index++
+		}
+		return ""
+	}
+
 	function getMetadata() {
 		const clean = (selector) => {
 			const { el } = findInIframes(window, selector)
@@ -357,233 +544,256 @@
 				.replace(/\s+/g, " ") // Collapse whitespace
 				.trim()
 		}
+
+		const unitTitleRaw = (() => {
+			const { el } = findInIframes(window, "#UnitTitle")
+			return el ? el.textContent.trim() : ""
+		})()
+
+		const lessonTitleRaw = (() => {
+			const { el } = findInIframes(window, "#LessonTitle")
+			return el ? el.textContent.trim() : ""
+		})()
+
+		const unitExcludes = ["overview", "project", "exam", "review", "midterm"]
+
 		return {
 			course: clean("#CourseTitle") || "Course",
 			unit: clean("#UnitTitle") || "Unit",
 			lesson: clean("#LessonTitle") || "Lesson",
+			unitIndex: unitTitleRaw ? getIndexInList("#unitsList", unitTitleRaw, unitExcludes) : "",
+			lessonIndex: lessonTitleRaw ? getIndexInList("#lessonsList", lessonTitleRaw, []) : "",
 		}
 	}
 
 	async function startAutomation() {
-		console.log("Waiting for metadata elements to load...")
-		let meta = { course: "Course", unit: "Unit", lesson: "Lesson" }
+		isAutomationRunning = true
+		try {
+			console.log("Waiting for metadata elements to load...")
+			let meta = { course: "Course", unit: "Unit", lesson: "Lesson" }
 
-		// Fast poll for metadata (50ms interval)
-		for (let i = 0; i < 60; i++) {
-			const found = getMetadata()
-			if (found.course !== "Course" || found.unit !== "Unit") {
-				meta = found
-				break
-			}
-			await new Promise((r) => setTimeout(r, 50))
-		}
-
-		console.log("Metadata detected:", meta)
-
-		while (true) {
-			const { el: canvas, doc: canvasDoc } = findInIframes(window, "canvas#dw")
-			const { el: seekbar, doc: seekbarDoc } = findInIframes(window, "input#seekbar")
-			const { el: nextBtn } = findInIframes(window, "button.mediaPlayer__button--forward")
-			const { el: slideIndicator } = findInIframes(window, "button.mediaPlayer__button--showslides")
-			const { el: audio } = findInIframes(window, "audio#n")
-
-			if (!canvas || !seekbar || !audio) {
-				console.warn("Required elements (canvas, seekbar, or audio) not found. Stopping.")
-				break
+			// Fast poll for metadata (50ms interval)
+			for (let i = 0; i < 60; i++) {
+				const found = getMetadata()
+				if (found.course !== "Course" || found.unit !== "Unit") {
+					meta = found
+					break
+				}
+				await new Promise((r) => setTimeout(r, 50))
 			}
 
-			const slideText = slideIndicator ? slideIndicator.textContent.trim() : ""
-			const match = slideText.match(/Slide (\d+) of (\d+)/i)
-			const currentSlide = match ? parseInt(match[1]) : 1
-			const totalSlides = match ? parseInt(match[2]) : 1
+			console.log("Metadata detected:", meta)
 
-			console.log(`%cProcessing ${slideText}...`, "color: #00ff00; font-weight: bold; font-size: 14px;")
+			while (true) {
+				const { el: canvas, doc: canvasDoc } = findInIframes(window, "canvas#dw")
+				const { el: seekbar, doc: seekbarDoc } = findInIframes(window, "input#seekbar")
+				const { el: nextBtn } = findInIframes(window, "button.mediaPlayer__button--forward")
+				const { el: slideIndicator } = findInIframes(window, "button.mediaPlayer__button--showslides")
+				const { el: audio } = findInIframes(window, "audio#n")
 
-			// --- FLIGHT RECORDER START ---
-			const flightLog = []
-			const slideStartTime = Date.now()
-			const recorder = (msg, extra = {}) => {
-				const timestamp = ((Date.now() - slideStartTime) / 1000).toFixed(3)
-				flightLog.push({
-					T: timestamp,
-					Task: msg,
-					Ready: audio.readyState,
-					Time: audio.currentTime.toFixed(2),
-					Max: seekbar.max,
-					...extra,
-				})
-			}
+				if (!canvas || !seekbar || !audio) {
+					console.warn("Required elements (canvas, seekbar, or audio) not found. Stopping.")
+					break
+				}
 
-			const checkLoadingState = () => {
-				const search = (root) => {
-					if (!root) return false
-					// 1. Check for specific #loading div
-					const loadDiv = root.querySelector && root.querySelector("#loading")
-					if (loadDiv && loadDiv.style.display !== "none") return true
-					// 2. Check for "buffer" text (defensively)
-					const target = root.body || root
-					const txt = target && target.innerText ? target.innerText.toLowerCase() : ""
-					if (txt.includes("buffer")) return true
-					// 3. Check for N/A clock
-					const clock = root.querySelector && root.querySelector(".current-time")
-					if (clock && (clock.textContent.includes("N/A") || clock.textContent === "0:00")) return true
-					// 4. Recursive Shadow DOM search
-					const all = root.querySelectorAll ? root.querySelectorAll("*") : []
-					for (const el of all) {
-						if (el.shadowRoot && search(el.shadowRoot)) return true
+				const slideText = slideIndicator ? slideIndicator.textContent.trim() : ""
+				const match = slideText.match(/Slide (\d+) of (\d+)/i)
+				const currentSlide = match ? parseInt(match[1]) : 1
+				const totalSlides = match ? parseInt(match[2]) : 1
+
+				console.log(`%cProcessing ${slideText}...`, "color: #00ff00; font-weight: bold; font-size: 14px;")
+
+				// --- FLIGHT RECORDER START ---
+				const flightLog = []
+				const slideStartTime = Date.now()
+				const recorder = (msg, extra = {}) => {
+					const timestamp = ((Date.now() - slideStartTime) / 1000).toFixed(3)
+					flightLog.push({
+						T: timestamp,
+						Task: msg,
+						Ready: audio.readyState,
+						Time: audio.currentTime.toFixed(2),
+						Max: seekbar.max,
+						...extra,
+					})
+				}
+
+				const checkLoadingState = () => {
+					const search = (root) => {
+						if (!root) return false
+						// 1. Check for specific #loading div
+						const loadDiv = root.querySelector && root.querySelector("#loading")
+						if (loadDiv && loadDiv.style.display !== "none") return true
+						// 2. Check for "buffer" text (defensively)
+						const target = root.body || root
+						const txt = target && target.innerText ? target.innerText.toLowerCase() : ""
+						if (txt.includes("buffer")) return true
+						// 3. Check for N/A clock
+						const clock = root.querySelector && root.querySelector(".current-time")
+						if (clock && (clock.textContent.includes("N/A") || clock.textContent === "0:00")) return true
+						// 4. Recursive Shadow DOM search
+						const all = root.querySelectorAll ? root.querySelectorAll("*") : []
+						for (const el of all) {
+							if (el.shadowRoot && search(el.shadowRoot)) return true
+						}
+						return false
+					}
+					if (search(document)) return true
+					if (canvasDoc && search(canvasDoc)) return true
+					const iframes = document.querySelectorAll("iframe")
+					for (const f of iframes) {
+						try {
+							if (f.contentDocument && search(f.contentDocument)) return true
+						} catch (e) {}
 					}
 					return false
 				}
-				if (search(document)) return true
-				if (canvasDoc && search(canvasDoc)) return true
-				const iframes = document.querySelectorAll("iframe")
-				for (const f of iframes) {
-					try {
-						if (f.contentDocument && search(f.contentDocument)) return true
-					} catch (e) {}
-				}
-				return false
-			}
 
-			const events = ["waiting", "seeking", "seeked", "playing", "pause", "canplay", "stalled", "error"]
-			const handlers = events.map((evt) => {
-				const h = () => recorder(`EVENT: ${evt}`, { buf: checkLoadingState() })
-				audio.addEventListener(evt, h)
-				return { evt, h }
-			})
-			const pollId = setInterval(() => recorder("POLL", { buf: checkLoadingState() }), 100)
-			// --- FLIGHT RECORDER END ---
-
-			// 2. Start playback
-			recorder("CLICK TO PLAY")
-			const rect = canvas.getBoundingClientRect()
-			const clickOpts = {
-				view: canvasDoc.defaultView || window,
-				bubbles: true,
-				cancelable: true,
-				clientX: rect.left + rect.width / 2,
-				clientY: rect.top + rect.height / 2,
-				button: 0,
-			}
-			canvas.dispatchEvent(new MouseEvent("mousedown", clickOpts))
-			canvas.dispatchEvent(new MouseEvent("mouseup", clickOpts))
-			canvas.dispatchEvent(new MouseEvent("click", clickOpts))
-
-			// 3a. Wait for initial readiness
-			recorder("WAITING FOR INITIAL READY")
-			for (let i = 0; i < 100; i++) {
-				if (audio.readyState >= 3 && !checkLoadingState()) break
-				await new Promise((r) => setTimeout(r, 100))
-			}
-
-			// 3b. Wait for seekbar.max to be stable
-			recorder("WAITING FOR MAX STABILITY")
-			let lastMax = ""
-			let maxStable = 0
-			for (let i = 0; i < 60; i++) {
-				const currentMax = seekbar.max
-				if (currentMax && parseFloat(currentMax) > 0 && currentMax === lastMax) {
-					maxStable++
-					if (maxStable >= 3) break
-				} else {
-					maxStable = 0
-					lastMax = currentMax
-				}
-				await new Promise((r) => setTimeout(r, 100))
-			}
-
-			// 3c. Seek to end
-			recorder("SEEKING TO END")
-			await new Promise((resolve) => {
-				const onSeeked = () => {
-					audio.removeEventListener("seeked", onSeeked)
-					recorder("SEEKED SIGNAL RECEIVED")
-					resolve()
-				}
-				audio.addEventListener("seeked", onSeeked)
-				seekbar.value = seekbar.max
-				try {
-					seekbar.valueAsNumber = parseFloat(seekbar.max)
-				} catch (e) {}
-				const seekEvents = ["input", "change", "mousedown", "mouseup", "pointerdown", "pointerup"]
-				seekEvents.forEach((type) => seekbar.dispatchEvent(new Event(type, { bubbles: true })))
-				setTimeout(() => {
-					audio.removeEventListener("seeked", onSeeked)
-					resolve()
-				}, 4000)
-			})
-
-			// 3d. Stability Probe: Wait for Canvas to stop changing (Anti-Spinner)
-			recorder("STABILITY PROBE START")
-			let lastFrame = ""
-			let stableFrames = 0
-			for (let i = 0; i < 50; i++) {
-				const currentFrame = canvas.toDataURL("image/png", 0.1) // Low quality for speed
-				const isBuffering = checkLoadingState()
-				const isAnimating = currentFrame !== lastFrame
-
-				recorder(`PROBE ${i}`, { buf: isBuffering, anim: isAnimating })
-
-				if (!isBuffering && !isAnimating && i > 3) {
-					stableFrames++
-					if (stableFrames >= 3) {
-						recorder("STABILITY REACHED")
-						break
-					}
-				} else {
-					stableFrames = 0
-				}
-				lastFrame = currentFrame
-				await new Promise((r) => setTimeout(r, 400))
-			}
-			recorder("STABILITY PROBE END")
-
-			// 3e. Final render buffer
-			recorder("FINAL RENDER DELAY")
-			await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 300)))
-
-			// 4. Download
-			recorder("CAPTURE & DOWNLOAD")
-			const dataURL = canvas.toDataURL("image/png")
-			const link = document.createElement("a")
-			const filename = `${meta.course} - ${meta.unit} - ${meta.lesson} - Slide ${currentSlide}.png`
-			link.download = filename
-			link.href = dataURL
-			document.body.appendChild(link)
-			link.click()
-			document.body.removeChild(link)
-
-			// CLEANUP RECORDER
-			clearInterval(pollId)
-			handlers.forEach(({ evt, h }) => audio.removeEventListener(evt, h))
-			console.log(`%cFlight Log for Slide ${currentSlide}:`, "color: #00ffff; font-weight: bold;")
-			console.table(flightLog)
-
-			// 5. Check if we're done
-			if (currentSlide >= totalSlides - 1 || !nextBtn) {
-				console.log("Automation complete.")
-				break
-			}
-
-			// 6. Go to next slide
-			nextBtn.click()
-
-			// Wait for slide indicator to change
-			await new Promise((resolve) => {
-				if (!slideIndicator) return resolve()
-				const observer = new MutationObserver((mutations, obs) => {
-					const newMatch = slideIndicator.textContent.match(/Slide (\d+) of (\d+)/i)
-					if (newMatch && parseInt(newMatch[1]) !== currentSlide) {
-						obs.disconnect()
-						requestAnimationFrame(() => setTimeout(resolve, 300))
-					}
+				const events = ["waiting", "seeking", "seeked", "playing", "pause", "canplay", "stalled", "error"]
+				const handlers = events.map((evt) => {
+					const h = () => recorder(`EVENT: ${evt}`, { buf: checkLoadingState() })
+					audio.addEventListener(evt, h)
+					return { evt, h }
 				})
-				observer.observe(slideIndicator, { childList: true, characterData: true, subtree: true })
-				setTimeout(() => {
-					observer.disconnect()
-					resolve()
-				}, 3000)
-			})
+				const pollId = setInterval(() => recorder("POLL", { buf: checkLoadingState() }), 100)
+				// --- FLIGHT RECORDER END ---
+
+				// 2. Start playback
+				recorder("CLICK TO PLAY")
+				const rect = canvas.getBoundingClientRect()
+				const clickOpts = {
+					view: canvasDoc.defaultView || window,
+					bubbles: true,
+					cancelable: true,
+					clientX: rect.left + rect.width / 2,
+					clientY: rect.top + rect.height / 2,
+					button: 0,
+				}
+				canvas.dispatchEvent(new MouseEvent("mousedown", clickOpts))
+				canvas.dispatchEvent(new MouseEvent("mouseup", clickOpts))
+				canvas.dispatchEvent(new MouseEvent("click", clickOpts))
+
+				// 3a. Wait for initial readiness
+				recorder("WAITING FOR INITIAL READY")
+				for (let i = 0; i < 100; i++) {
+					if (audio.readyState >= 3 && !checkLoadingState()) break
+					await new Promise((r) => setTimeout(r, 100))
+				}
+
+				// 3b. Wait for seekbar.max to be stable
+				recorder("WAITING FOR MAX STABILITY")
+				let lastMax = ""
+				let maxStable = 0
+				for (let i = 0; i < 60; i++) {
+					const currentMax = seekbar.max
+					if (currentMax && parseFloat(currentMax) > 0 && currentMax === lastMax) {
+						maxStable++
+						if (maxStable >= 3) break
+					} else {
+						maxStable = 0
+						lastMax = currentMax
+					}
+					await new Promise((r) => setTimeout(r, 100))
+				}
+
+				// 3c. Seek to end
+				recorder("SEEKING TO END")
+				await new Promise((resolve) => {
+					const onSeeked = () => {
+						audio.removeEventListener("seeked", onSeeked)
+						recorder("SEEKED SIGNAL RECEIVED")
+						resolve()
+					}
+					audio.addEventListener("seeked", onSeeked)
+					seekbar.value = seekbar.max
+					try {
+						seekbar.valueAsNumber = parseFloat(seekbar.max)
+					} catch (e) {}
+					const seekEvents = ["input", "change", "mousedown", "mouseup", "pointerdown", "pointerup"]
+					seekEvents.forEach((type) => seekbar.dispatchEvent(new Event(type, { bubbles: true })))
+					setTimeout(() => {
+						audio.removeEventListener("seeked", onSeeked)
+						resolve()
+					}, 4000)
+				})
+
+				// 3d. Stability Probe: Wait for Canvas to stop changing (Anti-Spinner)
+				recorder("STABILITY PROBE START")
+				let lastFrame = ""
+				let stableFrames = 0
+				for (let i = 0; i < 50; i++) {
+					const currentFrame = canvas.toDataURL("image/png", 0.1) // Low quality for speed
+					const isBuffering = checkLoadingState()
+					const isAnimating = currentFrame !== lastFrame
+
+					recorder(`PROBE ${i}`, { buf: isBuffering, anim: isAnimating })
+
+					if (!isBuffering && !isAnimating && i > 3) {
+						stableFrames++
+						if (stableFrames >= 3) {
+							recorder("STABILITY REACHED")
+							break
+						}
+					} else {
+						stableFrames = 0
+					}
+					lastFrame = currentFrame
+					await new Promise((r) => setTimeout(r, 400))
+				}
+				recorder("STABILITY PROBE END")
+
+				// 3e. Final render buffer
+				recorder("FINAL RENDER DELAY")
+				await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 300)))
+
+				// 4. Download
+				recorder("CAPTURE & DOWNLOAD")
+				const dataURL = canvas.toDataURL("image/png")
+				const link = document.createElement("a")
+				const uStr = meta.unitIndex ? `U${meta.unitIndex} ` : ""
+				const lStr = meta.lessonIndex ? `L${meta.lessonIndex} ` : ""
+				const filename = `${meta.course} - ${uStr}${meta.unit} - ${lStr}${meta.lesson} - S${currentSlide}.png`
+				link.download = filename
+				link.href = dataURL
+				document.body.appendChild(link)
+				link.click()
+				document.body.removeChild(link)
+
+				// CLEANUP RECORDER
+				clearInterval(pollId)
+				handlers.forEach(({ evt, h }) => audio.removeEventListener(evt, h))
+				console.log(`%cFlight Log for Slide ${currentSlide}:`, "color: #00ffff; font-weight: bold;")
+				console.table(flightLog)
+
+				// 5. Check if we're done
+				if (currentSlide >= totalSlides - 1 || !nextBtn) {
+					console.log("Automation complete.")
+					break
+				}
+
+				// 6. Go to next slide
+				nextBtn.click()
+
+				// Wait for slide indicator to change
+				await new Promise((resolve) => {
+					if (!slideIndicator) return resolve()
+					const observer = new MutationObserver((mutations, obs) => {
+						const newMatch = slideIndicator.textContent.match(/Slide (\d+) of (\d+)/i)
+						if (newMatch && parseInt(newMatch[1]) !== currentSlide) {
+							obs.disconnect()
+							requestAnimationFrame(() => setTimeout(resolve, 300))
+						}
+					})
+					observer.observe(slideIndicator, { childList: true, characterData: true, subtree: true })
+					setTimeout(() => {
+						observer.disconnect()
+						resolve()
+					}, 3000)
+				})
+			}
+		} finally {
+			isAutomationRunning = false
+			console.log("[Userscript] Automation sequence ended.")
 		}
 	}
 })()
