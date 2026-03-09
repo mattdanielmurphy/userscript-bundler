@@ -14,38 +14,100 @@
 
 	console.log("[Userscript] ContentConnections Practice Enhancements loaded! 3:19pm")
 
-	// 1. Hide #whiteBoard and .mainMenu
-	const style = document.createElement("style")
-	style.innerHTML = `
-        #whiteBoard, .mainMenu, .questionSlide__container--showSolution {
+	const LAYOUT_CSS = `
+        #whiteBoard, .mainMenu, ul[class="mainMenu"], .questionSlide__container--showSolution {
             display: none !important;
         }
         .contentContainer {
-            margin-left: 2rem !important;
-            margin-right: auto !important;
-            margin-left: auto !important; /* Centering */
-            max-width: 1200px;
-            padding-left: 2rem; /* Using padding to satisfy the 2rem left space while maintaining center */
+            margin-left: 1em !important;
+            margin-right: 1em !important;
+            max-width: none !important;
+        }
+        .pageTitle {
+            margin-left: 1em !important;
+        }
+        .mediaPlayer__iframe {
+            /* Width removed: conflicts with site's internal scaling logic */
+        }
+        canvas#dw {
+            width: auto !important;
+            height: auto !important;
+            max-width: 100% !important;
+            max-height: 95% !important;
         }
         .cornerMenu {
-            right: calc((100vw - 1200px) / 2 + 20px) !important;
-            bottom: 20px !important;
-            z-index: 999999 !important; /* Ensure it is above everything */
+            display: flex !important;
+            flex-direction: row !important;
+            gap: 6px !important;
+            background: transparent !important;
+            box-shadow: none !important;
+            padding: 0 !important;
+            margin: 0 10px !important;
+            position: static !important;
+            pointer-events: auto !important;
+            z-index: 9999 !important;
+            list-style: none !important;
+        }
+        .cornerMenu__item {
+            width: 30px !important;
+            height: 30px !important;
+            min-width: 30px !important;
+            background: #2a2a2a !important;
+            border: 1px solid #444 !important;
+            border-radius: 4px !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            padding: 0 !important;
+            margin: 0 !important;
+        }
+        .cornerMenu__item a {
+            font-size: 14px !important;
+            color: #ffffff !important;
+            display: flex !important;
+            width: 100% !important;
+            height: 100% !important;
+            align-items: center !important;
+            justify-content: center !important;
             pointer-events: auto !important;
         }
-        .cornerMenu li, .cornerMenu a {
-            pointer-events: auto !important;
+        .mediaPlayer__controls {
+            display: flex !important;
+            align-items: center !important;
+            flex-wrap: nowrap !important;
+            justify-content: flex-start !important;
+            height: auto !important;
+            padding: 5px 10px !important;
+            width: 100% !important;
+            box-sizing: border-box !important;
+            overflow: hidden !important;
+						margin-bottom: 1em !important;
         }
-        @media (max-width: 1280px) {
-            .cornerMenu {
-                right: 20px !important;
-            }
+        .mediaPlayer__button--showslides {
+            margin-left: auto !important; /* Push the slide counter to the far right */
+            position: static !important;
+            flex-shrink: 0 !important;
+        }
+        .mediaPlayer__button {
+            flex-shrink: 0 !important;
+        }
+        .mediaPlayer__track {
+            flex-grow: 1 !important;
+            flex-shrink: 1 !important;
+            min-width: 100px !important;
+            margin: 0 15px !important;
         }
         .custom-yes-show, .custom-no-skip {
             margin-left: 5px;
             margin-right: 5px;
         }
+				.mediaPlayer__bottom {
+					bottom: 1em !important;
+					left: 1em !important;
+				}
+    `
 
+	const DARK_MODE_CSS = `
         /* Dark Mode Extensions - Refined 2026-03-08 */
         @media (prefers-color-scheme: dark) {
             body, html { background-color: #121212 !important; color: #e0e0e0 !important; }
@@ -125,9 +187,90 @@
             .auto-show-answer-container label {
                 color: #e0e0e0 !important;
             }
+
+            /* Practice Question Buttons */
+            .questionsList {
+                margin-bottom: 20px !important;
+            }
+            .questionsItems {
+                display: flex !important;
+                flex-wrap: wrap !important;
+                gap: 8px !important;
+                padding: 0 !important;
+                list-style: none !important;
+            }
+            .questionsItem {
+                background-color: #2a2a2a !important;
+                border: 1px solid #444 !important;
+                border-radius: 4px !important;
+                width: 32px !important;
+                height: 32px !important;
+                display: flex !important;
+                align-items: center !important;
+                justify-content: center !important;
+                transition: all 0.2s ease !important;
+            }
+            .questionsItem:hover {
+                background-color: #3d3d3d !important;
+                border-color: #666 !important;
+                transform: translateY(-1px) !important;
+            }
+            .questionsItem a {
+                color: #bb86fc !important;
+                text-decoration: none !important;
+                font-weight: bold !important;
+                width: 100% !important;
+                height: 100% !important;
+                display: flex !important;
+                align-items: center !important;
+                justify-content: center !important;
+            }
+            .questionsItem--active {
+                background-color: #bb86fc !important;
+                border-color: #bb86fc !important;
+            }
+            .questionsItem--active a {
+                color: #121212 !important;
+            }
+
+            /* Image Inversion */
+            img {
+                filter: invert(1) hue-rotate(180deg) !important;
+                border-radius: 4px !important;
+            }
+            /* Don't invert images that are already dark or transparent icons */
+            img[src*="icon"], img[src*="logo"] {
+                filter: none !important;
+            }
         }
     `
-	document.head.appendChild(style)
+
+	// Utility to inject CSS into all accessible iframes
+	const injectStylesRecursive = (win, id, css) => {
+		try {
+			const doc = win.document
+			if (doc && doc.body && !doc.querySelector(`#${id}`)) {
+				const style = doc.createElement("style")
+				style.id = id
+				style.innerHTML = css
+				doc.head.appendChild(style)
+			}
+			const iframes = doc.querySelectorAll("iframe")
+			for (const frame of iframes) {
+				try {
+					injectStylesRecursive(frame.contentWindow, id, css)
+				} catch (e) {
+					// Cross-origin
+				}
+			}
+		} catch (e) {
+			// Cross-origin
+		}
+	}
+
+	const applyLayout = () => {
+		injectStylesRecursive(window, "userscript-layout-styles", LAYOUT_CSS)
+	}
 
 	// Monitor specifically the print button click
 	const monitorPrintButton = () => {
@@ -340,6 +483,15 @@
 
 		if (!isEnabled) return
 
+		// NEW: Don't automatically show next answer for the FIRST question (Q1)
+		const { el: slidesTitle } = findInIframes(window, "#SlidesTitle")
+		if (slidesTitle) {
+			const titleText = slidesTitle.textContent.trim()
+			if (titleText.startsWith("Q1")) {
+				return
+			}
+		}
+
 		// Try class selector first
 		let showAnswerBtn = document.querySelector(".questionSlide__button--showAnswer")
 
@@ -425,76 +577,7 @@
 		}
 
 		// 2. Recursive Iframe Dark Mode Injection
-		const injectStylesIntoIframe = (win) => {
-			try {
-				const doc = win.document
-				if (doc && doc.body && !doc.querySelector("#userscript-dm-overlay")) {
-					console.log("[Userscript] Injecting dark mode into nested iframe/shadow document.")
-					const style = doc.createElement("style")
-					style.id = "userscript-dm-overlay"
-					style.innerHTML = `
-						body, html { background-color: #121212 !important; color: #e0e0e0 !important; }
-						* { border-color: #333 !important; }
-						
-						/* Page Title & Breadcrumbs */
-						.pageTitle, .breadCumb, .breadCumbTitle, .breadCumbMenu__item a, #CourseTitle, #UnitTitle, #LessonTitle, #SlidesTitle {
-							color: #ffffff !important;
-						}
-						.breadCumb i { color: #8ab4f8 !important; }
-						.breadCumbMenu {
-							background-color: #2a2a2a !important;
-							border: 1px solid #444 !important;
-						}
-
-						/* Player Controls (within iframes) */
-						.mediaPlayer__controls {
-							background-color: #1e1e1e !important;
-							border: 1px solid #333 !important;
-							border-radius: 8px !important;
-						}
-						.mediaPlayer__button {
-							background-color: transparent !important;
-							border: none !important;
-							color: #ffffff !important;
-						}
-						.mediaPlayer__button i { color: #ffffff !important; }
-						.mediaPlayer__button--showslides {
-							background-color: #2a2a2a !important;
-							border: 1px solid #444 !important;
-							border-radius: 4px !important;
-						}
-						
-						input[type="text"], input[type="number"], select, textarea, button { 
-							background-color: #1e1e1e !important; 
-							color: #ffffff !important; 
-							border: 1px solid #444 !important;
-						}
-						a { color: #bb86fc !important; }
-						
-						/* Handle iframe backgrounds specifically if they are white */
-						body { background-color: #121212 !important; }
-					`
-					// Special case for the canvas host iframe body being white
-					if (doc.querySelector("canvas#dw")) {
-						style.innerHTML += ` body { background-color: black !important; } `
-					}
-					doc.head.appendChild(style)
-				}
-				// Recurse into nested iframes
-				const iframes = doc.querySelectorAll("iframe")
-				for (const frame of iframes) {
-					try {
-						injectStylesIntoIframe(frame.contentWindow)
-					} catch (e) {
-						/* Cross-origin */
-					}
-				}
-			} catch (e) {
-				/* Cross-origin */
-			}
-		}
-
-		injectStylesIntoIframe(window)
+		injectStylesRecursive(window, "userscript-dm-overlay", DARK_MODE_CSS)
 	}
 
 	const playCanvas = () => {
@@ -649,6 +732,22 @@
 		}
 	}
 
+	const moveCornerMenu = () => {
+		const { el: controls, doc } = findInIframes(window, ".mediaPlayer__controls")
+		const { el: cornerMenu } = findInIframes(window, ".cornerMenu")
+
+		if (controls && cornerMenu && cornerMenu.parentNode !== controls) {
+			console.log("[Userscript] Moving cornerMenu into mediaPlayer__controls")
+			// Insert before rewind button if it exists, otherwise append
+			const rewindBtn = controls.querySelector(".mediaPlayer__button--rewind")
+			if (rewindBtn) {
+				controls.insertBefore(cornerMenu, rewindBtn)
+			} else {
+				controls.appendChild(cornerMenu)
+			}
+		}
+	}
+
 	// Combined drive (Observer + Periodic Poll)
 	const drive = () => {
 		addCustomButtons()
@@ -658,6 +757,8 @@
 		performInitialSync()
 		setupPrintChaining()
 		applyDarkMode()
+		applyLayout()
+		moveCornerMenu()
 	}
 
 	const observer = new MutationObserver(drive)
