@@ -917,13 +917,14 @@
 		})()
 
 		const unitExcludes = ["overview", "project", "exam", "review", "midterm"]
+		const lessonExcludes = ["quiz", "test", "assignment", "review", "exam", "project"]
 
 		return {
 			course: clean("#CourseTitle") || "Course",
 			unit: clean("#UnitTitle") || "Unit",
 			lesson: clean("#LessonTitle") || "Lesson",
 			unitIndex: unitTitleRaw ? getIndexInList("#unitsList", unitTitleRaw, unitExcludes) : "",
-			lessonIndex: lessonTitleRaw ? getIndexInList("#lessonsList", lessonTitleRaw, []) : "",
+			lessonIndex: lessonTitleRaw ? getIndexInList("#lessonsList", lessonTitleRaw, lessonExcludes) : "",
 		}
 	}
 
