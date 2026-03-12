@@ -12,7 +12,7 @@
 ;(function () {
 	"use strict"
 
-	console.log("[Userscript] ContentConnections Practice Enhancements loaded! 3:19pm")
+	console.log("[Userscript] ContentConnections Practice Enhancements loaded! 3:13pm thu")
 
 	const LAYOUT_CSS = `
         #whiteBoard, .mainMenu, ul[class="mainMenu"], .questionSlide__container--showSolution {
@@ -29,7 +29,8 @@
         .mediaPlayer__iframe {
             /* Width removed: conflicts with site's internal scaling logic */
         }
-        canvas#dw {
+        /* Target main slide canvas while avoiding whiteboard/graphs */
+        canvas:not(#whiteBoard__canvas):not(.dcg-graph-inner) {
             width: auto !important;
             height: auto !important;
             max-width: 100% !important;
@@ -483,12 +484,17 @@
 
 		if (!isEnabled) return
 
-		// NEW: Don't automatically show next answer for the FIRST question (Q1)
+		// NEW: Don't automatically show next answer for the FIRST question of the entire list
 		const { el: slidesTitle } = findInIframes(window, "#SlidesTitle")
-		if (slidesTitle) {
+		const { el: slidesList } = findInIframes(window, "#slidesList")
+		if (slidesTitle && slidesList) {
 			const titleText = slidesTitle.textContent.trim()
-			if (titleText.startsWith("Q1")) {
-				return
+			const firstItem = slidesList.querySelector("li a")
+			if (firstItem) {
+				const firstTitle = (firstItem.getAttribute("title") || firstItem.textContent).trim()
+				if (titleText === firstTitle) {
+					return
+				}
 			}
 		}
 
@@ -540,6 +546,40 @@
 	const initialTargetNum = initialTargetSlide ? parseInt(initialTargetSlide) : null
 	console.log(`[Userscript] Target slide from URL: ${initialTargetSlide || "none"}`)
 
+	// --- Canvas Discovery & Utilities ---
+
+	/**
+	 * Finds the main slide canvas by searching for an iframe with a URL containing '/Files/Slides/'
+	 * and looking for a canvas ('du', 'dw', or generic) inside it.
+	 */
+	const findMainCanvas = (win) => {
+		try {
+			// 1. Check current window if it's a slide iframe
+			if (win.location.href.includes("/Files/Slides/")) {
+				const doc = win.document
+				const canvas = doc.getElementById("du") || doc.getElementById("dw") || doc.querySelector("canvas")
+				if (canvas) return { el: canvas, doc: win.document }
+			}
+
+			// 2. Search iframes recursively
+			const iframes = win.document.querySelectorAll("iframe")
+			for (const iframe of iframes) {
+				try {
+					const res = findMainCanvas(iframe.contentWindow)
+					if (res.el) return res
+				} catch (e) {
+					// Ignore cross-origin
+				}
+			}
+		} catch (e) {
+			// Ignore cross-origin
+		}
+		return { el: null, doc: null }
+	}
+
+	/**
+	 * Generic bread-first search for an element in all accessible iframes.
+	 */
 	const findInIframes = (win, selector) => {
 		try {
 			const el = win.document.querySelector(selector)
@@ -565,9 +605,9 @@
 		if (!isDark) return
 
 		// 1. Target the canvas specifically inside its iframe
-		const { el: canvas, doc: canvasDoc } = findInIframes(window, "canvas#dw")
+		const { el: canvas, doc: canvasDoc } = findMainCanvas(window)
 		if (canvas && !canvas.dataset.darkModeApplied) {
-			console.log("[Userscript] Applying dark mode filter to canvas.")
+			console.log("[Userscript] Applying dark mode filter to the main slide canvas.")
 			canvas.style.filter = "invert(1) hue-rotate(180deg) contrast(0.9)"
 			canvas.dataset.darkModeApplied = "true"
 			if (canvasDoc && canvasDoc.body) {
@@ -582,13 +622,15 @@
 
 	const playCanvas = () => {
 		console.log("[Userscript] [playCanvas] Triggered.")
-		const { el: canvas, doc: canvasDoc } = findInIframes(window, "canvas#dw")
+		const { el: canvas, doc: canvasDoc } = findMainCanvas(window)
 		if (canvas && canvasDoc) {
-			console.log("[Userscript] [playCanvas] Found canvas #dw in iframe. Calculating center...")
+			console.log("[Userscript] [playCanvas] Found main slide canvas. Calculating center...")
 			const rect = canvas.getBoundingClientRect()
-			const centerX = rect.left + rect.width / 2
-			const centerY = rect.top + rect.height / 2
-			console.log(`[Userscript] [playCanvas] Center coordinates: ${centerX.toFixed(2)}, ${centerY.toFixed(2)}`)
+			const width = rect.width || canvas.offsetWidth || 300
+			const height = rect.height || canvas.offsetHeight || 200
+			const centerX = rect.left + width / 2
+			const centerY = rect.top + height / 2
+			console.log(`[Userscript] [playCanvas] Center coordinates: ${centerX.toFixed(2)}, ${centerY.toFixed(2)} (using ${width}x${height})`)
 
 			const clickOpts = {
 				view: canvasDoc.defaultView || window,
@@ -605,7 +647,7 @@
 			canvas.dispatchEvent(new MouseEvent("click", clickOpts))
 			console.log("[Userscript] [playCanvas] All events dispatched.")
 		} else {
-			console.warn("[Userscript] [playCanvas] FAILED: Could not find canvas#dw in any iframe.")
+			console.warn("[Userscript] [playCanvas] FAILED: Could not find canvas in any iframe.")
 		}
 	}
 
@@ -666,8 +708,12 @@
 			if (!isAutomationRunning && initialSyncDone) {
 				console.log("[Userscript] [syncSlideState] Triggering auto-playback sequence in 1.5s...")
 				setTimeout(() => {
-					console.log("[Userscript] [syncSlideState] Executing delayed playCanvas call...")
-					playCanvas()
+					if (!isAutomationRunning) {
+						console.log("[Userscript] [syncSlideState] Executing delayed playCanvas call...")
+						playCanvas()
+					} else {
+						console.log("[Userscript] [syncSlideState] Automation running, skipping auto-playback.")
+					}
 				}, 1500)
 			} else if (!initialSyncDone) {
 				console.log("[Userscript] [syncSlideState] Slide found, but initial sync jump is still pending. Skipping playback for now.")
@@ -733,7 +779,7 @@
 	}
 
 	const moveCornerMenu = () => {
-		const { el: controls, doc } = findInIframes(window, ".mediaPlayer__controls")
+		const { el: controls, doc: controlsDoc } = findInIframes(window, ".mediaPlayer__controls")
 		const { el: cornerMenu } = findInIframes(window, ".cornerMenu")
 
 		if (controls && cornerMenu && cornerMenu.parentNode !== controls) {
@@ -748,6 +794,59 @@
 		}
 	}
 
+	const onKeydown = (e) => {
+		// Log ALL keydowns with Alt or Command to verify the listener is even firing
+		if (e.altKey || e.metaKey || e.ctrlKey) {
+			console.log(`[Userscript] Modifier Keydown: code=${e.code}, alt=${e.altKey}, meta=${e.metaKey}, ctrl=${e.ctrlKey}, key=${e.key}`)
+		}
+
+		// Use e.code for physical key detection (KeyD) which is more reliable than e.key with modifiers
+		if (e.altKey && e.code === "KeyD") {
+			console.log("[Userscript] Opt+D Trigger Match Found!")
+			e.preventDefault()
+			e.stopPropagation()
+
+			if (isAutomationRunning) {
+				console.warn("[Userscript] Automation is already running.")
+				return
+			}
+
+			if (confirm("Start Canvas Capture Automation?")) {
+				console.log("[Userscript] Starting Canvas Capture Automation...")
+				startAutomation().catch(console.error)
+			}
+		}
+	}
+
+	const setupKeydownListeners = (win) => {
+		try {
+			if (!win) return
+			
+			if (!win._keydownInjected) {
+				win._keydownInjected = true
+				win.addEventListener("keydown", onKeydown, true)
+				console.log(`[Userscript] Keydown listener injected into: ${win.location.href}`)
+			}
+
+			const doc = win.document
+			if (!doc) return
+
+			const iframes = doc.querySelectorAll("iframe")
+			for (const frame of iframes) {
+				try {
+					if (frame.contentWindow) {
+						// Always recurse, even if parent is done, because new iframes might appear
+						setupKeydownListeners(frame.contentWindow)
+					}
+				} catch (e) {
+					// Cross-origin
+				}
+			}
+		} catch (e) {
+			// Cross-origin
+		}
+	}
+
 	// Combined drive (Observer + Periodic Poll)
 	const drive = () => {
 		addCustomButtons()
@@ -759,6 +858,7 @@
 		applyDarkMode()
 		applyLayout()
 		moveCornerMenu()
+		setupKeydownListeners(window)
 	}
 
 	const observer = new MutationObserver(drive)
@@ -769,18 +869,8 @@
 	uncheckAllAnswers()
 	drive()
 
-	// 7. Canvas Capture Automation (Triggered by Alt+D / Opt+D)
-	window.addEventListener("keydown", (e) => {
-		// e.altKey is true for the 'Option' key on Mac
-		if (e.altKey && (e.key === "d" || e.key === "∂")) {
-			// '∂' is what Alt+D produces on some Mac layouts
-			e.preventDefault()
-			if (confirm("Start Canvas Capture Automation?")) {
-				console.log("[Userscript] Starting Canvas Capture Automation...")
-				startAutomation().catch(console.error)
-			}
-		}
-	})
+	// Canvas Capture Automation logic below
+	// (Listeners now managed recursively in setupKeydownListeners)
 
 	function getIndexInList(listSelector, titleValue, excludeKeywords = []) {
 		const { el: list } = findInIframes(window, listSelector)
@@ -856,7 +946,7 @@
 			console.log("Metadata detected:", meta)
 
 			while (true) {
-				const { el: canvas, doc: canvasDoc } = findInIframes(window, "canvas#dw")
+				const { el: canvas, doc: canvasDoc } = findMainCanvas(window)
 				const { el: seekbar, doc: seekbarDoc } = findInIframes(window, "input#seekbar")
 				const { el: nextBtn } = findInIframes(window, "button.mediaPlayer__button--forward")
 				const { el: slideIndicator } = findInIframes(window, "button.mediaPlayer__button--showslides")
@@ -1066,5 +1156,35 @@
 			isAutomationRunning = false
 			console.log("[Userscript] Automation sequence ended.")
 		}
+	}
+
+	// Expose to global scope for console access
+	window.startAutomation = startAutomation
+	window.getAllCanvases = () => {
+		const results = []
+		const search = (win) => {
+			try {
+				const canvases = Array.from(win.document.querySelectorAll("canvas"))
+				canvases.forEach((c) => {
+					results.push({
+						element: c,
+						width: c.width,
+						height: c.height,
+						id: c.id,
+						className: c.className,
+						frameUrl: win.location.href,
+					})
+				})
+				const frames = win.document.querySelectorAll("iframe")
+				for (const f of frames) {
+					try {
+						if (f.contentWindow) search(f.contentWindow)
+					} catch (e) {}
+				}
+			} catch (e) {}
+		}
+		search(window)
+		console.table(results)
+		return results
 	}
 })()
