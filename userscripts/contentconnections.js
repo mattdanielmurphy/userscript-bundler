@@ -31,10 +31,10 @@
         }
         /* Target main slide canvas while avoiding whiteboard/graphs */
         canvas:not(#whiteBoard__canvas):not(.dcg-graph-inner) {
-            width: auto !important;
-            height: auto !important;
-            max-width: 100% !important;
-            max-height: 95% !important;
+            // width: auto !important;
+            // height: auto !important;
+            // max-width: 100% !important;
+            // max-height: 95% !important;
         }
         .cornerMenu {
             display: flex !important;
@@ -800,6 +800,43 @@
 			console.log(`[Userscript] Modifier Keydown: code=${e.code}, alt=${e.altKey}, meta=${e.metaKey}, ctrl=${e.ctrlKey}, key=${e.key}`)
 		}
 
+		const isInput = ["INPUT", "TEXTAREA", "SELECT"].includes(e.target.tagName) || e.target.isContentEditable
+		if (isInput) return
+
+		// Space for Play/Pause
+		if (e.code === "Space") {
+			e.preventDefault()
+			const { el: playBtn } = findInIframes(window, ".mediaPlayer__playPause")
+			if (playBtn) {
+				console.log("[Userscript] Space pressed: clicking play/pause button")
+				playBtn.click()
+			} else {
+				console.log("[Userscript] Space pressed: play/pause button not found, falling back to canvas")
+				playCanvas()
+			}
+		}
+
+		// Left/Right arrows for Seek (5s)
+		if (e.code === "ArrowLeft" || e.code === "ArrowRight") {
+			const { el: audio } = findInIframes(window, "audio#n")
+			if (audio) {
+				e.preventDefault()
+				const delta = e.code === "ArrowLeft" ? -5 : 5
+				const newTime = Math.max(0, Math.min(audio.duration || Infinity, audio.currentTime + delta))
+				audio.currentTime = newTime
+				console.log(`[Userscript] ${e.code} pressed: seeking to ${newTime.toFixed(2)}s`)
+
+				// Sync seekbar if possible
+				const { el: seekbar } = findInIframes(window, "input#seekbar")
+				if (seekbar) {
+					// Audio might be in one iframe, seekbar in another
+					seekbar.value = newTime
+					seekbar.dispatchEvent(new Event("input", { bubbles: true }))
+					seekbar.dispatchEvent(new Event("change", { bubbles: true }))
+				}
+			}
+		}
+
 		// Use e.code for physical key detection (KeyD) which is more reliable than e.key with modifiers
 		if (e.altKey && e.code === "KeyD") {
 			console.log("[Userscript] Opt+D Trigger Match Found!")
@@ -821,7 +858,7 @@
 	const setupKeydownListeners = (win) => {
 		try {
 			if (!win) return
-			
+
 			if (!win._keydownInjected) {
 				win._keydownInjected = true
 				win.addEventListener("keydown", onKeydown, true)
@@ -872,6 +909,9 @@
 	// Canvas Capture Automation logic below
 	// (Listeners now managed recursively in setupKeydownListeners)
 
+	const UNIT_EXCLUDES = ["overview", "project", "exam", "review", "midterm"]
+	const LESSON_EXCLUDES = ["quiz", "test", "assignment", "review", "exam", "project"]
+
 	function getIndexInList(listSelector, titleValue, excludeKeywords = []) {
 		const { el: list } = findInIframes(window, listSelector)
 		if (!list) return ""
@@ -896,6 +936,35 @@
 		return ""
 	}
 
+	function getNextLessonLink(currentLessonTitleRaw, excludeKeywords = []) {
+		const { el: list } = findInIframes(window, "#lessonsList")
+		if (!list) return null
+
+		const anchors = Array.from(list.querySelectorAll("li a"))
+		let currentClean = currentLessonTitleRaw.replace(/\s+/g, " ").toLowerCase()
+		let foundCurrent = false
+
+		for (const a of anchors) {
+			const itemText = (a.getAttribute("title") || a.textContent).trim()
+			const shouldExclude = excludeKeywords.some((kw) => itemText.toLowerCase().includes(kw.toLowerCase()))
+
+			const itemTextClean = itemText.replace(/\s+/g, " ").toLowerCase()
+
+			if (!foundCurrent) {
+				if (itemTextClean === currentClean || currentClean.includes(itemTextClean)) {
+					foundCurrent = true
+				}
+				continue
+			}
+
+			if (shouldExclude) continue
+
+			// First non-excluded item after current is the next lesson
+			return a
+		}
+		return null
+	}
+
 	function getMetadata() {
 		const clean = (selector) => {
 			const { el } = findInIframes(window, selector)
@@ -916,15 +985,12 @@
 			return el ? el.textContent.trim() : ""
 		})()
 
-		const unitExcludes = ["overview", "project", "exam", "review", "midterm"]
-		const lessonExcludes = ["quiz", "test", "assignment", "review", "exam", "project"]
-
 		return {
 			course: clean("#CourseTitle") || "Course",
 			unit: clean("#UnitTitle") || "Unit",
 			lesson: clean("#LessonTitle") || "Lesson",
-			unitIndex: unitTitleRaw ? getIndexInList("#unitsList", unitTitleRaw, unitExcludes) : "",
-			lessonIndex: lessonTitleRaw ? getIndexInList("#lessonsList", lessonTitleRaw, lessonExcludes) : "",
+			unitIndex: unitTitleRaw ? getIndexInList("#unitsList", unitTitleRaw, UNIT_EXCLUDES) : "",
+			lessonIndex: lessonTitleRaw ? getIndexInList("#lessonsList", lessonTitleRaw, LESSON_EXCLUDES) : "",
 		}
 	}
 
@@ -947,11 +1013,21 @@
 			console.log("Metadata detected:", meta)
 
 			while (true) {
-				const { el: canvas, doc: canvasDoc } = findMainCanvas(window)
-				const { el: seekbar, doc: seekbarDoc } = findInIframes(window, "input#seekbar")
-				const { el: nextBtn } = findInIframes(window, "button.mediaPlayer__button--forward")
-				const { el: slideIndicator } = findInIframes(window, "button.mediaPlayer__button--showslides")
-				const { el: audio } = findInIframes(window, "audio#n")
+				let canvas, canvasDoc, seekbar, nextBtn, slideIndicator, audio
+				let retryCount = 0
+				while (retryCount < 20) {
+					const canvasRes = findMainCanvas(window)
+					canvas = canvasRes.el
+					canvasDoc = canvasRes.doc
+					seekbar = findInIframes(window, "input#seekbar").el
+					nextBtn = findInIframes(window, "button.mediaPlayer__button--forward").el
+					slideIndicator = findInIframes(window, "button.mediaPlayer__button--showslides").el
+					audio = findInIframes(window, "audio#n").el
+
+					if (canvas && seekbar && audio) break
+					retryCount++
+					await new Promise((r) => setTimeout(r, 500))
+				}
 
 				if (!canvas || !seekbar || !audio) {
 					console.warn("Required elements (canvas, seekbar, or audio) not found. Stopping.")
@@ -1127,8 +1203,46 @@
 				console.log(`%cFlight Log for Slide ${currentSlide}:`, "color: #00ffff; font-weight: bold;")
 				console.table(flightLog)
 
-				// 5. Check if we're done
+				// 5. Check if we're done (Process up to second-to-last slide, skipping the "completed" slide)
 				if (currentSlide >= totalSlides - 1 || !nextBtn) {
+					console.log("Lesson complete. Checking for next lesson...")
+					const lessonTitleRaw = (() => {
+						const { el } = findInIframes(window, "#LessonTitle")
+						return el ? el.textContent.trim() : ""
+					})()
+					const nextLesson = getNextLessonLink(lessonTitleRaw, LESSON_EXCLUDES)
+
+					if (nextLesson) {
+						console.log(`%cAdvancing to next lesson: ${nextLesson.textContent.trim()}`, "color: #ff9900; font-weight: bold;")
+						nextLesson.click()
+
+						// Wait for lesson transition
+						let transitioned = false
+						for (let i = 0; i < 100; i++) {
+							await new Promise((r) => setTimeout(r, 100))
+							const { el: newTitleEl } = findInIframes(window, "#LessonTitle")
+							const newTitle = newTitleEl ? newTitleEl.textContent.trim() : ""
+							if (newTitle && newTitle !== lessonTitleRaw) {
+								transitioned = true
+								break
+							}
+						}
+
+						if (transitioned) {
+							console.log("Transition detected. Waiting for content to stabilize...")
+							await new Promise((r) => setTimeout(r, 3000))
+							// Refresh metadata
+							const found = getMetadata()
+							if (found.lesson !== meta.lesson) {
+								meta = found
+								console.log("New metadata loaded:", meta)
+								continue // Restart loop for new lesson
+							}
+						} else {
+							console.warn("Timed out waiting for lesson transition.")
+						}
+					}
+
 					console.log("Automation complete.")
 					break
 				}

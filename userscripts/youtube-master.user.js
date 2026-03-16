@@ -16,6 +16,86 @@
 
 	console.log("new version loaded")
 
+	// --- 0. CUSTOM APP STYLE (Background & Variables) ---
+	// NOTE: We strictly use inline style application via JS. 
+	// YouTube uses Trusted Types CSP which blocks setting style.textContent in userscripts.
+	// Using pure el.style.setProperty bypasses CSP entirely and beats Polymer's DOM updates.
+	function enforceDarkThemeBg() {
+		try {
+			const isDarkActive = isDarkMode();
+
+			const vars =[
+				'--yt-spec-base-background', 
+				'--yt-spec-brand-background-solid', 
+				'--yt-spec-brand-background-primary',
+				'--yt-spec-general-background-a',
+				'--yt-spec-general-background-b',
+				'--yt-spec-general-background-c',
+				'--yt-spec-raised-background',
+				'--yt-spec-menu-background'
+			];
+			
+			const applyVars = (el) => {
+				if (!el) return;
+				
+				if (isDarkActive) {
+					// Avoid DOM thrashing: Check if it's already #131313 before writing
+					if (el.style.getPropertyValue('--yt-spec-base-background').trim() === '#131313') return;
+					
+					for (const v of vars) {
+						el.style.setProperty(v, '#131313', 'important');
+					}
+					el.style.setProperty('background-color', '#131313', 'important');
+					el.style.setProperty('background', '#131313', 'important');
+				} else {
+					// If NOT dark mode, ensure we remove our overrides if they exist
+					if (el.style.getPropertyValue('--yt-spec-base-background').trim() !== '#131313') return;
+					
+					for (const v of vars) {
+						el.style.removeProperty(v);
+					}
+					el.style.removeProperty('background-color');
+					el.style.removeProperty('background');
+				}
+			};
+
+			// Apply to the core structural elements
+			applyVars(document.documentElement);
+			if (document.body) applyVars(document.body);
+			
+			const app = document.querySelector('ytd-app');
+			if (app) applyVars(app);
+			
+			const pageManager = document.querySelector('ytd-page-manager');
+			if (pageManager) applyVars(pageManager);
+
+			// Kill Ambient Mode (cinematics) which draws a glowing gradient over our background
+			const ambients = document.querySelectorAll('#cinematics, ytd-watch-flexy[cinematic], #blur-container');
+			ambients.forEach(el => {
+				if (isDarkActive) {
+					if (el.style.getPropertyValue('display') !== 'none') {
+						el.style.setProperty('display', 'none', 'important');
+					}
+				} else {
+					// Only remove if we're the ones who hid it
+					if (el.style.getPropertyValue('display') === 'none') {
+						el.style.removeProperty('display');
+					}
+				}
+			});
+		} catch (e) {
+			// Catch silently so if YouTube changes a selector, the master script doesn't die
+		}
+	}
+
+	// Run rapidly during initial page load to prevent a bright flash, independent of the observer
+	let _bgTicks = 0;
+	const _bgFastTimer = setInterval(() => {
+		enforceDarkThemeBg();
+		_bgTicks++;
+		if (_bgTicks > 50) clearInterval(_bgFastTimer); // Stop rapid checks after ~5 seconds
+	}, 100);
+
 	// --- UTILITIES ---
 	const isWatchPage = () => window.location.pathname === "/watch"
 	const isSearchPage = () => window.location.pathname === "/results"
@@ -102,7 +182,9 @@
 	}
 
 	function isDarkMode() {
-		return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches
+		// Detect dark mode via YouTube's internal signaling (preferred) or OS preference (fallback)
+		return document.documentElement.hasAttribute("dark") || 
+		       (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches && !document.querySelector('ytd-app'));
 	}
 
 	function setupButton(createBtn) {
@@ -230,7 +312,7 @@
 	}
 
 	function removeShortsSearchGrid() {
-		const shortsSpans = Array.from(document.querySelectorAll("span")).filter((span) => span.innerText === "Shorts")
+		const shortsSpans = Array.from(document.querySelectorAll("span")).filter((span) => span.textContent.trim() === "Shorts")
 		let removed = false
 		shortsSpans.forEach((span) => {
 			const shelf = span.closest("grid-shelf-view-model")
@@ -1290,6 +1372,9 @@ min-height: " +
 	 * It runs all necessary DOM-based checks.
 	 */
 	function masterMutationHandler() {
+		// 0. Enforce Background Colors (Catches ytd-app dynamically via the observer)
+		enforceDarkThemeBg();
+
 		// 1. Thumbnail Toggle (Check for button and hide new thumbnails)
 		checkThumbnailButton()
 		if (thumbnailsHidden) {
@@ -1356,7 +1441,14 @@ min-height: " +
 	toggleAllThumbnails(thumbnailsHidden) // Initial thumbnail state
 
 	// 2. Start the single MutationObserver
-	const masterObserver = new MutationObserver(masterMutationHandler)
+	let _masterMutationTimer = null
+	const masterObserver = new MutationObserver(() => {
+		if (_masterMutationTimer) return
+		_masterMutationTimer = setTimeout(() => {
+			masterMutationHandler()
+			_masterMutationTimer = null
+		}, 100)
+	})
 	masterObserver.observe(document.documentElement, { childList: true, subtree: true })
 
 	// 3. Handle SPA navigation (yt-navigate-finish is the best event for this)
