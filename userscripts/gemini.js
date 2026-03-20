@@ -6,10 +6,6 @@
 // @icon         https://www.gstatic.com/lamda/images/gemini_sparkle_aurora_33f86dc0c0257da337c63.svg
 // @match        https://gemini.google.com/*
 // @run-at       document-start
-// @grant        GM_setValue
-// @grant        GM_getValue
-// @grant        GM_registerMenuCommand
-// @grant        GM_unregisterMenuCommand
 // ==/UserScript==
 
 ;(function () {
@@ -27,26 +23,11 @@
 	let menuIds = []
 
 	function getMenuText(key) {
-		const isZh = (document.documentElement.lang || navigator.language || "en")
-			.toLowerCase()
-			.includes("zh")
 		const dict = {
-			settingsToggle:
-				isZh ?
-					`⚙️ 侧边栏日期设置 (${isMenuExpanded ? "点击折叠 ⬆️" : "点击展开 ⬇️"})`
-				:	`⚙️ Sidebar Date Settings (${isMenuExpanded ? "Click to collapse ⬆️" : "Click to expand ⬇️"})`,
-			layout:
-				isZh ?
-					` ├─ 📐 排版: ${currentLayout === "split" ? "靠右 → 标题下方" : "标题下方 → 靠右"}`
-				:	` ├─ 📐 Layout: ${currentLayout === "split" ? "Right (Click → Below title)" : "Below title (Click → Right)"}`,
-			absolute:
-				isZh ?
-					` ├─ ⏰ 详细时间: ${showAbsolute ? "显示 → 隐藏" : "隐藏 → 显示"}`
-				:	` ├─ ⏰ Detailed Time: ${showAbsolute ? "Visible (Click → Hide)" : "Hidden (Click → Show)"}`,
-			format:
-				isZh ?
-					` └─ 📅 日期格式: ${dateFormat === "yyyy-mm-dd" ? "年-月-日 → 月/日/年" : "月/日/年 → 年-月-日"}`
-				:	` └─ 📅 Date Format: ${dateFormat === "yyyy-mm-dd" ? "YYYY-MM-DD (Click → MM/DD/YYYY)" : "MM/DD/YYYY (Click → YYYY-MM-DD)"}`,
+			settingsToggle: `⚙️ Sidebar Date Settings (${isMenuExpanded ? "Click to collapse ⬆️" : "Click to expand ⬇️"})`,
+			layout: ` ├─ 📐 Layout: ${currentLayout === "split" ? "Right (Click → Below title)" : "Below title (Click → Right)"}`,
+			absolute: ` ├─ ⏰ Detailed Time: ${showAbsolute ? "Visible (Click → Hide)" : "Hidden (Click → Show)"}`,
+			format: ` └─ 📅 Date Format: ${dateFormat === "yyyy-mm-dd" ? "YYYY-MM-DD (Click → MM/DD/YYYY)" : "MM/DD/YYYY (Click → YYYY-MM-DD)"}`,
 		}
 		return dict[key] || ""
 	}
