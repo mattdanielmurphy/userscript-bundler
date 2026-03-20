@@ -83,6 +83,26 @@
 					}
 				}
 			});
+
+			// Related Videos Hover & Spacing
+			if (isWatchPage()) {
+				const relatedContainer = document.querySelector('ytd-item-section-renderer.style-scope.ytd-watch-next-secondary-results-renderer');
+				if (relatedContainer) {
+					if (relatedContainer.style.opacity !== '0' && !relatedContainer.matches(':hover')) {
+						relatedContainer.style.setProperty('opacity', '0', 'important');
+						relatedContainer.style.setProperty('transition', 'opacity 0.3s ease', 'important');
+					}
+					relatedContainer.onmouseenter = () => relatedContainer.style.setProperty('opacity', '1', 'important');
+					relatedContainer.onmouseleave = () => relatedContainer.style.setProperty('opacity', '0', 'important');
+				}
+
+				const relatedItems = document.querySelectorAll('yt-lockup-view-model.ytd-item-section-renderer.lockup');
+				relatedItems.forEach(item => {
+					if (item.style.getPropertyValue('margin-bottom') !== '20rem') {
+						item.style.setProperty('margin-bottom', '20rem', 'important');
+					}
+				});
+			}
 		} catch (e) {
 			// Catch silently so if YouTube changes a selector, the master script doesn't die
 		}

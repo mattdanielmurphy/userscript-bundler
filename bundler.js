@@ -167,9 +167,9 @@ try {
 const __BUILD_ID__ = "${buildId}";
 
 `
-
 		// Step 3: Iterative wrapping - process each manifest entry
 		const processedManifest = []
+		const allGrants = new Set()
 
 		for (let i = 0; i < manifest.length; i++) {
 			const entry = manifest[i]
@@ -181,9 +181,6 @@ const __BUILD_ID__ = "${buildId}";
 
 			console.log(`📦 Processing script ${i + 1}/${manifest.length}: ${entry.file}`)
 
-			// Generate unique, safe function name
-			const functionName = `script_func_${i}`
-
 			// Read source file content
 			const sourcePath = path.join(USERSCRIPTS_DIR, entry.file)
 
@@ -193,33 +190,50 @@ const __BUILD_ID__ = "${buildId}";
 			}
 
 			const sourceContent = fs.readFileSync(sourcePath, "utf8")
+			
+			// Enhanced parsing for grants and run-at
+			const grantMatches = sourceContent.match(/\/\/\s*@grant\s+(.+)$/gm) || []
+			grantMatches.forEach(m => {
+				const grant = m.match(/\/\/\s*@grant\s+(.+)$/)[1].trim()
+				if (grant !== 'none') allGrants.add(grant)
+			})
 
-			// Wrap content into function definition template with DOM ready logic
-			const wrappedFunction = `const ${functionName} = () => {
-    // Wait for DOM to be ready before executing
+			const runAtMatch = sourceContent.match(/\/\/\s*@run-at\s+(.+)$/m)
+			const runAt = runAtMatch ? runAtMatch[1].trim() : 'document-idle'
+
+			// Generate unique, safe function name
+			const functionName = `script_func_${i}`
+
+			// Wrap content into function definition template
+			// Only wrap in DOM readiness check if not document-start
+			let wrappedFunction = ""
+			if (runAt === 'document-start') {
+				wrappedFunction = `const ${functionName} = () => {
+    console.log("🚀 [Bundler] Executing ${entry.file} immediately (@run-at document-start)");
+${sourceContent}
+};`
+			} else {
+				wrappedFunction = `const ${functionName} = () => {
+    // Wait for DOM to be ready before executing (@run-at ${runAt})
     const executeScript = () => {
+        console.log("🚀 [Bundler] Executing ${entry.file}");
 ${sourceContent}
     };
     
-    // Check if DOM is already ready
     if (document.readyState === 'loading') {
-        // DOM is still loading, wait for DOMContentLoaded
         document.addEventListener('DOMContentLoaded', executeScript);
     } else {
-        // DOM is already ready, execute immediately
         executeScript();
     }
-};
+};`
+			}
 
-// Expose function to global scope for dispatcher access
-window.${functionName} = ${functionName};
-
-`
+			wrappedFunction += `\n// Expose function to global scope for dispatcher access\nwindow.${functionName} = ${functionName};\n\n`
 
 			// Append wrapped function to bundle
 			bundleCode += wrappedFunction
 
-			// Update processed manifest with function name
+			// Update processed manifest
 			processedManifest.push({
 				functionName: functionName,
 				matches: entry.matches,
@@ -227,70 +241,51 @@ window.${functionName} = ${functionName};
 				name: entry.name,
 			})
 
-			console.log(`✅ Wrapped ${entry.file} as ${functionName}`)
+			console.log(`✅ Wrapped ${entry.file} as ${functionName} (run-at: ${runAt})`)
 		}
 
 		// Step 4: Append execution logic (Dispatcher)
 		console.log("🔧 Adding execution dispatcher...")
 
 		const dispatcherCode = `
-// Execution Dispatcher - Wait for DOM ready before URL matching
+// Execution Dispatcher
 (function() {
     'use strict';
     
-    
-    /**
-     * Simple pattern matching function
-     * Checks if window.location.href contains any of the pattern strings in the array
-     * @param {Array} matchPatterns - The patterns to match against the URL
-     * @returns {boolean} - True if any pattern is found in URL
-     */
     function matchesPattern(matchPatterns) {
         if (!Array.isArray(matchPatterns)) matchPatterns = [matchPatterns];
-        return matchPatterns.some(pattern => pattern === '*' || window.location.href.includes(pattern));
+        const currentUrl = window.location.href;
+        return matchPatterns.some(pattern => {
+            if (pattern === '*') return true;
+            // Simple match: check if pattern exists in URL
+            // This could be improved to handle proper userscript wildcards
+            return currentUrl.includes(pattern);
+        });
     }
     
-    /**
-     * Execute the dispatcher logic
-     */
     function executeDispatcher() {
-        // Processed manifest array with function names
         const processedManifest = ${JSON.stringify(processedManifest, null, 4)};
         
-        
-        // Iterate over manifest and execute matching scripts
-        processedManifest.forEach((entry, index) => {
+        processedManifest.forEach((entry) => {
             try {
-                const urlMatches = matchesPattern(entry.matches);
-                
-                if (urlMatches) {
-                    console.log(\`"\${entry.name}" script loaded because it matches the URL pattern(s) [\${entry.matches.join(', ')}]\`);
-                    
-                    // Call the corresponding function
+                if (matchesPattern(entry.matches)) {
                     if (typeof window[entry.functionName] === 'function') {
                         window[entry.functionName]();
                     } else {
-                        console.error(\`❌ Function \${entry.functionName} not found or not callable\`);
+                        console.error(\`❌ Function \${entry.functionName} not found\`);
                     }
                 }
             } catch (error) {
-                console.error(\`❌ Error executing "\${entry.name}" (\${entry.functionName}):\`, error);
+                console.error(\`❌ Error in \${entry.name}:\`, error);
             }
         });
-        
     }
     
-    // Wait for DOM to be ready before executing dispatcher
-    if (document.readyState === 'loading') {
-        // DOM is still loading, wait for DOMContentLoaded
-        document.addEventListener('DOMContentLoaded', executeDispatcher);
-    } else {
-        // DOM is already ready, execute immediately
-        executeDispatcher();
-    }
+    // Dispatcher itself should run early to catch document-start scripts
+    executeDispatcher();
 })();
 } catch (e) {
-    console.error("❌ [Bundler] Critical Error executing bundle:", e);
+    console.error("❌ [Bundler] Critical Error:", e);
 }
 `
 
@@ -300,31 +295,26 @@ window.${functionName} = ${functionName};
 		console.log(`💾 Writing bundle to: ${OUTPUT_FILE}`)
 		fs.writeFileSync(OUTPUT_FILE, bundleCode, "utf8")
 
-		// Get file size for reporting
 		const stats = fs.statSync(OUTPUT_FILE)
-		const fileSizeKB = (stats.size / 1024).toFixed(2)
-
 		console.log("🎉 Bundling completed successfully!")
-		console.log(`📊 Bundle statistics:`)
-		console.log(`   - Output file: ${OUTPUT_FILE}`)
-		console.log(`   - File size: ${fileSizeKB} KB`)
-		console.log(`   - Scripts processed: ${processedManifest.length}`)
-		console.log(`   - Generated functions: ${processedManifest.map((e) => e.functionName).join(", ")}`)
+		console.log(`📊 Stats: ${(stats.size / 1024).toFixed(2)} KB, ${processedManifest.length} scripts`)
 
 		// Display usage instructions
 		const absoluteBundlePath = path.resolve(OUTPUT_FILE)
-		console.log("\n📖 Usage Instructions:")
-		console.log("1. Install the generated userscript_bundle.js in your userscript manager")
-		console.log("2. Create a master userscript with the following content:")
-		console.log("")
+		console.log("\n📖 Master Userscript Configuration:")
+		console.log("---------------------------------------")
 		console.log("// ==UserScript==")
-		console.log("// @name         Local Userscript Dynamic Loader")
+		console.log("// @name         Local Userscript Bundle Loader")
 		console.log("// @match        *://*/*")
-		console.log("// @grant        none")
 		console.log("// @run-at       document-start")
+		Array.from(allGrants).sort().forEach(grant => {
+			console.log(`// @grant        ${grant}`)
+		})
+		if (allGrants.size === 0) console.log("// @grant        none")
 		console.log(`// @require      file://${absoluteBundlePath}`)
 		console.log("// ==/UserScript==")
-		console.log("")
+		console.log("---------------------------------------")
+		console.log("⚠️ Make sure to update your loader script in Tampermonkey with the grants above!")
 		console.log("3. The bundle will automatically detect the current page URL and execute the appropriate scripts")
 	} catch (error) {
 		console.error("❌ Bundling failed:", error.message)

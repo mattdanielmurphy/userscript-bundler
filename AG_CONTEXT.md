@@ -11,11 +11,10 @@ A tool for bundling userscripts, likely with a watcher and auto-bundling capabil
 
 ## Conventions
 - **Conventions**: Added `showToast` utility for non-blocking notifications; Uses `mv` instead of `rm` for recovery.
-- **Sync**: `userscript_bundle.js` is strictly ignored and untracked to prevent build artifacts in Git.
-- **Durable Knowledge**: Update `AG_CONTEXT.md` with repo changes.
-- **Structure**: Userscripts live in `userscripts/`.
 - **Bundling**: `userscript_bundle.js` is loaded via `file://` @require in Tampermonkey.
-  - **Note**: Tampermonkey is preferred over ScriptCat because it fetches the latest bundle on page refresh; ScriptCat required manually toggling the script to bypass caching.
+  - **Feature**: `bundler.js` extracts all `@grant` and `@run-at` headers automatically; instructions are printed to the console.
+  - **Fix**: Scripts with `@run-at document-start` now execute immediately upon bundle load rather than waiting for `DOMContentLoaded`. This ensures menu commands and early page modifications (like the Gemini timestamp script) work correctly.
+- **Sync**: `userscript_bundle.js` is strictly ignored and untracked to prevent build artifacts in Git.
 - YouTube Master Script features: Refresh on unavailable, toggle thumbnails, remove members-only (enhanced for sidebar), hide shorts, hide low view videos (<1k), get transcript button (ultra-fast extraction with smart waiting & innerText fallback), search exclusion, max quality, and ignore number keys (seeking).
 - Perplexity script features: Hides "Upgrade to Max" and "Upgrade now" banners, removes "Try this answer with" advertisements, and **automatically focuses the input field when a new thread is created**.
 - TorrentMac script: Removes fake "Download Now" buttons by text content.

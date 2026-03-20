@@ -44,7 +44,8 @@
 				f.setAttribute("mozallowfullscreen", "true")
 				f.setAttribute("msallowfullscreen", "true")
 				let allow = f.getAttribute("allow") || ""
-				if (!allow.includes("fullscreen")) f.setAttribute("allow", (allow ? allow + "; " : "") + "fullscreen")
+				if (!allow.includes("fullscreen"))
+					f.setAttribute("allow", (allow ? allow + "; " : "") + "fullscreen")
 			})
 		}
 
@@ -66,14 +67,22 @@
 
 			console.log(`📥 [Coordinator] FS Request from ${event.origin}`)
 			const senderFrame = findSenderFrame(document, event.source)
-			const isNative = !!(document.fullscreenElement || document.webkitFullscreenElement)
+			const isNative = !!(
+				document.fullscreenElement || document.webkitFullscreenElement
+			)
 			const isWinFS = window.innerHeight >= window.screen.height - 10
 
-			console.log(`   - Sender Found: ${!!senderFrame}, NativeFS: ${isNative}, WinFS: ${isWinFS}`)
+			console.log(
+				`   - Sender Found: ${!!senderFrame}, NativeFS: ${isNative}, WinFS: ${isWinFS}`,
+			)
 
 			if (senderFrame) {
-				const isPseudo = senderFrame.classList.contains("yt-unblocker-pseudo-fs")
-				const isCurrentlyFullscreen = document.fullscreenElement === senderFrame || document.webkitFullscreenElement === senderFrame
+				const isPseudo = senderFrame.classList.contains(
+					"yt-unblocker-pseudo-fs",
+				)
+				const isCurrentlyFullscreen =
+					document.fullscreenElement === senderFrame ||
+					document.webkitFullscreenElement === senderFrame
 
 				// 1. If currently in Pseudo-FS, exit it.
 				if (isPseudo) {
@@ -99,7 +108,8 @@
 
 				// 3. Try to Enter Native FS with a verification fallback + Timeout Race
 				console.log("🚀 [Coordinator] Attempting Native FS...")
-				const req = senderFrame.requestFullscreen || senderFrame.webkitRequestFullscreen
+				const req =
+					senderFrame.requestFullscreen || senderFrame.webkitRequestFullscreen
 				let nativeFailed = false
 
 				if (req) {
@@ -107,21 +117,33 @@
 						console.log(">> [Coordinator] Entering Native FS try block...")
 
 						// Create a timeout promise that rejects after 50ms
-						const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("FS_TIMEOUT")), 50))
+						const timeoutPromise = new Promise((_, reject) =>
+							setTimeout(() => reject(new Error("FS_TIMEOUT")), 50),
+						)
 
 						// Race the actual request against the timeout
 						await Promise.race([req.call(senderFrame), timeoutPromise])
 
-						console.log(">> [Coordinator] Native FS Promise Resolved. Verifying...")
+						console.log(
+							">> [Coordinator] Native FS Promise Resolved. Verifying...",
+						)
 
 						// Verify success after a short delay
 						setTimeout(() => {
 							console.log(">> [Coordinator] Verification timeout running.")
-							const currentFS = document.fullscreenElement || document.webkitFullscreenElement
-							console.log(">> [Coordinator] Verification: CurrentFS is", currentFS, "Expected:", senderFrame)
+							const currentFS =
+								document.fullscreenElement || document.webkitFullscreenElement
+							console.log(
+								">> [Coordinator] Verification: CurrentFS is",
+								currentFS,
+								"Expected:",
+								senderFrame,
+							)
 
 							if (currentFS !== senderFrame) {
-								console.warn("⚠️ [Coordinator] Verification FAILED. Falling back to Pseudo-FS.")
+								console.warn(
+									"⚠️ [Coordinator] Verification FAILED. Falling back to Pseudo-FS.",
+								)
 								enablePseudoFS()
 							} else {
 								console.info("✅ [Coordinator] Native FS Verified Active")
@@ -129,19 +151,25 @@
 						}, 250)
 					} catch (err) {
 						if (err.message === "FS_TIMEOUT") {
-							console.warn("⚠️ [Coordinator] Native FS Request TIMED OUT (Browser didn't respond). Engaging Pseudo-FS.")
+							console.warn(
+								"⚠️ [Coordinator] Native FS Request TIMED OUT (Browser didn't respond). Engaging Pseudo-FS.",
+							)
 						} else {
 							console.error("❌ [Coordinator] Native FS Promise Rejected:", err)
 						}
 						nativeFailed = true
 					}
 				} else {
-					console.warn("❌ [Coordinator] requestFullscreen API missing on frame")
+					console.warn(
+						"❌ [Coordinator] requestFullscreen API missing on frame",
+					)
 					nativeFailed = true
 				}
 
 				if (nativeFailed) {
-					console.log("🚀 [Coordinator] Native FS unavailable/failed/timed-out. Engaging Pseudo-FS.")
+					console.log(
+						"🚀 [Coordinator] Native FS unavailable/failed/timed-out. Engaging Pseudo-FS.",
+					)
 					enablePseudoFS()
 				}
 
@@ -151,8 +179,11 @@
 					console.log("   - [Coordinator] Pseudo-FS applied to frame.")
 				}
 			} else {
-				console.log("🚀 [Coordinator] Sender not direct child (or not found), bubbling up...")
-				if (window !== window.top) window.parent.postMessage({ type: "TOGGLE_FS" }, "*")
+				console.log(
+					"🚀 [Coordinator] Sender not direct child (or not found), bubbling up...",
+				)
+				if (window !== window.top)
+					window.parent.postMessage({ type: "TOGGLE_FS" }, "*")
 			}
 		})
 
@@ -161,7 +192,12 @@
 
 		const checkFullscreenState = () => {
 			const isWinFS = window.innerHeight >= window.screen.height - 10
-			const isNativeFS = !!(document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement)
+			const isNativeFS = !!(
+				document.fullscreenElement ||
+				document.webkitFullscreenElement ||
+				document.mozFullScreenElement ||
+				document.msFullscreenElement
+			)
 
 			// LOGIC: If we WENT from Fullscreen (Physical or Native) to Windowed, force cleanup
 			// This handles the case where Parent Iframe was Fullscreen, user pressed Esc, and browser exited.
@@ -172,7 +208,13 @@
 					// AND (we just shrank from physical FS OR we know native is gone)
 					// We verify isNativeFS is false to avoid killing valid native FS if resize happens oddly
 					if (!isNativeFS && !isWinFS) {
-						console.log("🔓 [Coordinator] Detected exit from Fullscreen state (WinFS: " + wasWinFS + "->" + isWinFS + "). Cleaning up.")
+						console.log(
+							"🔓 [Coordinator] Detected exit from Fullscreen state (WinFS: " +
+								wasWinFS +
+								"->" +
+								isWinFS +
+								"). Cleaning up.",
+						)
 						pseudo.classList.remove("yt-unblocker-pseudo-fs")
 						document.body.classList.remove("yt-unblocker-parent-fs")
 					}
@@ -183,8 +225,15 @@
 
 		// Listeners
 		window.addEventListener("resize", checkFullscreenState)
-		const fsEvents = ["fullscreenchange", "webkitfullscreenchange", "mozfullscreenchange", "MSFullscreenChange"]
-		fsEvents.forEach((evt) => document.addEventListener(evt, checkFullscreenState))
+		const fsEvents = [
+			"fullscreenchange",
+			"webkitfullscreenchange",
+			"mozfullscreenchange",
+			"MSFullscreenChange",
+		]
+		fsEvents.forEach((evt) =>
+			document.addEventListener(evt, checkFullscreenState),
+		)
 
 		// Also Keep Escape Key Trap for Windowed Mode (Scenario 1) where browser doesn't swallow it
 		window.addEventListener(
@@ -193,7 +242,9 @@
 				if (e.key === "Escape" || e.code === "Escape") {
 					const pseudo = document.querySelector(".yt-unblocker-pseudo-fs")
 					if (pseudo) {
-						console.log("🔓 [Coordinator] Escape key trapped. Exiting Pseudo-FS.")
+						console.log(
+							"🔓 [Coordinator] Escape key trapped. Exiting Pseudo-FS.",
+						)
 						// e.preventDefault() // Try to prevent, though browser takes precedence in native FS
 						// We don't stop propagation here to allow parent to receive it if needed (e.g. to exit its own FS)
 						pseudo.classList.remove("yt-unblocker-pseudo-fs")
@@ -208,7 +259,10 @@
 		setTimeout(checkFullscreenState, 500)
 
 		unlockAndCoordinate()
-		new MutationObserver(unlockAndCoordinate).observe(document.body, { childList: true, subtree: true })
+		new MutationObserver(unlockAndCoordinate).observe(document.body, {
+			childList: true,
+			subtree: true,
+		})
 	}
 
 	/**
@@ -250,77 +304,65 @@
 			nativeBtn.dataset.hijacked = "true"
 		}
 
-		// --- CLICK DEBOUNCING ---
-		let clickTimer = null
-		const CLICK_DELAY = 250
-		const reDispatchedEvents = new WeakSet()
-
-		window.addEventListener(
-			"click",
-			(e) => {
-				if (reDispatchedEvents.has(e)) return
-				const isControl = e.target.closest(".ytp-chrome-controls") || e.target.closest(".ytp-settings-menu")
-				const isInPlayer = e.target.closest(".html5-video-player") || e.target.closest("video")
-
-				if (isInPlayer && !isControl) {
-					e.stopImmediatePropagation()
-					e.preventDefault()
-
-					if (clickTimer) {
-						console.log("🚀 [Hijacker] Double-click confirmed. Toggling Fullscreen...")
-						clearTimeout(clickTimer)
-						clickTimer = null
-						console.log("📤 [Hijacker] Sending TOGGLE_FS to parent via dblclick...")
-						window.parent.postMessage({ type: "TOGGLE_FS" }, "*")
-					} else {
-						clickTimer = setTimeout(() => {
-							console.log("🎬 [Hijacker] Single-click confirmed. Re-dispatching...")
-							clickTimer = null
-
-							try {
-								const newEvent = new MouseEvent("click", {
-									bubbles: true,
-									cancelable: true,
-									view: e.view || window,
-									clientX: e.clientX,
-									clientY: e.clientY,
-								})
-								reDispatchedEvents.add(newEvent)
-								e.target.dispatchEvent(newEvent)
-							} catch (err) {
-								console.error("❌ [Hijacker] MouseEvent dispatch failed:", err)
-								// Fallback: If MouseEvent fails, at least try a generic Event
-								const fallback = new Event("click", { bubbles: true, cancelable: true })
-								reDispatchedEvents.add(fallback)
-								e.target.dispatchEvent(fallback)
-							}
-						}, CLICK_DELAY)
-					}
-				}
-			},
-			true,
-		)
-
+		// --- DOUBLE-CLICK FULLSCREEN ---
+		// We do NOT intercept single clicks at all — doing so and re-dispatching a
+		// synthetic event breaks play/pause because re-dispatched events have isTrusted=false.
+		// Double-click is detected cleanly via the native dblclick event.
 		window.addEventListener(
 			"dblclick",
 			(e) => {
-				const isControl = e.target.closest(".ytp-chrome-controls") || e.target.closest(".ytp-settings-menu")
-				const isInPlayer = e.target.closest(".html5-video-player") || e.target.closest("video")
+				const isControl =
+					e.target.closest(".ytp-chrome-controls") ||
+					e.target.closest(".ytp-settings-menu")
+				const isInPlayer =
+					e.target.closest(".html5-video-player") || e.target.closest("video")
 				if (isInPlayer && !isControl) {
 					e.stopImmediatePropagation()
 					e.preventDefault()
+					console.log("📤 [Hijacker] Sending TOGGLE_FS to parent via dblclick...")
+					window.parent.postMessage({ type: "TOGGLE_FS" }, "*")
 				}
 			},
 			true,
 		)
 
+		// --- PLAYER OVERLAY REMOVAL ---
+		// Removes the related-videos overlays shown when paused or at the end of playback.
+		function cleanUpPlayerOverlays() {
+			// 1. End-screen related videos videowall
+			const endscreen = document.querySelector(".html5-endscreen")
+			if (endscreen) {
+				endscreen.remove()
+				console.log("🧹 [Hijacker] Removed end-screen overlay.")
+			}
+
+			// 2. Pause-screen "More Videos" shelf
+			const pauseOverlay = document.querySelector(".ytp-pause-overlay-container")
+			if (pauseOverlay) {
+				pauseOverlay.remove()
+				console.log("🧹 [Hijacker] Removed pause-screen overlay.")
+			}
+		}
+
+		new MutationObserver(() => {
+			hijackNativeButton()
+			cleanUpPlayerOverlays()
+		}).observe(document.body, {
+			childList: true,
+			subtree: true,
+		})
+
+		// Run immediately in case elements are already present
 		hijackNativeButton()
-		new MutationObserver(hijackNativeButton).observe(document.body, { childList: true, subtree: true })
+		cleanUpPlayerOverlays()
 
 		document.addEventListener(
 			"keydown",
 			(e) => {
-				if ((e.key === "f" || e.key === "F") && !["INPUT", "TEXTAREA"].includes(document.activeElement.tagName)) {
+				if (
+					(e.key === "f" || e.key === "F") &&
+					!["INPUT", "TEXTAREA"].includes(document.activeElement.tagName)
+				) {
 					e.stopImmediatePropagation()
 					e.preventDefault()
 					console.log("📤 [Hijacker] Sending TOGGLE_FS to parent via Hotkey...")
