@@ -262,12 +262,22 @@
 		this.addEventListener("readystatechange", () => {
 			const url = (this._url || "").toString()
 			if (!url.includes("batchexecute")) return
-			const res = this.responseText
+
+			let res
+			try {
+				if (this.responseType === "" || this.responseType === "text") {
+					res = this.responseText
+				}
+			} catch (e) {
+				return
+			}
 			if (!res) return
-			if (isSidebarUrl(url) && this.readyState === 4)
-				extractSidebarTimestamps(res)
-			if (this.readyState >= 3 && res.length > 500)
-				extractMessageTimestamps(res)
+			if (isSidebarUrl(url)) {
+				if (this.readyState === 4) extractSidebarTimestamps(res)
+			} else {
+				if (this.readyState >= 3 && res.length > 500)
+					extractMessageTimestamps(res)
+			}
 		})
 		return _xhrSend.apply(this, arguments)
 	}
@@ -295,14 +305,21 @@
 			const hexIds = res.match(/[a-f0-9]{16}/g) || []
 			const timestamps = res.match(/\b17\d{8}\b/g) || []
 			if (!hexIds.length || !timestamps.length) return
-			console.log(
-				`[GMT] XHR message: ${hexIds.length} IDs, ${timestamps.length} timestamps`,
-			)
+
+			let added = 0
 			hexIds.forEach((id, i) => {
-				if (!idToTimeMap.has(id))
+				if (!idToTimeMap.has(id)) {
 					idToTimeMap.set(id, parseInt(timestamps[i] || timestamps[0]))
+					added++
+				}
 			})
-			injectHeuristicTimes()
+
+			if (added > 0) {
+				console.log(
+					`[GMT] XHR message: processed ${hexIds.length} IDs, added ${added} new timestamps`,
+				)
+				injectHeuristicTimes()
+			}
 		} catch (e) {
 			console.warn("[GMT] message ts error:", e)
 		}
@@ -311,11 +328,17 @@
 	function injectHeuristicTimes() {
 		const pending = []
 		idToTimeMap.forEach((unix, id) => {
-			const el =
+			let el =
 				document.getElementById(id) ||
 				document
 					.querySelector(`[jslog*="${id}"]`)
 					?.closest(".conversation-container")
+			if (
+				el &&
+				!el.closest(".conversation-container, user-query, model-response")
+			) {
+				el = null
+			}
 			if (el && !el.querySelector(".gm-timestamp") && !exactContainers.has(el))
 				pending.push({ container: el, unix })
 		})
@@ -348,6 +371,7 @@
 
 	function processEmbeddedTimestamps() {
 		const nodes = document.querySelectorAll("p.query-text-line")
+		if (nodes.length === 0) return
 		console.log(`[GMT] scan: ${nodes.length} p.query-text-line node(s)`)
 		nodes.forEach((p, i) => {
 			const raw = p.innerText || p.textContent || ""
@@ -446,8 +470,6 @@
 				if (!item.hasAttribute("data-gwd-hover-bound")) {
 					const blockNative = (e) => e.stopImmediatePropagation()
 					item.addEventListener("mouseover", blockNative, true)
-					item.addEventListener("focus", blockNative, true)
-					item.addEventListener("blur", blockNative, true)
 					item.addEventListener(
 						"mouseenter",
 						() => item.removeAttribute("mattooltip"),
