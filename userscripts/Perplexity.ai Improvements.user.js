@@ -491,7 +491,9 @@
 		if (verbose) {
 			console.log(`${PREFIX} Scan triggered by: ${triggerType}`)
 			console.log(`${PREFIX} Found ${buttons.length} buttons`)
-			console.log(`${PREFIX} Current selection: "${window.getSelection().toString().slice(0, 50)}"`)
+			console.log(
+				`${PREFIX} Current selection: "${window.getSelection().toString().slice(0, 50)}"`,
+			)
 		}
 
 		for (let i = 0; i < buttons.length; i++) {
@@ -508,7 +510,9 @@
 					continue
 				}
 
-				console.log(`${PREFIX} ✅ FOUND "Check sources" button! Adding Google Search...`)
+				console.log(
+					`${PREFIX} ✅ FOUND "Check sources" button! Adding Google Search...`,
+				)
 
 				// Clone the button and modify it
 				const googleButton = button.cloneNode(true)
@@ -533,7 +537,11 @@
 					const selection = window.getSelection().toString().trim()
 					if (selection) {
 						console.log(`${PREFIX} Opening Google search for: "${selection}"`)
-						window.open("https://www.google.com/search?q=" + encodeURIComponent(selection), "_blank")
+						window.open(
+							"https://www.google.com/search?q=" +
+								encodeURIComponent(selection),
+							"_blank",
+						)
 					} else {
 						console.log(`${PREFIX} No text selected`)
 					}
@@ -552,10 +560,14 @@
 	function setupListeners() {
 		console.log(`${PREFIX} Setting up event listeners...`)
 		console.log(`${PREFIX} - document.readyState: ${document.readyState}`)
-		console.log(`${PREFIX} - document.body: ${document.body ? "exists" : "null"}`)
+		console.log(
+			`${PREFIX} - document.body: ${document.body ? "exists" : "null"}`,
+		)
 
 		if (!document.body) {
-			console.warn(`${PREFIX} document.body not ready yet, retrying in 100ms...`)
+			console.warn(
+				`${PREFIX} document.body not ready yet, retrying in 100ms...`,
+			)
 			setTimeout(setupListeners, 100)
 			return
 		}
@@ -584,8 +596,14 @@
 		const observer = new MutationObserver(function (mutations) {
 			for (let mutation of mutations) {
 				for (let node of mutation.addedNodes) {
-					if (node.nodeType === Node.ELEMENT_NODE && node.textContent && node.textContent.includes("Check sources")) {
-						console.log(`${PREFIX} MutationObserver detected "Check sources" button`)
+					if (
+						node.nodeType === Node.ELEMENT_NODE &&
+						node.textContent &&
+						node.textContent.includes("Check sources")
+					) {
+						console.log(
+							`${PREFIX} MutationObserver detected "Check sources" button`,
+						)
 						setTimeout(() => addGoogleSearchButton("mutation"), 100)
 						return
 					}
@@ -612,7 +630,9 @@
 			console.log(`${PREFIX} 🧪 Manual test triggered!`)
 			addGoogleSearchButton("manual")
 		}
-		console.log(`${PREFIX} ✅ Setup complete! Try window._testGoogleSearch() to test manually`)
+		console.log(
+			`${PREFIX} ✅ Setup complete! Try window._testGoogleSearch() to test manually`,
+		)
 	}
 
 	// =============================================================================
@@ -628,7 +648,9 @@
 			setTimeout(setupListeners, 1000)
 		})
 	} else {
-		console.log(`${PREFIX} Document still loading, waiting for DOMContentLoaded...`)
+		console.log(
+			`${PREFIX} Document still loading, waiting for DOMContentLoaded...`,
+		)
 		document.addEventListener("DOMContentLoaded", function () {
 			console.log(`${PREFIX} DOMContentLoaded fired, waiting 500ms...`)
 			setTimeout(setupListeners, 500)
@@ -710,3 +732,140 @@
 // 	// Run the remover every 500ms in case the banner reappears via SPA navigation
 // 	setInterval(removeBanners, 500)
 // })()
+
+//!	9. Rate Limit Display
+;(() => {
+	"use strict"
+
+	const BADGE_ID = "pplx-rate-limit-badge"
+	const REFRESH_MS = 60_000
+
+	async function fetchLimits() {
+		const r = await fetch("/rest/rate-limit/all")
+		if (!r.ok) throw new Error(`HTTP ${r.status}`)
+		const d = await r.json()
+		return {
+			pro: d.remaining_pro ?? "?",
+			research: d.remaining_research ?? "?",
+		}
+	}
+
+	function buildBadge() {
+		const wrap = document.createElement("div")
+		wrap.id = BADGE_ID
+		wrap.title = "Pro / Research queries remaining — click to refresh"
+		Object.assign(wrap.style, {
+			display: "inline-flex",
+			alignItems: "center",
+			gap: "5px",
+			fontSize: "12px",
+			lineHeight: "1",
+			color: "var(--text-quiet, #888)",
+			fontFamily: "inherit",
+			height: "32px",
+			padding: "0 8px",
+			borderRadius: "999px",
+			cursor: "pointer",
+			userSelect: "none",
+			whiteSpace: "nowrap",
+			transition: "background 0.2s",
+		})
+
+		wrap.onmouseenter = () =>
+			(wrap.style.background = "var(--bg-quiet, rgba(0,0,0,0.06))")
+		wrap.onmouseleave = () => (wrap.style.background = "transparent")
+
+		// ⚡ Pro  ·  🔍 Research
+		wrap.innerHTML = `
+      <span title="Pro queries remaining" style="display:inline-flex;align-items:center;gap:3px;">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+        </svg>
+        <span id="pplx-rl-pro">…</span>
+      </span>
+      <span style="opacity:.35;font-size:10px;">·</span>
+      <span title="Research queries remaining" style="display:inline-flex;align-items:center;gap:3px;">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+        </svg>
+        <span id="pplx-rl-research">…</span>
+      </span>
+    `
+
+		wrap.addEventListener("click", async () => {
+			setValues("…", "…")
+			try {
+				const { pro, research } = await fetchLimits()
+				setValues(pro, research)
+			} catch {
+				setValues("!", "!")
+			}
+		})
+
+		return wrap
+	}
+
+	function setValues(pro, research) {
+		const p = document.getElementById("pplx-rl-pro")
+		const r = document.getElementById("pplx-rl-research")
+		if (p) p.textContent = pro
+		if (r) r.textContent = research
+	}
+
+	function getModelButton() {
+		// Anchor to the custom data attr — much more stable than class hashes
+		const root = document.querySelector('[data-ask-input-container="true"]')
+		if (!root) return null
+		// Direct child button with aria-haspopup="menu" inside the justify-self-end row
+		return (
+			root.querySelector(
+				'div[class*="justify-self-end"] > button[aria-haspopup="menu"]',
+			) ?? null
+		)
+	}
+
+	async function tryInject() {
+		if (document.getElementById(BADGE_ID)) return
+		const modelBtn = getModelButton()
+		if (!modelBtn) return
+
+		const badge = buildBadge()
+		modelBtn.parentElement.insertBefore(badge, modelBtn)
+
+		try {
+			const { pro, research } = await fetchLimits()
+			setValues(pro, research)
+		} catch (e) {
+			console.warn("[pplx-rate-limit]", e)
+			setValues("?", "?")
+		}
+	}
+
+	// React can blow away the DOM on re-renders; re-inject if badge disappears
+	let pending = false
+	const mo = new MutationObserver(() => {
+		if (pending || document.getElementById(BADGE_ID)) return
+		pending = true
+		requestAnimationFrame(() =>
+			tryInject().finally(() => {
+				pending = false
+			}),
+		)
+	})
+	mo.observe(document.body, { childList: true, subtree: true })
+
+	// Boot
+	tryInject()
+
+	// Silent background refresh
+	setInterval(async () => {
+		try {
+			const { pro, research } = await fetchLimits()
+			setValues(pro, research)
+		} catch {
+			/* silent — don't want console noise on background ticks */
+		}
+	}, REFRESH_MS)
+})()
