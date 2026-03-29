@@ -600,16 +600,32 @@
 				'.ql-editor[contenteditable="true"]',
 			)
 			if (!editor) return
-			const currentText = (editor.innerText || "").trim()
-			if (!currentText || EMBED_RE.test(currentText)) return
+
+			// Avoid the read-replace cycle that can double newlines in contenteditable
+			const currentText = editor.innerText || ""
+			if (!currentText.trim() || EMBED_RE.test(currentText)) return
+
 			e.stopImmediatePropagation()
 			e.preventDefault()
-			const stamped = `${getNowTimestamp()} ${currentText}`
-			console.log(`[GMT] prepending: "${stamped.slice(0, 80)}"`)
+
+			// Prepend timestamp by moving cursor to start and inserting text
 			editor.focus()
-			document.execCommand("selectAll", false, null)
-			document.execCommand("insertText", false, stamped)
-			setTimeout(() => btn.click(), 80)
+			const sel = window.getSelection()
+			const range = document.createRange()
+			range.setStart(editor, 0)
+			range.collapse(true)
+			sel.removeAllRanges()
+			sel.addRange(range)
+
+			const timestamp = getNowTimestamp() + " "
+			document.execCommand("insertText", false, timestamp)
+			console.log(`[GMT] prepended: "${timestamp}"`)
+
+			// Re-trigger click after a short delay
+			setTimeout(() => {
+				const freshBtn = e.target.closest('button[aria-label="Send message"]')
+				if (freshBtn) freshBtn.click()
+			}, 80)
 		},
 		true,
 	)

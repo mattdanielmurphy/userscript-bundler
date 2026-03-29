@@ -270,7 +270,12 @@
 	 */
 	if (isYouTube) {
 		function hijackNativeButton() {
-			const nativeBtn = document.querySelector(".ytp-fullscreen-button")
+			// Support both the old desktop player (.ytp-fullscreen-button)
+			// and the new mobile (ytm) embed player (.fullscreen-icon button).
+			const nativeBtn =
+				document.querySelector(".ytp-fullscreen-button") ||
+				document.querySelector("button.fullscreen-icon") ||
+				document.querySelector("button[aria-label='Enter full screen']")
 			if (!nativeBtn) return
 
 			const updateIconColor = (color) => {
@@ -284,7 +289,7 @@
 
 			if (nativeBtn.dataset.hijacked) return
 
-			console.log("🎯 Native YouTube FS button found. Hijacking...")
+			console.log("🎯 Native YouTube FS button found. Hijacking...", nativeBtn)
 			nativeBtn.addEventListener("mouseenter", () => updateIconColor("#ffffff"))
 			nativeBtn.addEventListener("mouseleave", () => updateIconColor("#eeeeee"))
 			nativeBtn.addEventListener("focus", () => updateIconColor("#ffffff"))
@@ -311,11 +316,20 @@
 		window.addEventListener(
 			"dblclick",
 			(e) => {
+				// Exclude control bars from both desktop and mobile (ytm) players
 				const isControl =
 					e.target.closest(".ytp-chrome-controls") ||
-					e.target.closest(".ytp-settings-menu")
+					e.target.closest(".ytp-settings-menu") ||
+					e.target.closest("player-bottom-controls") ||
+					e.target.closest("player-top-controls") ||
+					e.target.closest("player-middle-controls") ||
+					e.target.closest("yt-progress-bar")
+				// Match both desktop (.html5-video-player) and mobile (#player-controls, #player-control-overlay)
 				const isInPlayer =
-					e.target.closest(".html5-video-player") || e.target.closest("video")
+					e.target.closest(".html5-video-player") ||
+					e.target.closest("#player-control-overlay") ||
+					e.target.closest("#player-controls") ||
+					e.target.closest("video")
 				if (isInPlayer && !isControl) {
 					e.stopImmediatePropagation()
 					e.preventDefault()
@@ -329,18 +343,25 @@
 		// --- PLAYER OVERLAY REMOVAL ---
 		// Removes the related-videos overlays shown when paused or at the end of playback.
 		function cleanUpPlayerOverlays() {
-			// 1. End-screen related videos videowall
+			// 1a. Desktop: End-screen related videos videowall
 			const endscreen = document.querySelector(".html5-endscreen")
 			if (endscreen) {
 				endscreen.remove()
-				console.log("🧹 [Hijacker] Removed end-screen overlay.")
+				console.log("🧹 [Hijacker] Removed end-screen overlay (desktop).")
 			}
 
-			// 2. Pause-screen "More Videos" shelf
+			// 1b. Mobile (ytm): End-screen recommendations in fullscreen-controls
+			const ytmEndscreen = document.querySelector(".fullscreen-recommendations-wrapper")
+			if (ytmEndscreen) {
+				ytmEndscreen.remove()
+				console.log("🧹 [Hijacker] Removed end-screen overlay (ytm).")
+			}
+
+			// 2a. Desktop: Pause-screen "More Videos" shelf
 			const pauseOverlay = document.querySelector(".ytp-pause-overlay-container")
 			if (pauseOverlay) {
 				pauseOverlay.remove()
-				console.log("🧹 [Hijacker] Removed pause-screen overlay.")
+				console.log("🧹 [Hijacker] Removed pause-screen overlay (desktop).")
 			}
 		}
 

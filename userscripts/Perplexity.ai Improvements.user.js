@@ -854,18 +854,29 @@
 			}),
 		)
 	})
-	mo.observe(document.body, { childList: true, subtree: true })
 
-	// Boot
-	tryInject()
-
-	// Silent background refresh
-	setInterval(async () => {
-		try {
-			const { pro, research } = await fetchLimits()
-			setValues(pro, research)
-		} catch {
-			/* silent — don't want console noise on background ticks */
+	function start() {
+		if (!document.body) {
+			setTimeout(start, 50)
+			return
 		}
-	}, REFRESH_MS)
+		mo.observe(document.body, { childList: true, subtree: true })
+		tryInject()
+
+		// Silent background refresh
+		setInterval(async () => {
+			try {
+				const { pro, research } = await fetchLimits()
+				setValues(pro, research)
+			} catch {
+				/* silent — don't want console noise on background ticks */
+			}
+		}, REFRESH_MS)
+	}
+
+	if (document.readyState === "complete" || document.readyState === "interactive") {
+		start()
+	} else {
+		window.addEventListener("DOMContentLoaded", start)
+	}
 })()

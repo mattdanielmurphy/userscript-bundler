@@ -1,4 +1,4 @@
-i# Project: Userscript Bundler
+# Project: Userscript Bundler
 
 ## Overview
 A tool for bundling userscripts, likely with a watcher and auto-bundling capabilities.
@@ -16,7 +16,7 @@ A tool for bundling userscripts, likely with a watcher and auto-bundling capabil
   - **Fix**: Scripts with `@run-at document-start` now execute immediately upon bundle load rather than waiting for `DOMContentLoaded`. This ensures menu commands and early page modifications (like the Gemini timestamp script) work correctly.
 - **Sync**: `userscript_bundle.js` is strictly ignored and untracked to prevent build artifacts in Git.
 - YouTube Master Script features: Refresh on unavailable, toggle thumbnails, remove members-only (enhanced for sidebar), hide shorts, hide low view videos (<1k), get transcript button (ultra-fast extraction with smart waiting & innerText fallback), search exclusion, max quality, and ignore number keys (seeking).
-- Perplexity script features: Hides "Upgrade to Max" and "Upgrade now" banners, removes "Try this answer with" advertisements, and **automatically focuses the input field when a new thread is created**.
+- **Perplexity**: Rate limit display implementation must wait for `document.body` and handle SPA re-renders via `MutationObserver` to ensure reliable injection when running at `@run-at document-start`. Also hides "Upgrade to Max" and "Upgrade now" banners, removes "Try this answer with" advertisements, and automatically focuses the input field when a new thread is created.
 - TorrentMac script: Removes fake "Download Now" buttons by text content.
 - **Online Learning BC / StudyForge**: YouTube Fullscreen Fix. Uses a "Keymaster + UI" cross-frame messaging architecture to bypass D2L's nested iframe permission restrictions. Includes an 'F' key shortcut.
 - **ContentConnections Enhancements**: Hides whiteboard/menu, adds "Yes (Show Sol.)" and "No (Skip Sol.)" buttons, and automates next steps based on correctness choice. Includes a **Canvas Capture Automation** (triggered by `Opt+D` on PlayerView pages) to automatically seek and download slides as images, and a **Proper Dark Mode** (canvas inversion, iframe background overrides, general CSS theme, and image inversion for consistency). Includes enhanced practice UI buttons and layout fixes for media controls. **Fixed lesson indexing and implemented recursive lesson capture (auto-advancing to the next lesson until unit completion).**

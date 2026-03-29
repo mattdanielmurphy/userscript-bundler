@@ -333,7 +333,7 @@
 
 		// When Yes (.questionSlide__button--correct) is clicked, automatically click ".questionSlide__button--understand"
 		yesBtn.addEventListener("click", (e) => {
-			if (e.isTrusted) {
+			if (e.isTrusted || e.detail === 999) {
 				console.log("[Userscript] Yes (original) clicked -> Auto-clicking Understand")
 				autoClick(".questionSlide__button--understand")
 			}
@@ -349,7 +349,7 @@
 
 		// When No (.questionSlide__button--notCorrect) is clicked, click ".questionSlide__button--showSolution" automatically
 		noBtn.addEventListener("click", (e) => {
-			if (e.isTrusted) {
+			if (e.isTrusted || e.detail === 999) {
 				console.log("[Userscript] No (original) clicked -> Auto-clicking Show Solution")
 				autoClick(".questionSlide__button--showSolution")
 				triggerVideoAutoplay()
@@ -836,6 +836,29 @@
 				}
 			}
 		}
+
+		// 'y' key for "Yes" button
+		if (e.code === "KeyY" && !e.altKey && !e.metaKey && !e.ctrlKey) {
+			let yesBtnRes = findInIframes(window, ".questionSlide__button--correctNoSolution")
+			if (!yesBtnRes.el) {
+				yesBtnRes = findInIframes(window, ".questionSlide__button--correct")
+			}
+			const yesBtn = yesBtnRes.el
+
+			if (yesBtn) {
+				e.preventDefault()
+				console.log("[Userscript] 'y' pressed: clicking Yes button")
+
+				// Dispatch sequence to guarantee framework catches it
+				const clickOpts = { bubbles: true, cancelable: true, detail: 999 }
+				yesBtn.dispatchEvent(new MouseEvent("mousedown", clickOpts))
+				yesBtn.dispatchEvent(new MouseEvent("mouseup", clickOpts))
+				yesBtn.dispatchEvent(new MouseEvent("click", clickOpts))
+			}
+		}
+
+
+
 
 		// Use e.code for physical key detection (KeyD) which is more reliable than e.key with modifiers
 		if (e.altKey && e.code === "KeyD") {
