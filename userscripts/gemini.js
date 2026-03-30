@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Gemini Conversation Timestamps
 // @namespace    http://tampermonkey.net/
-// @version      2.1.0
+// @version      2.2.0
 // @description  Message timestamps + sidebar dates. Auto-prepends timestamps to prompts.
 // @icon         https://www.gstatic.com/lamda/images/gemini_sparkle_aurora_33f86dc0c0257da337c63.svg
 // @match        https://gemini.google.com/*
@@ -631,6 +631,20 @@
 	)
 
 	// ═══════════════════════════════════════════════════════════
+	// TAB TITLE SYNC
+	// ═══════════════════════════════════════════════════════════
+
+	function updateTabTitle() {
+		const titleEl = document.querySelector('[data-test-id="conversation-title"]')
+		if (titleEl) {
+			const newTitle = titleEl.innerText.trim()
+			if (newTitle && document.title !== newTitle) {
+				document.title = newTitle
+			}
+		}
+	}
+
+	// ═══════════════════════════════════════════════════════════
 	// OBSERVERS
 	// ═══════════════════════════════════════════════════════════
 
@@ -645,14 +659,17 @@
 		new MutationObserver(() => {
 			processEmbeddedTimestamps()
 			updateSidebarDOM()
+			updateTabTitle()
 			const url = location.href
 			if (url !== lastUrl) {
 				lastUrl = url
 				updateSidebarDOM()
+				updateTabTitle()
 			}
 		}).observe(document.body, { childList: true, subtree: true })
 		processEmbeddedTimestamps()
 		updateSidebarDOM()
+		updateTabTitle()
 		console.log("[GMT] observers started")
 	}
 
