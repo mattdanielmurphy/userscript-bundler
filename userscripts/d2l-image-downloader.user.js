@@ -2,339 +2,377 @@
 // @name        D2L Image Downloader
 // @namespace   Violentmonkey Scripts
 // @match       https://sd44.onlinelearningbc.com/d2l/*
+// @match       https://sd44.onlinelearningbc.com/content/*
+// @require     https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js
+// @require     https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js
+// @require     https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js
 // @grant       none
-// @version     1.0
+// @version     1.3
 // @author      Antigravity
-// @description Adds a button to download all images in the content area of D2L courses.
+// @description Adds a button to download all images as a ZIP or take a high-res snapshot of D2L content.
 // ==/UserScript==
 
 ;(function () {
 	"use strict"
 
-	// Provided script logic
-	const runDownloadScript = async () => {
-		// 1. Helper function to find the element across Shadow boundaries
-		function findInShadow(selector, root = document) {
-			const el = root.querySelector(selector)
-			if (el) return el
+	const IS_TOP = window === window.top
 
-			const children = root.querySelectorAll("*")
-			for (const child of children) {
-				if (child.shadowRoot) {
-					const found = findInShadow(selector, child.shadowRoot)
-					if (found) return found
-				}
-			}
-			return null
-		}
+	// 1. Helper function to find the element across Shadow boundaries
+	function findInShadow(selector, root = document) {
+		const el = root.querySelector(selector)
+		if (el) return el
 
-		const container = findInShadow(".d2l-html-block-rendered")
-		if (!container) {
-			console.error("Could not find the container .d2l-html-block-rendered")
-			alert("Could not find the content container (.d2l-html-block-rendered).")
-			return
-		}
-
-		// 2. Find all images inside the container
-		const images = Array.from(container.querySelectorAll("img"))
-		console.log(`Found ${images.length} images. Starting download...`)
-
-		if (images.length === 0) {
-			alert("No images found in the content area.")
-			return
-		}
-
-		// 3. Download each image
-		for (let i = 0; i < images.length; i++) {
-			const src = images[i].src
-			try {
-				const response = await fetch(src)
-				const blob = await response.blob()
-				const url = window.URL.createObjectURL(blob)
-
-				const a = document.createElement("a")
-				a.href = url
-				// Extract filename or use a generic one
-				const filename = src.split("/").pop().split("?")[0] || `image-${i}.png`
-				a.download = filename
-
-				document.body.appendChild(a)
-				a.click()
-				document.body.removeChild(a)
-				window.URL.revokeObjectURL(url)
-
-				// Small delay to prevent browser throttling
-				await new Promise((resolve) => setTimeout(resolve, 200))
-			} catch (err) {
-				console.error(`Failed to download ${src}:`, err)
+		const children = root.querySelectorAll("*")
+		for (const child of children) {
+			if (child.shadowRoot) {
+				const found = findInShadow(selector, child.shadowRoot)
+				if (found) return found
 			}
 		}
-
-		console.log("Download process complete.")
+		return null
 	}
 
-	const SCRIPT_TEXT = `(async () => {
-  // 1. Helper function to find the element across Shadow boundaries
-  function findInShadow(selector, root = document) {
-    const el = root.querySelector(selector);
-    if (el) return el;
-    
-    const children = root.querySelectorAll('*');
-    for (const child of children) {
-      if (child.shadowRoot) {
-        const found = findInShadow(selector, child.shadowRoot);
-        if (found) return found;
-      }
-    }
-    return null;
-  }
+	// Helper to find all iframes even inside shadow roots
+	function findIframes(root = document, list = []) {
+		const iframes = Array.from(root.querySelectorAll("iframe"))
+		list.push(...iframes)
 
-  const container = findInShadow('.d2l-html-block-rendered');
-  if (!container) {
-    console.error("Could not find the container .d2l-html-block-rendered");
-    return;
-  }
+		const children = root.querySelectorAll("*")
+		for (const child of children) {
+			if (child.shadowRoot) {
+				findIframes(child.shadowRoot, list)
+			}
+		}
+		return list
+	}
 
-  // 2. Find all images inside the container
-  const images = Array.from(container.querySelectorAll('img'));
-  console.log(\`Found \${images.length} images. Starting download...\`);
+	// Helper to find all images even inside shadow roots
+	function findImages(root = document, list = []) {
+		const imgs = Array.from(root.querySelectorAll("img"))
+		list.push(...imgs)
 
-  // 3. Download each image
-  for (let i = 0; i < images.length; i++) {
-    const src = images[i].src;
-    try {
-      const response = await fetch(src);
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      
-      const a = document.createElement('a');
-      a.href = url;
-      // Extract filename or use a generic one
-      const filename = src.split('/').pop().split('?')[0] || \`image-\${i}.png\`;
-      a.download = filename;
-      
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      window.URL.revokeObjectURL(url);
-      
-      // Small delay to prevent browser throttling
-      await new Promise(resolve => setTimeout(resolve, 200));
-    } catch (err) {
-      console.error(\`Failed to download \${src}:\`, err);
-    }
-  }
-  
-  console.log("Download process complete.");
-})();`
+		const children = root.querySelectorAll("*")
+		for (const child of children) {
+			if (child.shadowRoot) {
+				findImages(child.shadowRoot, list)
+			}
+		}
+		return list
+	}
 
-	// Premium Styles
-	const styles = `
-        #d2l-dl-btn {
-            position: fixed;
-            bottom: 20px;
-            right: 20px;
-            z-index: 2147483647;
-            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
-            color: white;
-            border: 1px solid rgba(255,255,255,0.1);
-            border-radius: 12px;
-            padding: 10px 18px;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            font-weight: 500;
-            font-size: 13px;
-            cursor: pointer;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
-            transition: all 0.2s ease;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            backdrop-filter: blur(10px);
-            opacity: 0.8;
-        }
+	async function getTargetImages() {
+		const candidates = [
+			".d2l-html-block-rendered",
+			".d2l-fileviewer-render-container",
+			"main",
+			'[role="main"]',
+			".d2l-content-container",
+			"#d2l_content",
+			".content-panel",
+			".content-block",
+			".document-container",
+			"#app",
+		]
 
-        #d2l-dl-btn:hover {
-            opacity: 1;
-            transform: translateY(-2px);
-            box-shadow: 0 6px 25px rgba(0, 0, 0, 0.4);
-            background: linear-gradient(135deg, #2a5298 0%, #1e3c72 100%);
-        }
+		let container = null
+		for (const selector of candidates) {
+			container = findInShadow(selector)
+			if (container) break
+		}
 
-        #d2l-dl-btn:active {
-            transform: translateY(0);
-        }
+		if (!container) container = document.body
 
-        #d2l-dl-dialog {
-            position: fixed;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%) scale(0.95);
-            z-index: 2147483647;
-            background: #1a1a1a;
-            color: #efefef;
-            padding: 24px;
-            border-radius: 16px;
-            box-shadow: 0 30px 100px rgba(0, 0, 0, 0.8);
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            max-width: 360px;
-            width: 90%;
-            display: none;
-            opacity: 0;
-            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-            text-align: center;
-            border: 1px solid #333;
-        }
+		let images = findImages(container)
+		return images.filter((img) => {
+			if (img.closest("nav, header, footer, .d2l-navigation-s, .d2l-header, .navigation-menu, .header-button-tray")) return false
+			const width = img.naturalWidth || img.width
+			const height = img.naturalHeight || img.height
+			if (width > 0 && height > 0 && width < 40 && height < 40) return false
+			if (container === document.body) {
+				if (img.classList.contains("d2l-icon") || img.closest(".d2l-button-icon")) return false
+			}
+			if (!img.src || img.src.startsWith("data:")) return false
+			const srcLower = img.src.toLowerCase()
+			if (srcLower.includes("icon") && !srcLower.includes("content")) {
+				if (width < 64 && height < 64) return false
+			}
+			return true
+		})
+	}
 
-        #d2l-dl-dialog.visible {
-            display: block;
-            opacity: 1;
-            transform: translate(-50%, -50%) scale(1);
-        }
+	async function bundleImagesInFrame() {
+		const images = await getTargetImages()
+		if (images.length === 0) return []
 
-        #d2l-dl-dialog h2 {
-            margin-top: 0;
-            color: #fff;
-            font-size: 18px;
-            font-weight: 600;
-            letter-spacing: -0.01em;
-        }
-
-        #d2l-dl-dialog p {
-            color: #aaa;
-            margin-bottom: 24px;
-            font-size: 14px;
-            line-height: 1.5;
-        }
-
-        .d2l-dl-actions {
-            display: flex;
-            gap: 10px;
-            justify-content: center;
-        }
-
-        .d2l-dl-btn-secondary {
-            background: #333;
-            color: #eee;
-            border: none;
-            padding: 10px 16px;
-            border-radius: 8px;
-            cursor: pointer;
-            font-weight: 600;
-            font-size: 13px;
-            transition: background 0.2s;
-        }
-
-        .d2l-dl-btn-secondary:hover {
-            background: #444;
-        }
-
-        .d2l-dl-btn-primary {
-            background: #007aff;
-            color: white;
-            border: none;
-            padding: 10px 16px;
-            border-radius: 8px;
-            cursor: pointer;
-            font-weight: 600;
-            font-size: 13px;
-            transition: background 0.2s;
-        }
-
-        .d2l-dl-btn-primary:hover {
-            background: #0063d1;
-        }
-
-        #d2l-dl-overlay {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0,0,0,0.7);
-            z-index: 2147483646;
-            display: none;
-            opacity: 0;
-            transition: opacity 0.3s;
-            backdrop-filter: blur(4px);
-        }
-
-        #d2l-dl-overlay.visible {
-            display: block;
-            opacity: 1;
-        }
-    `
-
-	const styleEl = document.createElement("style")
-	styleEl.innerHTML = styles
-	document.head.appendChild(styleEl)
-
-	function createUI() {
-		if (document.getElementById("d2l-dl-btn")) return
-
-		const btn = document.createElement("button")
-		btn.id = "d2l-dl-btn"
-		btn.innerHTML =
-			'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg> Download All Images'
-		document.body.appendChild(btn)
-
-		const overlay = document.createElement("div")
-		overlay.id = "d2l-dl-overlay"
-		document.body.appendChild(overlay)
-
-		const dialog = document.createElement("div")
-		dialog.id = "d2l-dl-dialog"
-		dialog.innerHTML = `
-            <h2>Download Triggered</h2>
-            <p>The image script has finished. If your browser asks for permission to download multiple files, click "Allow".</p>
-            <div class="d2l-dl-actions">
-                <button class="d2l-dl-btn-secondary" id="d2l-dl-copy">Copy Script</button>
-                <button class="d2l-dl-btn-primary" id="d2l-dl-close">Done</button>
-            </div>
-        `
-		document.body.appendChild(dialog)
-
-		btn.addEventListener("click", async () => {
-			btn.disabled = true
-			const originalHTML = btn.innerHTML
-			btn.innerHTML = "<span>⏳</span> Processing..."
-
+		console.log(`[D2L-DL] Bundling ${images.length} images...`)
+		const results = []
+		for (let i = 0; i < images.length; i++) {
 			try {
-				await runDownloadScript()
+				const src = images[i].src
+				const response = await fetch(src)
+				const blob = await response.blob()
+				const filename = src.split("/").pop().split("?")[0] || `image-${i}.png`
+				results.push({ filename, blob })
+			} catch (err) {
+				console.error(`[D2L-DL] Failed to fetch image:`, images[i].src)
+			}
+		}
+		return results
+	}
+
+	async function takeSnapshotInFrame() {
+		const candidates = [".content-panel", ".content-block", ".d2l-html-block-rendered", "main"]
+		let target = null
+		for (const s of candidates) {
+			target = findInShadow(s)
+			if (target) break
+		}
+		if (!target) target = document.body
+
+		console.log(`[D2L-DL] Taking high-res snapshot of:`, target)
+		const canvas = await html2canvas(target, {
+			scale: 2,
+			useCORS: true,
+			backgroundColor: "#ffffff",
+		})
+		canvas.toBlob((blob) => {
+			saveAs(blob, `snapshot-${new Date().getTime()}.png`)
+		})
+	}
+
+	window.addEventListener("message", async (event) => {
+		if (event.data && event.data.type === "D2L_SNAPSHOT") {
+			await takeSnapshotInFrame()
+		} else if (event.data && event.data.type === "D2L_TRIGGER_DOWNLOAD_SINGLE") {
+			const items = await bundleImagesInFrame()
+			if (items.length > 0) {
+				const zip = new JSZip()
+				items.forEach((it) => zip.file(it.filename, it.blob))
+				const content = await zip.generateAsync({ type: "blob" })
+				saveAs(content, "images.zip")
+			}
+		}
+	})
+
+	if (IS_TOP) {
+		const styles = `
+            #d2l-dl-btn {
+                position: fixed; bottom: 20px; right: 20px; z-index: 2147483647;
+                background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+                color: white; border: 1px solid rgba(255,255,255,0.1);
+                border-radius: 24px; width: 48px; height: 48px;
+                display: flex; align-items: center; justify-content: center;
+                cursor: pointer; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+                transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+                backdrop-filter: blur(10px); opacity: 0.9; overflow: hidden;
+                white-space: nowrap; font-family: -apple-system, sans-serif; font-weight: 600;
+            }
+            #d2l-dl-btn:hover { width: 180px; opacity: 1; border-radius: 12px; }
+            #d2l-dl-btn .icon { min-width: 48px; display: flex; align-items: center; justify-content: center; }
+            #d2l-dl-btn .text { opacity: 0; max-width: 0; transition: all 0.3s ease; font-size: 14px; }
+            #d2l-dl-btn:hover .text { opacity: 1; max-width: 120px; margin-right: 16px; }
+
+            #d2l-dl-overlay {
+                position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+                background: rgba(0,0,0,0.2); z-index: 2147483646;
+                display: none; opacity: 0; transition: opacity 0.3s; backdrop-filter: blur(2px);
+            }
+            #d2l-dl-overlay.visible { display: block; opacity: 1; }
+
+            #d2l-dl-dialog {
+                position: fixed; bottom: 80px; right: 20px;
+                z-index: 2147483647; background: #1a1a1a; color: #efefef;
+                padding: 20px; border-radius: 20px;
+                box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
+                font-family: -apple-system, sans-serif;
+                max-width: 360px; width: 90%; display: none;
+                opacity: 0; transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+                border: 1px solid #333;
+            }
+            #d2l-dl-dialog.visible { display: block; opacity: 1; transform: translateY(0) scale(1); }
+            #d2l-dl-dialog h2 { margin: 0 0 4px 0; color: #fff; font-size: 16px; }
+            #d2l-dl-dialog p { color: #888; margin: 0 0 16px 0; font-size: 12px; }
+
+            .d2l-dl-frame-list { display: flex; flex-direction: column; gap: 6px; max-height: 250px; overflow-y: auto; margin-bottom: 12px; }
+            .d2l-dl-frame-item {
+                background: #252525; padding: 10px 14px; border-radius: 10px;
+                cursor: pointer; transition: all 0.2s ease;
+                display: flex; align-items: center; justify-content: space-between;
+                border: 1px solid transparent;
+            }
+            .d2l-dl-frame-item:hover { background: #333; transform: translateX(2px); }
+            .d2l-dl-frame-item.all { background: #007aff; color: white; border: none; }
+            .d2l-dl-frame-item .title { font-weight: 600; font-size: 13px; }
+            .d2l-dl-frame-item .desc { font-size: 10px; color: #777; }
+
+            .d2l-dl-item-actions { display: flex; gap: 8px; }
+            .d2l-dl-action-icon {
+                width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;
+                border-radius: 6px; background: rgba(255,255,255,0.05); color: #aaa;
+                transition: all 0.2s;
+            }
+            .d2l-dl-action-icon:hover { background: rgba(255,255,255,0.15); color: #fff; }
+
+            #d2l-iframe-highlighter {
+                position: fixed; pointer-events: none; border: 3px solid #007aff;
+                background: rgba(0, 122, 255, 0.05); z-index: 2147483645;
+                transition: all 0.2s ease; border-radius: 4px; display: none;
+            }
+        `
+
+		const styleEl = document.createElement("style")
+		styleEl.innerHTML = styles
+		document.head.appendChild(styleEl)
+
+		function createUI() {
+			const btn = document.createElement("button")
+			btn.id = "d2l-dl-btn"
+			btn.innerHTML = `<div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg></div><div class="text">Content Tools</div>`
+			document.body.appendChild(btn)
+
+			const overlay = document.createElement("div")
+			overlay.id = "d2l-dl-overlay"
+			document.body.appendChild(overlay)
+
+			const highlighter = document.createElement("div")
+			highlighter.id = "d2l-iframe-highlighter"
+			document.body.appendChild(highlighter)
+
+			const dialog = document.createElement("div")
+			dialog.id = "d2l-dl-dialog"
+			document.body.appendChild(dialog)
+
+			const hide = () => {
+				overlay.classList.remove("visible")
+				dialog.classList.remove("visible")
+				highlighter.style.display = "none"
+			}
+
+			function showMenu() {
+				const iframes = findIframes()
+				const frames = [
+					{ name: "Top Page", frame: window, desc: "Main document container" },
+					...iframes.map((f, i) => ({
+						name: f.title || f.name || f.id || `Iframe #${i + 1}`,
+						frame: f,
+						desc: f.src.split("/").pop() || "Embedded frame",
+					})),
+				]
+
+				dialog.innerHTML = `
+                    <h2>Content Tools</h2>
+                    <p>Select a frame to download images (ZIP) or take a snapshot.</p>
+                    <div class="d2l-dl-frame-list">
+                        <div class="d2l-dl-frame-item all" id="d2l-dl-all">
+                            <div>
+                                <div class="title">All Frames (ZIP)</div>
+                                <div class="desc">Triggers ZIP download in every frame</div>
+                            </div>
+                        </div>
+                        ${frames
+													.map(
+														(f, i) => `
+                            <div class="d2l-dl-frame-item" data-index="${i}">
+                                <div class="info">
+                                    <div class="title">${f.name}</div>
+                                    <div class="desc">${f.desc}</div>
+                                </div>
+                                <div class="d2l-dl-item-actions">
+                                    <div class="d2l-dl-action-icon snapshot-btn" title="Take Snapshot" data-index="${i}">
+                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>
+                                    </div>
+                                    <div class="d2l-dl-action-icon zip-btn" title="ZIP Images" data-index="${i}">
+                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
+                                    </div>
+                                </div>
+                            </div>
+                        `
+													)
+													.join("")}
+                    </div>
+                    <div style="display:flex; justify-content:space-between">
+                        <button id="d2l-dl-close" style="background:none; border:none; color:#555; cursor:pointer; font-size:11px">Close</button>
+                    </div>
+                `
 
 				overlay.classList.add("visible")
 				dialog.classList.add("visible")
-			} catch (err) {
-				console.error("Download script error:", err)
-			} finally {
-				btn.disabled = false
-				btn.innerHTML = originalHTML
+
+				dialog.querySelectorAll(".d2l-dl-frame-item").forEach((item) => {
+					item.addEventListener("mouseenter", () => {
+						const idx = item.getAttribute("data-index")
+						if (!idx) return
+						const f = frames[parseInt(idx)]
+						if (f.frame !== window && f.frame.getBoundingClientRect) {
+							const r = f.frame.getBoundingClientRect()
+							highlighter.style.cssText = `top:${r.top}px; left:${r.left}px; width:${r.width}px; height:${r.height}px; display:block;`
+						} else highlighter.style.display = "none"
+					})
+				})
+
+				dialog.querySelectorAll(".zip-btn").forEach((btn) => {
+					btn.addEventListener("click", (e) => {
+						e.stopPropagation()
+						const f = frames[parseInt(btn.dataset.index)]
+						hide()
+						if (f.frame === window) {
+							bundleImagesInFrame().then(async (items) => {
+								if (items.length > 0) {
+									const zip = new JSZip()
+									items.forEach((it) => zip.file(it.filename, it.blob))
+									const content = await zip.generateAsync({ type: "blob" })
+									saveAs(content, "images.zip")
+								}
+							})
+						} else {
+							f.frame.contentWindow.postMessage({ type: "D2L_TRIGGER_DOWNLOAD_SINGLE" }, "*")
+						}
+					})
+				})
+
+				dialog.querySelectorAll(".snapshot-btn").forEach((btn) => {
+					btn.addEventListener("click", (e) => {
+						e.stopPropagation()
+						const f = frames[parseInt(btn.dataset.index)]
+						hide()
+						if (f.frame === window) takeSnapshotInFrame()
+						else f.frame.contentWindow.postMessage({ type: "D2L_SNAPSHOT" }, "*")
+					})
+				})
+
+				document.getElementById("d2l-dl-all").addEventListener("click", () => {
+					hide()
+					frames.forEach((f) => {
+						if (f.frame === window) {
+							bundleImagesInFrame().then(async (items) => {
+								if (items.length > 0) {
+									const zip = new JSZip()
+									items.forEach((it) => zip.file(it.filename, it.blob))
+									const content = await zip.generateAsync({ type: "blob" })
+									saveAs(content, "top-images.zip")
+								}
+							})
+						} else {
+							f.frame.contentWindow.postMessage({ type: "D2L_TRIGGER_DOWNLOAD_SINGLE" }, "*")
+						}
+					})
+				})
+
+				document.getElementById("d2l-dl-close").onclick = hide
+				overlay.onclick = hide
 			}
-		})
 
-		document.getElementById("d2l-dl-copy").addEventListener("click", () => {
-			const copyBtn = document.getElementById("d2l-dl-copy")
-			navigator.clipboard.writeText(SCRIPT_TEXT).then(() => {
-				const originalText = copyBtn.textContent
-				copyBtn.textContent = "Copied!"
-				setTimeout(() => (copyBtn.textContent = originalText), 2000)
-			})
-		})
+			btn.addEventListener("click", showMenu)
+		}
 
-		document.getElementById("d2l-dl-close").addEventListener("click", () => {
-			overlay.classList.remove("visible")
-			dialog.classList.remove("visible")
-		})
+		if (document.body) createUI()
+		else window.addEventListener("DOMContentLoaded", createUI)
 
-		overlay.addEventListener("click", () => {
-			overlay.classList.remove("visible")
-			dialog.classList.remove("visible")
-		})
-	}
-
-	// Initialize
-	if (document.body) {
-		createUI()
-	} else {
-		window.addEventListener("DOMContentLoaded", createUI)
+		const rmChat = () => {
+			const c = document.getElementById("chatFrame")
+			if (c) c.remove()
+		}
+		rmChat()
+		new MutationObserver(rmChat).observe(document.documentElement, { childList: true, subtree: true })
 	}
 })()

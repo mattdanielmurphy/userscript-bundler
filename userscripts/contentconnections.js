@@ -106,6 +106,88 @@
 					bottom: 1em !important;
 					left: 1em !important;
 				}
+				#automation-control-bar {
+					position: fixed;
+					bottom: 20px;
+					left: 50%;
+					transform: translateX(-50%);
+					background: rgba(30, 30, 30, 0.95);
+					backdrop-filter: blur(10px);
+					border: 1px solid #444;
+					border-radius: 12px;
+					padding: 10px 20px;
+					display: flex;
+					align-items: center;
+					gap: 15px;
+					z-index: 10000;
+					box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+					color: white;
+					font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+					transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+					pointer-events: auto;
+					user-select: none;
+				}
+				#automation-control-bar.hidden {
+					opacity: 0;
+					pointer-events: none;
+					transform: translateX(-50%) translateY(40px);
+				}
+				.ac-status {
+					font-size: 13px;
+					font-weight: 600;
+					color: #00ff00;
+					min-width: 140px;
+					text-shadow: 0 0 10px rgba(0, 255, 0, 0.3);
+				}
+				.ac-input-group {
+					display: flex;
+					align-items: center;
+					gap: 8px;
+					border-left: 1px solid #444;
+					padding-left: 15px;
+				}
+				.ac-label {
+					font-size: 11px;
+					text-transform: uppercase;
+					letter-spacing: 0.5px;
+					color: #aaa;
+				}
+				.ac-input {
+					background: #1a1a1a;
+					border: 1px solid #555;
+					color: white;
+					padding: 4px 8px;
+					border-radius: 6px;
+					width: 55px;
+					text-align: center;
+					font-size: 13px;
+					outline: none;
+					transition: border-color 0.2s;
+				}
+				.ac-input:focus {
+					border-color: #bb86fc;
+				}
+				.ac-btn {
+					background: #3d3d3d;
+					border: 1px solid #555;
+					color: white;
+					padding: 6px 14px;
+					border-radius: 8px;
+					cursor: pointer;
+					font-size: 13px;
+					font-weight: 500;
+					transition: all 0.2s;
+					min-width: 80px;
+				}
+				.ac-btn:hover {
+					background: #4d4d4d;
+					border-color: #666;
+				}
+				.ac-btn.paused {
+					background: #bb86fc;
+					border-color: #bb86fc;
+					color: #121212;
+				}
     `
 
 	const DARK_MODE_CSS = `
@@ -534,11 +616,157 @@
 		}
 	}
 
+	// Patch visibility and focus to prevent auto-pause
+	if (window.self === window.top) {
+		const blockEvent = (e) => {
+			if (isAutomationActive()) {
+				e.stopImmediatePropagation()
+			}
+		}
+		window.addEventListener("blur", blockEvent, true)
+		window.addEventListener("focusout", blockEvent, true)
+		document.addEventListener("visibilitychange", blockEvent, true)
+
+		try {
+			Object.defineProperty(document, "visibilityState", {
+				get: () => (isAutomationActive() ? "visible" : "visible"), // Default to visible to be safe
+				configurable: true,
+			})
+			Object.defineProperty(document, "hidden", {
+				get: () => (isAutomationActive() ? false : false),
+				configurable: true,
+			})
+		} catch (e) {}
+	}
+
 	let isAutomationRunning = false
+	let isAutomationPaused = false
+	const DELAY_KEY = "cc_automation_delay"
+	const DWELL_KEY = "cc_automation_dwell"
+	const RUNNING_KEY = "cc_automation_running_state"
+	const SPEED_KEY = "cc_automation_speed"
+
+	let automationDelay = parseInt(localStorage.getItem(DELAY_KEY) || "500")
+	let useDwellTime = localStorage.getItem(DWELL_KEY) !== "false" // Default to true
+	let automationSpeed = parseFloat(localStorage.getItem(SPEED_KEY) || "10")
+
 	let lastCurrentSlide = -1
 	let initialSyncDone = false
 	let lastSyncLogTime = 0
 	let initialJumpTriggered = false
+
+	const showControlBar = (downloading) => {
+		let bar = document.getElementById("automation-control-bar")
+		if (bar) {
+			bar.classList.remove("hidden")
+			return
+		}
+
+		bar = document.createElement("div")
+		bar.id = "automation-control-bar"
+		bar.innerHTML = `
+            <div class="ac-status">Initializing...</div>
+            <div class="ac-input-group">
+                <span class="ac-label">Delay (ms)</span>
+                <input type="number" class="ac-input" id="ac-delay-input" value="${automationDelay}" min="0" step="50">
+            </div>
+            <div class="ac-input-group">
+                <span class="ac-label">Speed (x)</span>
+                <input type="number" class="ac-input" id="ac-speed-input" value="${automationSpeed}" min="0.1" max="16" step="0.1">
+            </div>
+            <div class="ac-input-group">
+                <input type="checkbox" id="ac-dwell-check" ${useDwellTime ? "checked" : ""}>
+                <label for="ac-dwell-check" class="ac-label" title="Wait for duration/speed to satisfy progress tracking">Trick Progress</label>
+            </div>
+            <div style="display: flex; gap: 8px; border-left: 1px solid #444; padding-left: 15px;">
+                <button class="ac-btn" id="ac-pause-btn">Pause</button>
+                <button class="ac-btn" id="ac-stop-btn" style="background: #cc2222; border-color: #990000;">Stop</button>
+            </div>
+        `
+
+		const delayInput = bar.querySelector("#ac-delay-input")
+		delayInput.addEventListener("change", (e) => {
+			automationDelay = parseInt(e.target.value) || 0
+			localStorage.setItem(DELAY_KEY, automationDelay)
+		})
+
+		const speedInput = bar.querySelector("#ac-speed-input")
+		speedInput.addEventListener("change", (e) => {
+			automationSpeed = parseFloat(e.target.value) || 1.0
+			localStorage.setItem(SPEED_KEY, automationSpeed)
+			console.log(`[Userscript] Automation speed updated to: ${automationSpeed}x`)
+		})
+
+		const dllCheck = bar.querySelector("#ac-dwell-check")
+		dllCheck.addEventListener("change", (e) => {
+			useDwellTime = e.target.checked
+			localStorage.setItem(DWELL_KEY, useDwellTime)
+			console.log(`[Userscript] Trick Progress mode: ${useDwellTime}`)
+		})
+
+		const pauseBtn = bar.querySelector("#ac-pause-btn")
+		pauseBtn.addEventListener("click", () => {
+			isAutomationPaused = !isAutomationPaused
+			pauseBtn.textContent = isAutomationPaused ? "Resume" : "Pause"
+			pauseBtn.classList.toggle("paused", isAutomationPaused)
+			console.log(`[Userscript] Automation ${isAutomationPaused ? "PAUSED" : "RESUMED"}`)
+		})
+
+		const stopBtn = bar.querySelector("#ac-stop-btn")
+		stopBtn.addEventListener("click", () => {
+			console.log("[Userscript] Stopping automation and clearing state.")
+			localStorage.removeItem(RUNNING_KEY)
+			isAutomationRunning = false
+			isAutomationPaused = false
+			hideControlBar()
+		})
+
+		document.body.appendChild(bar)
+	}
+
+	let resumeScheduled = false
+	const tryResumeAutomation = () => {
+		if (isAutomationRunning || resumeScheduled) return
+		const stateStr = localStorage.getItem(RUNNING_KEY)
+		if (!stateStr) return
+
+		try {
+			const state = JSON.parse(stateStr)
+			if (state && state.active) {
+				console.log(`[Userscript] Resuming ${state.type} automation...`)
+				resumeScheduled = true
+				showControlBar(state.type === "download")
+				updateControlBarStatus("Resuming automation...")
+
+				setTimeout(() => {
+					if (resumeScheduled && !isAutomationRunning) {
+						performAutomation(state.type === "download").catch(console.error)
+					}
+				}, 1500)
+			}
+		} catch (e) {
+			localStorage.removeItem(RUNNING_KEY)
+		}
+	}
+
+	const hideControlBar = () => {
+		const bar = document.getElementById("automation-control-bar")
+		if (bar) bar.classList.add("hidden")
+	}
+
+	const updateControlBarStatus = (text) => {
+		const bar = document.getElementById("automation-control-bar")
+		if (bar) {
+			const status = bar.querySelector(".ac-status")
+			if (status) status.textContent = text
+		}
+	}
+
+	const waitIfPaused = async () => {
+		while (isAutomationPaused) {
+			await new Promise((r) => setTimeout(r, 200))
+		}
+	}
 
 	// Capture target slide from URL once at the very beginning
 	const urlParams = new URLSearchParams(window.location.search)
@@ -598,6 +826,18 @@
 			// Ignore cross-origin errors
 		}
 		return { el: null, doc: null }
+	}
+
+	const isAutomationActive = () => {
+		if (typeof isAutomationRunning !== "undefined" && isAutomationRunning) return true
+		const stateStr = localStorage.getItem("cc_automation_running_state")
+		if (!stateStr) return false
+		try {
+			const state = JSON.parse(stateStr)
+			return state && state.active
+		} catch (e) {
+			return false
+		}
 	}
 
 	const applyDarkMode = () => {
@@ -690,7 +930,7 @@
 		}
 
 		// Perform URL persistence (ONLY after initial jump is confirmed and settled)
-		if (initialSyncDone) {
+		if (initialSyncDone && !isAutomationRunning && !isAutomationActive()) {
 			const url = new URL(window.location.href)
 			if (url.searchParams.get("slide") !== String(currentSlide)) {
 				console.log(`[Userscript] [syncSlideState] Updating URL parameter: ?slide=${currentSlide}`)
@@ -705,7 +945,7 @@
 			lastCurrentSlide = currentSlide
 
 			// Only trigger auto-play if we are finished with initial navigation
-			if (!isAutomationRunning && initialSyncDone) {
+			if (!isAutomationRunning && !isAutomationActive() && initialSyncDone) {
 				console.log("[Userscript] [syncSlideState] Triggering auto-playback sequence in 1.5s...")
 				setTimeout(() => {
 					if (!isAutomationRunning) {
@@ -722,7 +962,7 @@
 	}
 
 	const performInitialSync = () => {
-		if (initialSyncDone || initialJumpTriggered) return
+		if (initialSyncDone || initialJumpTriggered || isAutomationRunning || isAutomationActive()) return
 
 		if (!initialTargetNum) {
 			initialSyncDone = true
@@ -876,6 +1116,22 @@
 				startAutomation().catch(console.error)
 			}
 		}
+
+		if (e.altKey && e.code === "KeyS") {
+			console.log("[Userscript] Opt+S Trigger Match Found!")
+			e.preventDefault()
+			e.stopPropagation()
+
+			if (isAutomationRunning) {
+				console.warn("[Userscript] Automation is already running.")
+				return
+			}
+
+			if (confirm("Start Canvas Skipping Automation?")) {
+				console.log("[Userscript] Starting Canvas Skipping Automation...")
+				startSkippingAutomation().catch(console.error)
+			}
+		}
 	}
 
 	const setupKeydownListeners = (win) => {
@@ -909,16 +1165,21 @@
 
 	// Combined drive (Observer + Periodic Poll)
 	const drive = () => {
-		addCustomButtons()
-		addAutoShowCheckbox()
-		attemptAutoShowAnswer()
-		syncSlideState()
-		performInitialSync()
-		setupPrintChaining()
 		applyDarkMode()
 		applyLayout()
-		moveCornerMenu()
 		setupKeydownListeners(window)
+
+		// Only run active UI and automation logic in the top-level window
+		if (window.self === window.top) {
+			addCustomButtons()
+			addAutoShowCheckbox()
+			attemptAutoShowAnswer()
+			syncSlideState()
+			performInitialSync()
+			setupPrintChaining()
+			moveCornerMenu()
+			tryResumeAutomation()
+		}
 	}
 
 	const observer = new MutationObserver(drive)
@@ -1017,9 +1278,16 @@
 		}
 	}
 
-	async function startAutomation() {
+	async function performAutomation(downloadSlides = true) {
 		isAutomationRunning = true
+		isAutomationPaused = false
+		resumeScheduled = false
+		showControlBar(downloadSlides)
+		localStorage.setItem(RUNNING_KEY, JSON.stringify({ active: true, type: downloadSlides ? "download" : "skip" }))
+
+
 		try {
+			updateControlBarStatus("Loading Metadata...")
 			console.log("Waiting for metadata elements to load...")
 			let meta = { course: "Course", unit: "Unit", lesson: "Lesson" }
 
@@ -1036,8 +1304,10 @@
 			console.log("Metadata detected:", meta)
 
 			while (true) {
+				await waitIfPaused()
 				let canvas, canvasDoc, seekbar, nextBtn, slideIndicator, audio
 				let retryCount = 0
+				updateControlBarStatus("Searching Elements...")
 				while (retryCount < 20) {
 					const canvasRes = findMainCanvas(window)
 					canvas = canvasRes.el
@@ -1062,6 +1332,8 @@
 				const currentSlide = match ? parseInt(match[1]) : 1
 				const totalSlides = match ? parseInt(match[2]) : 1
 
+				const actionText = downloadSlides ? "Capturing" : "Skipping"
+				updateControlBarStatus(`${actionText} ${slideText}...`)
 				console.log(`%cProcessing ${slideText}...`, "color: #00ff00; font-weight: bold; font-size: 14px;")
 
 				// --- FLIGHT RECORDER START ---
@@ -1134,12 +1406,20 @@
 				canvas.dispatchEvent(new MouseEvent("mouseup", clickOpts))
 				canvas.dispatchEvent(new MouseEvent("click", clickOpts))
 
-				// 3a. Wait for initial readiness
+				// 3a. Wait for initial readiness and setup trickery
 				recorder("WAITING FOR INITIAL READY")
 				for (let i = 0; i < 100; i++) {
 					if (audio.readyState >= 3 && !checkLoadingState()) break
 					await new Promise((r) => setTimeout(r, 100))
 				}
+
+				if (useDwellTime) {
+					console.log(`[Userscript] Setting playbackRate to ${automationSpeed}x for progress tricking.`)
+					audio.playbackRate = automationSpeed
+				}
+
+				const requiredDwellMs = useDwellTime ? (audio.duration || 0) * (1000 / automationSpeed) : 0
+				const slideStartTimeActual = Date.now()
 
 				// 3b. Wait for seekbar.max to be stable
 				recorder("WAITING FOR MAX STABILITY")
@@ -1157,68 +1437,75 @@
 					await new Promise((r) => setTimeout(r, 100))
 				}
 
-				// 3c. Seek to end
-				recorder("SEEKING TO END")
-				await new Promise((resolve) => {
-					const onSeeked = () => {
-						audio.removeEventListener("seeked", onSeeked)
-						recorder("SEEKED SIGNAL RECEIVED")
-						resolve()
-					}
-					audio.addEventListener("seeked", onSeeked)
-					seekbar.value = seekbar.max
-					try {
-						seekbar.valueAsNumber = parseFloat(seekbar.max)
-					} catch (e) {}
-					const seekEvents = ["input", "change", "mousedown", "mouseup", "pointerdown", "pointerup"]
-					seekEvents.forEach((type) => seekbar.dispatchEvent(new Event(type, { bubbles: true })))
-					setTimeout(() => {
-						audio.removeEventListener("seeked", onSeeked)
-						resolve()
-					}, 4000)
-				})
-
-				// 3d. Stability Probe: Wait for Canvas to stop changing (Anti-Spinner)
-				recorder("STABILITY PROBE START")
-				let lastFrame = ""
-				let stableFrames = 0
-				for (let i = 0; i < 50; i++) {
-					const currentFrame = canvas.toDataURL("image/png", 0.1) // Low quality for speed
-					const isBuffering = checkLoadingState()
-					const isAnimating = currentFrame !== lastFrame
-
-					recorder(`PROBE ${i}`, { buf: isBuffering, anim: isAnimating })
-
-					if (!isBuffering && !isAnimating && i > 3) {
-						stableFrames++
-						if (stableFrames >= 3) {
-							recorder("STABILITY REACHED")
-							break
+				// 3c. Seek to end (if downloading, we do this immediately to get the frame)
+				if (downloadSlides) {
+					recorder("SEEKING TO END FOR CAPTURE")
+					await new Promise((resolve) => {
+						const onSeeked = () => {
+							audio.removeEventListener("seeked", onSeeked)
+							recorder("SEEKED SIGNAL RECEIVED")
+							resolve()
 						}
-					} else {
-						stableFrames = 0
-					}
-					lastFrame = currentFrame
-					await new Promise((r) => setTimeout(r, 400))
+						audio.addEventListener("seeked", onSeeked)
+						seekbar.value = seekbar.max
+						try {
+							seekbar.valueAsNumber = parseFloat(seekbar.max)
+						} catch (e) {}
+						const seekEvents = ["input", "change", "mousedown", "mouseup", "pointerdown", "pointerup"]
+						seekEvents.forEach((type) => seekbar.dispatchEvent(new Event(type, { bubbles: true })))
+						setTimeout(() => {
+							audio.removeEventListener("seeked", onSeeked)
+							resolve()
+						}, 4000)
+					})
 				}
-				recorder("STABILITY PROBE END")
 
-				// 3e. Final render buffer
-				recorder("FINAL RENDER DELAY")
-				await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 300)))
+				if (downloadSlides) {
+					// 3d. Stability Probe: Wait for Canvas to stop changing (Anti-Spinner)
+					recorder("STABILITY PROBE START")
+					let lastFrame = ""
+					let stableFrames = 0
+					for (let i = 0; i < 50; i++) {
+						await waitIfPaused()
+						if (audio.paused && !checkLoadingState()) audio.play().catch(() => {})
 
-				// 4. Download
-				recorder("CAPTURE & DOWNLOAD")
-				const dataURL = canvas.toDataURL("image/png")
-				const link = document.createElement("a")
-				const uStr = meta.unitIndex ? `U${meta.unitIndex} ` : ""
-				const lStr = meta.lessonIndex ? `L${meta.lessonIndex} ` : ""
-				const filename = `${meta.course} - ${uStr}${meta.unit} - ${lStr}${meta.lesson} - S${currentSlide}.png`
-				link.download = filename
-				link.href = dataURL
-				document.body.appendChild(link)
-				link.click()
-				document.body.removeChild(link)
+						const currentFrame = canvas.toDataURL("image/png", 0.1) // Low quality for speed
+						const isBuffering = checkLoadingState()
+						const isAnimating = currentFrame !== lastFrame
+
+						recorder(`PROBE ${i}`, { buf: isBuffering, anim: isAnimating })
+
+						if (!isBuffering && !isAnimating && i > 3) {
+							stableFrames++
+							if (stableFrames >= 3) {
+								recorder("STABILITY REACHED")
+								break
+							}
+						} else {
+							stableFrames = 0
+						}
+						lastFrame = currentFrame
+						await new Promise((r) => setTimeout(r, 400))
+					}
+					recorder("STABILITY PROBE END")
+
+					// 3e. Final render buffer
+					recorder("FINAL RENDER DELAY")
+					await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 300)))
+
+					// 4. Download
+					recorder("CAPTURE & DOWNLOAD")
+					const dataURL = canvas.toDataURL("image/png")
+					const link = document.createElement("a")
+					const uStr = meta.unitIndex ? `U${meta.unitIndex} ` : ""
+					const lStr = meta.lessonIndex ? `L${meta.lessonIndex} ` : ""
+					const filename = `${meta.course} - ${uStr}${meta.unit} - ${lStr}${meta.lesson} - S${currentSlide}.png`
+					link.download = filename
+					link.href = dataURL
+					document.body.appendChild(link)
+					link.click()
+					document.body.removeChild(link)
+				}
 
 				// CLEANUP RECORDER
 				clearInterval(pollId)
@@ -1226,8 +1513,35 @@
 				console.log(`%cFlight Log for Slide ${currentSlide}:`, "color: #00ffff; font-weight: bold;")
 				console.table(flightLog)
 
+				// Calculate remaining dwell time
+				while (true) {
+					await waitIfPaused()
+					const elapsedOnSlide = Date.now() - slideStartTimeActual
+					const minTotalWait = Math.max(automationDelay, requiredDwellMs)
+					const remainingWait = minTotalWait - elapsedOnSlide
+
+					if (remainingWait <= 0) break
+
+					if (audio.paused && !checkLoadingState()) audio.play().catch(() => {})
+
+					const reason = useDwellTime && requiredDwellMs > automationDelay ? "Tricking progress" : "User delay"
+					updateControlBarStatus(`${reason}: ${Math.ceil(remainingWait)}ms...`)
+					await new Promise((r) => setTimeout(r, 500)) // Poll every 500ms
+				}
+
+				// Final seek for skipping mode if we haven't reached end yet
+				if (!downloadSlides && audio.currentTime < (audio.duration || 0) * 0.95) {
+					recorder("FINAL SEEK TO END")
+					seekbar.value = seekbar.max
+					const seekEvents = ["input", "change"]
+					seekEvents.forEach((type) => seekbar.dispatchEvent(new Event(type, { bubbles: true })))
+				}
+
+				await waitIfPaused()
+
 				// 5. Check if we're done (Process up to second-to-last slide, skipping the "completed" slide)
 				if (currentSlide >= totalSlides - 1 || !nextBtn) {
+					updateControlBarStatus("Lesson Complete!")
 					console.log("Lesson complete. Checking for next lesson...")
 					const lessonTitleRaw = (() => {
 						const { el } = findInIframes(window, "#LessonTitle")
@@ -1236,6 +1550,7 @@
 					const nextLesson = getNextLessonLink(lessonTitleRaw, LESSON_EXCLUDES)
 
 					if (nextLesson) {
+						updateControlBarStatus("Next Lesson...")
 						console.log(`%cAdvancing to next lesson: ${nextLesson.textContent.trim()}`, "color: #ff9900; font-weight: bold;")
 						nextLesson.click()
 
@@ -1266,12 +1581,28 @@
 						}
 					}
 
+					updateControlBarStatus("Finished!")
 					console.log("Automation complete.")
+					localStorage.removeItem(RUNNING_KEY)
 					break
 				}
 
 				// 6. Go to next slide
-				nextBtn.click()
+				updateControlBarStatus("Checking for Auto-Advance...")
+
+				// Verify if we have already advanced automatically
+				const { el: indicatorFinal } = findInIframes(window, "button.mediaPlayer__button--showslides")
+				const textFinal = indicatorFinal ? indicatorFinal.textContent.trim() : ""
+				const matchFinal = textFinal.match(/Slide (\d+) of (\d+)/i)
+				const currentSlideNow = matchFinal ? parseInt(matchFinal[1]) : currentSlide
+
+				if (currentSlideNow === currentSlide) {
+					updateControlBarStatus("Next Slide...")
+					nextBtn.click()
+				} else {
+					recorder(`AUTO-ADVANCE DETECTED: Already on slide ${currentSlideNow}`)
+					console.log(`[Userscript] Site auto-advanced to slide ${currentSlideNow}. Skipping manual next click.`)
+				}
 
 				// Wait for slide indicator to change
 				await new Promise((resolve) => {
@@ -1292,12 +1623,23 @@
 			}
 		} finally {
 			isAutomationRunning = false
+			setTimeout(hideControlBar, 2000)
 			console.log("[Userscript] Automation sequence ended.")
 		}
 	}
 
+	async function startAutomation() {
+		return performAutomation(true)
+	}
+
+	async function startSkippingAutomation() {
+		return performAutomation(false)
+	}
+
 	// Expose to global scope for console access
+	window.performAutomation = performAutomation
 	window.startAutomation = startAutomation
+	window.startSkippingAutomation = startSkippingAutomation
 	window.getAllCanvases = () => {
 		const results = []
 		const search = (win) => {

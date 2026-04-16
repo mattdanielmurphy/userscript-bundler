@@ -741,12 +741,17 @@
 	const REFRESH_MS = 60_000
 
 	async function fetchLimits() {
-		const r = await fetch("/rest/rate-limit/all")
-		if (!r.ok) throw new Error(`HTTP ${r.status}`)
-		const d = await r.json()
-		return {
-			pro: d.remaining_pro ?? "?",
-			research: d.remaining_research ?? "?",
+		try {
+			const r = await fetch("/rest/rate-limit/all")
+			if (!r.ok) throw new Error(`HTTP ${r.status}`)
+			const d = await r.json()
+			return {
+				pro: d.remaining_pro ?? "?",
+				research: d.remaining_research ?? "?",
+			}
+		} catch (e) {
+			console.error("[pplx-rate-limit] Fetch error:", e)
+			return { pro: "!", research: "!" }
 		}
 	}
 
@@ -757,52 +762,52 @@
 		Object.assign(wrap.style, {
 			display: "inline-flex",
 			alignItems: "center",
-			gap: "5px",
+			gap: "6px",
 			fontSize: "12px",
 			lineHeight: "1",
 			color: "var(--text-quiet, #888)",
 			fontFamily: "inherit",
 			height: "32px",
-			padding: "0 8px",
+			padding: "0 10px",
 			borderRadius: "999px",
 			cursor: "pointer",
 			userSelect: "none",
 			whiteSpace: "nowrap",
-			transition: "background 0.2s",
+			transition: "all 0.2s ease",
+			border: "1px solid transparent",
 		})
 
-		wrap.onmouseenter = () =>
-			(wrap.style.background = "var(--bg-quiet, rgba(0,0,0,0.06))")
-		wrap.onmouseleave = () => (wrap.style.background = "transparent")
+		wrap.onmouseenter = () => {
+			wrap.style.background = "var(--bg-quiet, rgba(0,0,0,0.04))"
+			wrap.style.borderColor = "var(--border-subtle, rgba(0,0,0,0.1))"
+		}
+		wrap.onmouseleave = () => {
+			wrap.style.background = "transparent"
+			wrap.style.borderColor = "transparent"
+		}
 
-		// ⚡ Pro  ·  🔍 Research
 		wrap.innerHTML = `
-      <span title="Pro queries remaining" style="display:inline-flex;align-items:center;gap:3px;">
-        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-             stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
-        </svg>
-        <span id="pplx-rl-pro">…</span>
-      </span>
-      <span style="opacity:.35;font-size:10px;">·</span>
-      <span title="Research queries remaining" style="display:inline-flex;align-items:center;gap:3px;">
-        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-             stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-        </svg>
-        <span id="pplx-rl-research">…</span>
-      </span>
-    `
+            <span title="Pro queries remaining" style="display:inline-flex;align-items:center;gap:4px;">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+                </svg>
+                <span id="pplx-rl-pro" style="font-weight: 500;">…</span>
+            </span>
+            <span style="opacity:.3; font-size: 10px;">|</span>
+            <span title="Research queries remaining" style="display:inline-flex;align-items:center;gap:4px;">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                </svg>
+                <span id="pplx-rl-research" style="font-weight: 500;">…</span>
+            </span>
+        `
 
-		wrap.addEventListener("click", async () => {
+		wrap.onclick = async (e) => {
+			e.stopPropagation()
 			setValues("…", "…")
-			try {
-				const { pro, research } = await fetchLimits()
-				setValues(pro, research)
-			} catch {
-				setValues("!", "!")
-			}
-		})
+			const { pro, research } = await fetchLimits()
+			setValues(pro, research)
+		}
 
 		return wrap
 	}
@@ -815,15 +820,21 @@
 	}
 
 	function getModelButton() {
-		// Anchor to the custom data attr — much more stable than class hashes
-		const root = document.querySelector('[data-ask-input-container="true"]')
-		if (!root) return null
-		// Direct child button with aria-haspopup="menu" inside the justify-self-end row
-		return (
-			root.querySelector(
-				'div[class*="justify-self-end"] > button[aria-haspopup="menu"]',
-			) ?? null
+		// Use the stable ID of the input to find the local context
+		const input = document.getElementById("ask-input")
+		if (!input) return null
+
+		// The container is the grand-parent of the input area (uid 5077)
+		const container =
+			input.closest("div:has(> .px-3 #ask-input)") || input.closest(".grid")
+		if (!container) return null
+
+		// Find the model selection button (it has text and a menu popup)
+		// It's usually the first button with text inside the bottom right action area
+		const buttons = Array.from(
+			container.querySelectorAll('button[aria-haspopup="menu"]'),
 		)
+		return buttons.find((btn) => btn.innerText.length > 0) || null
 	}
 
 	async function tryInject() {
@@ -832,49 +843,35 @@
 		if (!modelBtn) return
 
 		const badge = buildBadge()
-		modelBtn.parentElement.insertBefore(badge, modelBtn)
+		// Inject before the model button's wrapper to keep it in the same flex row
+		modelBtn.parentElement.parentElement.insertBefore(
+			badge,
+			modelBtn.parentElement,
+		)
 
-		try {
-			const { pro, research } = await fetchLimits()
-			setValues(pro, research)
-		} catch (e) {
-			console.warn("[pplx-rate-limit]", e)
-			setValues("?", "?")
-		}
+		const { pro, research } = await fetchLimits()
+		setValues(pro, research)
 	}
 
-	// React can blow away the DOM on re-renders; re-inject if badge disappears
-	let pending = false
 	const mo = new MutationObserver(() => {
-		if (pending || document.getElementById(BADGE_ID)) return
-		pending = true
-		requestAnimationFrame(() =>
-			tryInject().finally(() => {
-				pending = false
-			}),
-		)
+		if (!document.getElementById(BADGE_ID)) {
+			tryInject()
+		}
 	})
 
 	function start() {
-		if (!document.body) {
-			setTimeout(start, 50)
-			return
-		}
 		mo.observe(document.body, { childList: true, subtree: true })
 		tryInject()
-
-		// Silent background refresh
 		setInterval(async () => {
-			try {
-				const { pro, research } = await fetchLimits()
-				setValues(pro, research)
-			} catch {
-				/* silent — don't want console noise on background ticks */
-			}
+			const { pro, research } = await fetchLimits()
+			setValues(pro, research)
 		}, REFRESH_MS)
 	}
 
-	if (document.readyState === "complete" || document.readyState === "interactive") {
+	if (
+		document.readyState === "complete" ||
+		document.readyState === "interactive"
+	) {
 		start()
 	} else {
 		window.addEventListener("DOMContentLoaded", start)
