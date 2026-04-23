@@ -660,78 +660,115 @@
 	console.log(`${PREFIX} Initialization complete`)
 })()
 
-// //!		 8. Hide Upgrade to Max banner
-// ;(() => {
-// 	console.log("[Perplexity Improvements - Banners] removing banners")
-// 	const removeBanners = () => {
-// 		removeUpgradeToMaxBanner()
-// 		removeUpgradeNowBanner()
-// 		removeTryThisAnswerBanner()
-// 	}
-// 	const removeUpgradeToMaxBanner = () => {
-// 		// Find the element containing "Upgrade to Max"
-// 		const upgradeBtn = Array.from(document.querySelectorAll("div")).find((el) => el.textContent.trim() === "Upgrade to Max")
+//!		 8. Hide Upsell Banners (Upgrade, Try Computer, etc.)
+;(() => {
+	const removeBanners = () => {
+		removeUpgradeToMaxBanner()
+		removeUpgradeNowBanner()
+		removeTryThisAnswerBanner()
+		removeTryComputerBanner()
+	}
 
-// 		if (!upgradeBtn) return
+	const removeUpgradeToMaxBanner = () => {
+		const upgradeBtn = Array.from(document.querySelectorAll("div, button")).find(
+			(el) => el.textContent.trim() === "Upgrade to Max",
+		)
+		if (!upgradeBtn) return
 
-// 		// Closest ancestor with shadow-xl likely marks full banner
-// 		const banner = upgradeBtn.closest(".shadow-xl")
-// 		if (banner) {
-// 			banner.remove()
-// 		} else {
-// 			// Fallback: Remove parent stack if .shadow-xl not found
-// 			let parent = upgradeBtn
-// 			for (let i = 0; i < 3; i++) {
-// 				if (parent.parentElement & (parent.id !== "root")) parent = parent.parentElement
-// 			}
-// 			parent.remove()
-// 		}
-// 	}
-// 	const removeUpgradeNowBanner = () => {
-// 		// Find the element containing "Upgrade now"
-// 		const upgradeBtn = Array.from(document.querySelectorAll("div")).find((el) => el.textContent.trim() === "Upgrade now")
+		const banner = upgradeBtn.closest(".shadow-xl") || upgradeBtn.closest(".shadow-md")
+		if (banner) {
+			banner.remove()
+		}
+	}
 
-// 		if (!upgradeBtn) return
+	const removeUpgradeNowBanner = () => {
+		const upgradeBtn = Array.from(document.querySelectorAll("div, button")).find(
+			(el) => el.textContent.trim() === "Upgrade now",
+		)
+		if (!upgradeBtn) return
 
-// 		// Closest ancestor with shadow-xl likely marks full banner
-// 		const banner = upgradeBtn.closest(".shadow-md")
-// 		if (banner) {
-// 			banner.remove()
-// 		} else {
-// 			// Fallback: Remove parent stack if .shadow-xl not found
-// 			let parent = upgradeBtn
-// 			for (let i = 0; i < 3; i++) {
-// 				if (parent.parentElement & (parent.id !== "root")) parent = parent.parentElement
-// 			}
-// 			parent.remove()
-// 		}
-// 	}
+		const banner = upgradeBtn.closest(".shadow-md") || upgradeBtn.closest(".shadow-xl")
+		if (banner) {
+			banner.remove()
+		}
+	}
 
-// 	const getOwnText = (el) => {
-// 		return Array.from(el.childNodes)
-// 			.filter((n) => n.nodeType === Node.TEXT_NODE)
-// 			.map((n) => n.textContent)
-// 			.join("")
-// 			.trim()
-// 	}
+	const getOwnText = (el) => {
+		return Array.from(el.childNodes)
+			.filter((n) => n.nodeType === Node.TEXT_NODE)
+			.map((n) => n.textContent)
+			.join("")
+			.trim()
+	}
 
-// 	const removeTryThisAnswerBanner = () => {
-// 		const target = Array.from(document.querySelectorAll("*")).find((el) => {
-// 			const own = getOwnText(el)
-// 			if (!own.startsWith("Try this answer with")) return false
+	const removeTryThisAnswerBanner = () => {
+		const target = Array.from(document.querySelectorAll("*")).find((el) => {
+			const own = getOwnText(el)
+			if (!own.startsWith("Try this answer with")) return false
+			return !Array.from(el.querySelectorAll("*")).some((child) =>
+				getOwnText(child).startsWith("Try this answer with"),
+			)
+		})
 
-// 			// ensure no descendant is a more specific match
-// 			return !Array.from(el.querySelectorAll("*")).some((child) => getOwnText(child).startsWith("Try this answer with"))
-// 		})
+		if (target && target.parentElement && target.parentElement.parentElement) {
+			target.parentElement.parentElement.remove()
+		}
+	}
 
-// 		if (target && target.parentElement && target.parentElement.parentElement) {
-// 			target.parentElement.parentElement.remove()
-// 		}
-// 	}
+	const removeTryComputerBanner = () => {
+		// 1. Check for specific triggers (labels, images, or specific icons)
+		const trigger =
+			document.querySelector('[aria-label="Try Computer"]') ||
+			document.querySelector('img[src*="perplexity_computer_upsell.png"]') ||
+			Array.from(document.querySelectorAll("use")).find(
+				(use) =>
+					use.getAttribute("xlink:href") === "#pplx-icon-custom-computer" ||
+					use.getAttribute("href") === "#pplx-icon-custom-computer",
+			)
 
-// 	// Run the remover every 500ms in case the banner reappears via SPA navigation
-// 	setInterval(removeBanners, 500)
-// })()
+		if (trigger) {
+			const banner =
+				trigger.closest(".shadow-xl") ||
+				trigger.closest(".bottom-md") ||
+				trigger.closest(".rounded-2xl")
+			if (banner) {
+				banner.remove()
+				console.log("[Perplexity Improvements] Removed 'Try Computer' banner via trigger")
+				return
+			}
+		}
+
+		// 2. Scan for specific banners by content patterns
+		document.querySelectorAll(".shadow-xl, .shadow-md, .rounded-2xl").forEach((el) => {
+			const text = el.textContent || ""
+			const hasComputerUpsell =
+				text.includes("Computer connects to 400+ apps") ||
+				text.includes("Put Computer to work") ||
+				(text.includes("Try Computer") &&
+					(text.includes("Computer can") ||
+						text.includes("autonomously") ||
+						text.includes("connected tools")))
+
+			if (hasComputerUpsell) {
+				el.remove()
+				console.log("[Perplexity Improvements] Removed Computer upsell banner via text scan")
+			}
+		})
+	}
+
+	// Use MutationObserver for instant removal
+	const observer = new MutationObserver(removeBanners)
+	observer.observe(document.body, { childList: true, subtree: true })
+
+	// Fallback interval for SPA navigation or items that don't trigger subtree mutations correctly
+	setInterval(removeBanners, 1000)
+
+	// Initial run
+	if (document.readyState === "complete" || document.readyState === "interactive") {
+		removeBanners()
+	}
+})()
+
 
 //!	9. Rate Limit Display
 ;(() => {

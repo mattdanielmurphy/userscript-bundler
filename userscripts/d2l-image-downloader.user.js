@@ -1,15 +1,17 @@
 // ==UserScript==
 // @name        D2L Image Downloader
-// @namespace   Violentmonkey Scripts
-// @match       https://sd44.onlinelearningbc.com/d2l/*
-// @match       https://sd44.onlinelearningbc.com/content/*
+// @match       https://*.onlinelearningbc.com/d2l/*
+// @match       https://*.onlinelearningbc.com/content/*
+// @match       https://*.studyforge.net/*
+// @match       https://d2l.sd44.bc.ca/*
+// @match       *://*.contentconnections.ca/*
 // @require     https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js
 // @require     https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js
 // @require     https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js
 // @grant       none
-// @version     1.3
+// @version     1.5
 // @author      Antigravity
-// @description Adds a button to download all images as a ZIP or take a high-res snapshot of D2L content.
+// @description Adds a button to download all images as a ZIP or take a high-res snapshot of D2L/StudyForge content.
 // ==/UserScript==
 
 ;(function () {
@@ -17,45 +19,53 @@
 
 	const IS_TOP = window === window.top
 
-	// 1. Helper function to find the element across Shadow boundaries
+	// 1. Optimized helper function to find the element across Shadow boundaries
 	function findInShadow(selector, root = document) {
 		const el = root.querySelector(selector)
 		if (el) return el
 
-		const children = root.querySelectorAll("*")
-		for (const child of children) {
-			if (child.shadowRoot) {
-				const found = findInShadow(selector, child.shadowRoot)
-				if (found) return found
-			}
+		// Only iterate over elements that could potentially have a shadowRoot
+		const walkers = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT, {
+			acceptNode: (node) =>
+				node.shadowRoot ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP,
+		})
+
+		let node
+		while ((node = walkers.nextNode())) {
+			const found = findInShadow(selector, node.shadowRoot)
+			if (found) return found
 		}
 		return null
 	}
 
 	// Helper to find all iframes even inside shadow roots
 	function findIframes(root = document, list = []) {
-		const iframes = Array.from(root.querySelectorAll("iframe"))
-		list.push(...iframes)
+		list.push(...Array.from(root.querySelectorAll("iframe")))
 
-		const children = root.querySelectorAll("*")
-		for (const child of children) {
-			if (child.shadowRoot) {
-				findIframes(child.shadowRoot, list)
-			}
+		const walkers = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT, {
+			acceptNode: (node) =>
+				node.shadowRoot ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP,
+		})
+
+		let node
+		while ((node = walkers.nextNode())) {
+			findIframes(node.shadowRoot, list)
 		}
 		return list
 	}
 
 	// Helper to find all images even inside shadow roots
 	function findImages(root = document, list = []) {
-		const imgs = Array.from(root.querySelectorAll("img"))
-		list.push(...imgs)
+		list.push(...Array.from(root.querySelectorAll("img")))
 
-		const children = root.querySelectorAll("*")
-		for (const child of children) {
-			if (child.shadowRoot) {
-				findImages(child.shadowRoot, list)
-			}
+		const walkers = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT, {
+			acceptNode: (node) =>
+				node.shadowRoot ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP,
+		})
+
+		let node
+		while ((node = walkers.nextNode())) {
+			findImages(node.shadowRoot, list)
 		}
 		return list
 	}
@@ -64,6 +74,9 @@
 		const candidates = [
 			".d2l-html-block-rendered",
 			".d2l-fileviewer-render-container",
+			".sf-lesson-content", // StudyForge
+			".sf-page-content", // StudyForge
+			".content-area", // Generic StudyForge/ContentConnections
 			"main",
 			'[role="main"]',
 			".d2l-content-container",
@@ -84,12 +97,18 @@
 
 		let images = findImages(container)
 		return images.filter((img) => {
-			if (img.closest("nav, header, footer, .d2l-navigation-s, .d2l-header, .navigation-menu, .header-button-tray")) return false
+			if (
+				img.closest(
+					"nav, header, footer, .d2l-navigation-s, .d2l-header, .navigation-menu, .header-button-tray, .sf-nav",
+				)
+			)
+				return false
 			const width = img.naturalWidth || img.width
 			const height = img.naturalHeight || img.height
-			if (width > 0 && height > 0 && width < 40 && height < 40) return false
-			if (container === document.body) {
-				if (img.classList.contains("d2l-icon") || img.closest(".d2l-button-icon")) return false
+			// Allow small images if they are in a content block but not icons
+			if (width > 0 && height > 0 && width < 30 && height < 30) {
+				if (img.classList.contains("d2l-icon") || img.src.includes("icon"))
+					return false
 			}
 			if (!img.src || img.src.startsWith("data:")) return false
 			const srcLower = img.src.toLowerCase()
@@ -102,7 +121,10 @@
 
 	async function bundleImagesInFrame() {
 		const images = await getTargetImages()
-		if (images.length === 0) return []
+		if (images.length === 0) {
+			console.log("[D2L-DL] No images found in this frame.")
+			return []
+		}
 
 		console.log(`[D2L-DL] Bundling ${images.length} images...`)
 		const results = []
@@ -110,18 +132,39 @@
 			try {
 				const src = images[i].src
 				const response = await fetch(src)
+				if (!response.ok) throw new Error(`HTTP ${response.status}`)
 				const blob = await response.blob()
-				const filename = src.split("/").pop().split("?")[0] || `image-${i}.png`
+
+				// Smart filename extraction
+				let filename = ""
+				try {
+					const url = new URL(src)
+					const pathParts = url.pathname.split("/")
+					filename = pathParts.pop() || "image"
+					if (!filename.includes(".") && response.type) {
+						// Try to get extension from mime type
+						const ext = blob.type.split("/")[1]?.replace("jpeg", "jpg") || "png"
+						filename += `.${ext}`
+					}
+				} catch (e) {
+					filename = `image-${i}.png`
+				}
+
 				results.push({ filename, blob })
 			} catch (err) {
-				console.error(`[D2L-DL] Failed to fetch image:`, images[i].src)
+				console.error(`[D2L-DL] Failed to fetch image:`, images[i].src, err)
 			}
 		}
 		return results
 	}
 
 	async function takeSnapshotInFrame() {
-		const candidates = [".content-panel", ".content-block", ".d2l-html-block-rendered", "main"]
+		const candidates = [
+			".content-panel",
+			".content-block",
+			".d2l-html-block-rendered",
+			"main",
+		]
 		let target = null
 		for (const s of candidates) {
 			target = findInShadow(s)
@@ -143,7 +186,10 @@
 	window.addEventListener("message", async (event) => {
 		if (event.data && event.data.type === "D2L_SNAPSHOT") {
 			await takeSnapshotInFrame()
-		} else if (event.data && event.data.type === "D2L_TRIGGER_DOWNLOAD_SINGLE") {
+		} else if (
+			event.data &&
+			event.data.type === "D2L_TRIGGER_DOWNLOAD_SINGLE"
+		) {
 			const items = await bundleImagesInFrame()
 			if (items.length > 0) {
 				const zip = new JSZip()
@@ -286,7 +332,7 @@
                                     </div>
                                 </div>
                             </div>
-                        `
+                        `,
 													)
 													.join("")}
                     </div>
@@ -325,7 +371,10 @@
 								}
 							})
 						} else {
-							f.frame.contentWindow.postMessage({ type: "D2L_TRIGGER_DOWNLOAD_SINGLE" }, "*")
+							f.frame.contentWindow.postMessage(
+								{ type: "D2L_TRIGGER_DOWNLOAD_SINGLE" },
+								"*",
+							)
 						}
 					})
 				})
@@ -336,7 +385,8 @@
 						const f = frames[parseInt(btn.dataset.index)]
 						hide()
 						if (f.frame === window) takeSnapshotInFrame()
-						else f.frame.contentWindow.postMessage({ type: "D2L_SNAPSHOT" }, "*")
+						else
+							f.frame.contentWindow.postMessage({ type: "D2L_SNAPSHOT" }, "*")
 					})
 				})
 
@@ -353,7 +403,10 @@
 								}
 							})
 						} else {
-							f.frame.contentWindow.postMessage({ type: "D2L_TRIGGER_DOWNLOAD_SINGLE" }, "*")
+							f.frame.contentWindow.postMessage(
+								{ type: "D2L_TRIGGER_DOWNLOAD_SINGLE" },
+								"*",
+							)
 						}
 					})
 				})
@@ -373,6 +426,9 @@
 			if (c) c.remove()
 		}
 		rmChat()
-		new MutationObserver(rmChat).observe(document.documentElement, { childList: true, subtree: true })
+		new MutationObserver(rmChat).observe(document.documentElement, {
+			childList: true,
+			subtree: true,
+		})
 	}
 })()

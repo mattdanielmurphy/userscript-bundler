@@ -21,7 +21,7 @@ A tool for bundling userscripts, likely with a watcher and auto-bundling capabil
 - TorrentMac script: Removes fake "Download Now" buttons by text content.
 - **Online Learning BC / StudyForge**: YouTube Fullscreen Fix. Uses a "Keymaster + UI" cross-frame messaging architecture to bypass D2L's nested iframe permission restrictions. Includes an 'F' key shortcut.
 - **Universal YouTube Fullscreen Unblocker**: Restores fullscreen for embeds on mobile/desktop.
-- **D2L Image Downloader**: Downloads images from `.d2l-html-block-rendered` containers. Includes a compact (expanding) UI, support for cross-frame image discovery/downloading via selection menu, and iframe highlighting on hover.
+- **D2L Image Downloader**: Downloads images from `.d2l-html-block-rendered` and StudyForge containers. Includes a compact (expanding) UI, support for cross-frame image discovery/downloading via selection menu, and iframe highlighting on hover. Optimized for performance with `TreeWalker`.
 - **ContentConnections Enhancements**: Hides whiteboard/menu, adds "Yes (Show Sol.)" and "No (Skip Sol.)" buttons, and automates next steps based on correctness choice. Includes a **Canvas Capture Automation** (triggered by `Opt+D` on PlayerView pages) to automatically seek and download slides as images, and a **Proper Dark Mode** (canvas inversion, iframe background overrides, general CSS theme, and image inversion for consistency). Includes enhanced practice UI buttons and layout fixes for media controls. **Fixed lesson indexing and implemented recursive lesson capture (auto-advancing to the next lesson until unit completion).**
 - **Forbes Paywall Bypass**: Removes article modals and backdrops, and restores scrolling on forbes.com to bypass paywall.
 
