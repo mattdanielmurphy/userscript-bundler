@@ -708,6 +708,7 @@
     let initialSyncDone = false
     let lastSyncLogTime = 0
     let initialJumpTriggered = false
+    let isSkipRequested = false
 
     const showControlBar = (downloading) => {
         let bar = document.getElementById('automation-control-bar')
@@ -737,6 +738,7 @@
                 <label for="ac-mute-check" class="ac-label">Mute</label>
             </div>
             <div style="display: flex; gap: 8px; border-left: 1px solid #444; padding-left: 15px;">
+                <button class="ac-btn" id="ac-skip-btn" style="background: #007aff; border-color: #007aff; color: white;">Skip</button>
                 <button class="ac-btn" id="ac-pause-btn">Pause</button>
                 <button class="ac-btn" id="ac-stop-btn" style="background: #cc2222; border-color: #990000;">Stop</button>
             </div>
@@ -779,6 +781,12 @@
                     audio.muted = isAutomationMuted
                 }
             }
+        })
+
+        const skipBtn = bar.querySelector('#ac-skip-btn')
+        skipBtn.addEventListener('click', () => {
+            isSkipRequested = true
+            console.log('[Userscript] Skip requested for current slide.')
         })
 
         const pauseBtn = bar.querySelector('#ac-pause-btn')
@@ -1535,6 +1543,7 @@
             console.log('Metadata detected:', meta)
 
             while (true) {
+                isSkipRequested = false
                 await waitIfPaused()
                 let canvas, canvasDoc, seekbar, nextBtn, slideIndicator, audio
                 let retryCount = 0
@@ -1690,6 +1699,7 @@
                 // 3a. Wait for initial readiness and setup trickery
                 recorder('WAITING FOR INITIAL READY')
                 for (let i = 0; i < 100; i++) {
+                    if (isAutomationMuted) audio.muted = true
                     if (audio.readyState >= 3 && !checkLoadingState()) break
                     await new Promise((r) => setTimeout(r, 100))
                 }
@@ -1770,6 +1780,11 @@
                         if (audio.paused && !checkLoadingState())
                             audio.play().catch(() => {})
 
+                        // Ensure mute persistence
+                        if (isAutomationMuted) {
+                            audio.muted = true
+                        }
+
                         const currentFrame = canvas.toDataURL('image/png', 0.1) // Low quality for speed
                         const isBuffering = checkLoadingState()
                         const isAnimating = currentFrame !== lastFrame
@@ -1834,10 +1849,15 @@
                     )
                     const remainingWait = minTotalWait - elapsedOnSlide
 
-                    if (remainingWait <= 0) break
+                    if (remainingWait <= 0 || isSkipRequested) break
 
                     if (audio.paused && !checkLoadingState())
                         audio.play().catch(() => {})
+
+                    // Ensure mute persistence
+                    if (isAutomationMuted) {
+                        audio.muted = true
+                    }
 
                     const reason =
                         useDwellTime && requiredDwellMs > automationDelay
