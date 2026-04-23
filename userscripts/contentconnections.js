@@ -802,7 +802,7 @@
         const stopBtn = bar.querySelector('#ac-stop-btn')
         stopBtn.addEventListener('click', () => {
             console.log('[Userscript] Stopping automation and clearing state.')
-            localStorage.removeItem(RUNNING_KEY)
+            sessionStorage.removeItem(RUNNING_KEY)
             isAutomationRunning = false
             isAutomationPaused = false
             hideControlBar()
@@ -814,7 +814,7 @@
     let resumeScheduled = false
     const tryResumeAutomation = () => {
         if (isAutomationRunning || resumeScheduled) return
-        const stateStr = localStorage.getItem(RUNNING_KEY)
+        const stateStr = sessionStorage.getItem(RUNNING_KEY)
         if (!stateStr) return
 
         try {
@@ -834,7 +834,7 @@
                 }, 1500)
             }
         } catch (e) {
-            localStorage.removeItem(RUNNING_KEY)
+            sessionStorage.removeItem(RUNNING_KEY)
         }
     }
 
@@ -927,7 +927,7 @@
     const isAutomationActive = () => {
         if (typeof isAutomationRunning !== 'undefined' && isAutomationRunning)
             return true
-        const stateStr = localStorage.getItem('cc_automation_running_state')
+        const stateStr = sessionStorage.getItem(RUNNING_KEY)
         if (!stateStr) return false
         try {
             const state = JSON.parse(stateStr)
@@ -1517,7 +1517,7 @@
         isAutomationPaused = false
         resumeScheduled = false
         showControlBar(downloadSlides)
-        localStorage.setItem(
+        sessionStorage.setItem(
             RUNNING_KEY,
             JSON.stringify({
                 active: true,
@@ -1945,7 +1945,7 @@
 
                     updateControlBarStatus('Finished!')
                     console.log('Automation complete.')
-                    localStorage.removeItem(RUNNING_KEY)
+                    sessionStorage.removeItem(RUNNING_KEY)
                     break
                 }
 
