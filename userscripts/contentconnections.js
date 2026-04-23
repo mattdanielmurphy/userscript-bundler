@@ -125,14 +125,15 @@
 					box-shadow: 0 8px 32px rgba(0,0,0,0.6);
 					color: white;
 					font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-					transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 					pointer-events: auto;
 					user-select: none;
+					cursor: move;
 				}
 				#automation-control-bar.hidden {
 					opacity: 0;
 					pointer-events: none;
-					transform: translateX(-50%) translateY(40px);
+					transform: translate(var(--x, -50%), 40px);
+					transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 				}
 				.ac-status {
 					font-size: 13px;
@@ -698,6 +699,7 @@
     const RUNNING_KEY = 'cc_automation_running_state'
     const SPEED_KEY = 'cc_automation_speed'
     const MUTE_KEY = 'cc_automation_mute'
+    const POS_KEY = 'cc_automation_pos'
 
     let automationDelay = parseInt(localStorage.getItem(DELAY_KEY) || '500')
     let useDwellTime = localStorage.getItem(DWELL_KEY) !== 'false' // Default to true
@@ -719,6 +721,20 @@
 
         bar = document.createElement('div')
         bar.id = 'automation-control-bar'
+
+        // Restore position
+        const posStr = localStorage.getItem(POS_KEY)
+        if (posStr) {
+            try {
+                const pos = JSON.parse(posStr)
+                bar.style.left = pos.x + 'px'
+                bar.style.top = pos.y + 'px'
+                bar.style.bottom = 'auto'
+                bar.style.transform = 'none'
+                bar.style.setProperty('--x', '0px')
+            } catch (e) {}
+        }
+
         bar.innerHTML = `
             <div class="ac-status">Initializing...</div>
             <div class="ac-input-group">
@@ -809,6 +825,49 @@
         })
 
         document.body.appendChild(bar)
+
+        // Handle dragging logic
+        let isDragging = false
+        let startX, startY, initialLeft, initialTop
+
+        bar.addEventListener('mousedown', (e) => {
+            // Don't drag if clicking inputs or buttons
+            if (['INPUT', 'BUTTON', 'LABEL'].includes(e.target.tagName)) return
+
+            isDragging = true
+            startX = e.clientX
+            startY = e.clientY
+            const rect = bar.getBoundingClientRect()
+            initialLeft = rect.left
+            initialTop = rect.top
+            bar.style.transition = 'none' // Disable transitions while dragging
+            e.preventDefault()
+        })
+
+        window.addEventListener('mousemove', (e) => {
+            if (!isDragging) return
+            const dx = e.clientX - startX
+            const dy = e.clientY - startY
+
+            bar.style.left = initialLeft + dx + 'px'
+            bar.style.top = initialTop + dy + 'px'
+            bar.style.bottom = 'auto'
+            bar.style.transform = 'none'
+            bar.style.setProperty('--x', '0px')
+        })
+
+        window.addEventListener('mouseup', () => {
+            if (isDragging) {
+                isDragging = false
+                const rect = bar.getBoundingClientRect()
+                localStorage.setItem(
+                    POS_KEY,
+                    JSON.stringify({ x: rect.left, y: rect.top })
+                )
+                // Re-enable transitions for hidden state
+                bar.style.transition = ''
+            }
+        })
     }
 
     let resumeScheduled = false
