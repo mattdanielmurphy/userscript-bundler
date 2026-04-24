@@ -465,365 +465,414 @@
 
 //!    7. Text Selection Popup: Search with Google
 ;(() => {
-	// =============================================================================
-	// DEBUG: Check execution context FIRST
-	// =============================================================================
-	console.log(`[Perplexity Debug] Script running in: ${window.location.href}`)
-	console.log(`[Perplexity Debug] Is iframe? ${window.self !== window.top}`)
+    // =============================================================================
+    // DEBUG: Check execution context FIRST
+    // =============================================================================
+    console.log(`[Perplexity Debug] Script running in: ${window.location.href}`)
+    console.log(`[Perplexity Debug] Is iframe? ${window.self !== window.top}`)
 
-	// Skip if we're inside an iframe (like GTM)
-	if (window.self !== window.top) {
-		console.log("[Perplexity] Skipping - inside iframe")
-		return
-	}
+    // Skip if we're inside an iframe (like GTM)
+    if (window.self !== window.top) {
+        console.log('[Perplexity] Skipping - inside iframe')
+        return
+    }
 
-	const PREFIX = "[Perplexity - Google Search Button]"
-	console.log(`${PREFIX} Initializing in main window...`)
+    const PREFIX = '[Perplexity - Google Search Button]'
+    console.log(`${PREFIX} Initializing in main window...`)
 
-	// =============================================================================
-	// CORE FUNCTION: Add Google Search Button
-	// =============================================================================
-	function addGoogleSearchButton(triggerType) {
-		triggerType = triggerType || "interval"
-		const buttons = document.querySelectorAll("button")
-		const verbose = triggerType !== "interval"
+    // =============================================================================
+    // CORE FUNCTION: Add Google Search Button
+    // =============================================================================
+    function addGoogleSearchButton(triggerType) {
+        triggerType = triggerType || 'interval'
+        const buttons = document.querySelectorAll('button')
+        const verbose = triggerType !== 'interval'
 
-		if (verbose) {
-			console.log(`${PREFIX} Scan triggered by: ${triggerType}`)
-			console.log(`${PREFIX} Found ${buttons.length} buttons`)
-			console.log(
-				`${PREFIX} Current selection: "${window.getSelection().toString().slice(0, 50)}"`,
-			)
-		}
+        if (verbose) {
+            console.log(`${PREFIX} Scan triggered by: ${triggerType}`)
+            console.log(`${PREFIX} Found ${buttons.length} buttons`)
+            console.log(
+                `${PREFIX} Current selection: "${window.getSelection().toString().slice(0, 50)}"`
+            )
+        }
 
-		for (let i = 0; i < buttons.length; i++) {
-			const button = buttons[i]
+        for (let i = 0; i < buttons.length; i++) {
+            const button = buttons[i]
 
-			// Look for the "Check sources" button
-			if (button.textContent && button.textContent.includes("Check sources")) {
-				const container = button.parentElement
-				if (!container) continue
+            // Look for the "Check sources" button
+            if (
+                button.textContent &&
+                button.textContent.includes('Check sources')
+            ) {
+                const container = button.parentElement
+                if (!container) continue
 
-				// Don't add duplicate buttons
-				if (container.querySelector(".google-search-btn")) {
-					if (verbose) console.log(`${PREFIX} Google button already exists`)
-					continue
-				}
+                // Don't add duplicate buttons
+                if (container.querySelector('.google-search-btn')) {
+                    if (verbose)
+                        console.log(`${PREFIX} Google button already exists`)
+                    continue
+                }
 
-				console.log(
-					`${PREFIX} ✅ FOUND "Check sources" button! Adding Google Search...`,
-				)
+                console.log(
+                    `${PREFIX} ✅ FOUND "Check sources" button! Adding Google Search...`
+                )
 
-				// Clone the button and modify it
-				const googleButton = button.cloneNode(true)
-				googleButton.classList.add("google-search-btn")
+                // Clone the button and modify it
+                const googleButton = button.cloneNode(true)
+                googleButton.classList.add('google-search-btn')
 
-				// Adjust styling to make it part of a button group
-				button.classList.remove("rounded-r-lg", "dark:rounded-r-lg")
-				button.classList.add("rounded-r-none")
+                // Adjust styling to make it part of a button group
+                button.classList.remove('rounded-r-lg', 'dark:rounded-r-lg')
+                button.classList.add('rounded-r-none')
 
-				// Update button text
-				const textNode = googleButton.querySelector(".truncate")
-				if (textNode) {
-					textNode.textContent = "Search with Google"
-				} else {
-					googleButton.textContent = "Search with Google"
-				}
+                // Update button text
+                const textNode = googleButton.querySelector('.truncate')
+                if (textNode) {
+                    textNode.textContent = 'Search with Google'
+                } else {
+                    googleButton.textContent = 'Search with Google'
+                }
 
-				// Add click handler
-				googleButton.addEventListener("click", function (e) {
-					e.stopPropagation()
-					e.preventDefault()
-					const selection = window.getSelection().toString().trim()
-					if (selection) {
-						console.log(`${PREFIX} Opening Google search for: "${selection}"`)
-						window.open(
-							"https://www.google.com/search?q=" +
-								encodeURIComponent(selection),
-							"_blank",
-						)
-					} else {
-						console.log(`${PREFIX} No text selected`)
-					}
-				})
+                // Add click handler
+                googleButton.addEventListener('click', function (e) {
+                    e.stopPropagation()
+                    e.preventDefault()
+                    const selection = window.getSelection().toString().trim()
+                    if (selection) {
+                        console.log(
+                            `${PREFIX} Opening Google search for: "${selection}"`
+                        )
+                        window.open(
+                            'https://www.google.com/search?q=' +
+                                encodeURIComponent(selection),
+                            '_blank'
+                        )
+                    } else {
+                        console.log(`${PREFIX} No text selected`)
+                    }
+                })
 
-				// Add to DOM
-				container.appendChild(googleButton)
-				console.log(`${PREFIX} ✅ Google Search button added successfully!`)
-			}
-		}
-	}
+                // Add to DOM
+                container.appendChild(googleButton)
+                console.log(
+                    `${PREFIX} ✅ Google Search button added successfully!`
+                )
+            }
+        }
+    }
 
-	// =============================================================================
-	// EVENT LISTENERS & OBSERVERS
-	// =============================================================================
-	function setupListeners() {
-		console.log(`${PREFIX} Setting up event listeners...`)
-		console.log(`${PREFIX} - document.readyState: ${document.readyState}`)
-		console.log(
-			`${PREFIX} - document.body: ${document.body ? "exists" : "null"}`,
-		)
+    // =============================================================================
+    // EVENT LISTENERS & OBSERVERS
+    // =============================================================================
+    function setupListeners() {
+        console.log(`${PREFIX} Setting up event listeners...`)
+        console.log(`${PREFIX} - document.readyState: ${document.readyState}`)
+        console.log(
+            `${PREFIX} - document.body: ${document.body ? 'exists' : 'null'}`
+        )
 
-		if (!document.body) {
-			console.warn(
-				`${PREFIX} document.body not ready yet, retrying in 100ms...`,
-			)
-			setTimeout(setupListeners, 100)
-			return
-		}
+        if (!document.body) {
+            console.warn(
+                `${PREFIX} document.body not ready yet, retrying in 100ms...`
+            )
+            setTimeout(setupListeners, 100)
+            return
+        }
 
-		// Listen for text selection events (capture phase)
-		document.addEventListener(
-			"mouseup",
-			function (e) {
-				console.log(`${PREFIX} mouseup event - target: ${e.target.tagName}`)
-				setTimeout(() => addGoogleSearchButton("mouseup"), 200)
-			},
-			true,
-		)
+        // Listen for text selection events (capture phase)
+        document.addEventListener(
+            'mouseup',
+            function (e) {
+                console.log(
+                    `${PREFIX} mouseup event - target: ${e.target.tagName}`
+                )
+                setTimeout(() => addGoogleSearchButton('mouseup'), 200)
+            },
+            true
+        )
 
-		document.addEventListener(
-			"keyup",
-			function (e) {
-				setTimeout(() => addGoogleSearchButton("keyup"), 200)
-			},
-			true,
-		)
+        document.addEventListener(
+            'keyup',
+            function (e) {
+                setTimeout(() => addGoogleSearchButton('keyup'), 200)
+            },
+            true
+        )
 
-		console.log(`${PREFIX} ✅ Event listeners attached`)
+        console.log(`${PREFIX} ✅ Event listeners attached`)
 
-		// MutationObserver for dynamically added elements
-		const observer = new MutationObserver(function (mutations) {
-			for (let mutation of mutations) {
-				for (let node of mutation.addedNodes) {
-					if (
-						node.nodeType === Node.ELEMENT_NODE &&
-						node.textContent &&
-						node.textContent.includes("Check sources")
-					) {
-						console.log(
-							`${PREFIX} MutationObserver detected "Check sources" button`,
-						)
-						setTimeout(() => addGoogleSearchButton("mutation"), 100)
-						return
-					}
-				}
-			}
-		})
+        // MutationObserver for dynamically added elements
+        const observer = new MutationObserver(function (mutations) {
+            for (let mutation of mutations) {
+                for (let node of mutation.addedNodes) {
+                    if (
+                        node.nodeType === Node.ELEMENT_NODE &&
+                        node.textContent &&
+                        node.textContent.includes('Check sources')
+                    ) {
+                        console.log(
+                            `${PREFIX} MutationObserver detected "Check sources" button`
+                        )
+                        setTimeout(() => addGoogleSearchButton('mutation'), 100)
+                        return
+                    }
+                }
+            }
+        })
 
-		observer.observe(document.body, {
-			childList: true,
-			subtree: true,
-		})
-		console.log(`${PREFIX} ✅ MutationObserver active`)
+        observer.observe(document.body, {
+            childList: true,
+            subtree: true,
+        })
+        console.log(`${PREFIX} ✅ MutationObserver active`)
 
-		// Backup polling (runs every 2 seconds as fallback)
-		setInterval(() => addGoogleSearchButton("interval"), 2000)
-		console.log(`${PREFIX} ✅ Polling interval started`)
+        // Backup polling (runs every 2 seconds as fallback)
+        setInterval(() => addGoogleSearchButton('interval'), 2000)
+        console.log(`${PREFIX} ✅ Polling interval started`)
 
-		// Self-test: trigger a scan immediately
-		console.log(`${PREFIX} Running initial scan...`)
-		addGoogleSearchButton("initial")
+        // Self-test: trigger a scan immediately
+        console.log(`${PREFIX} Running initial scan...`)
+        addGoogleSearchButton('initial')
 
-		// Expose test function globally
-		window._testGoogleSearch = function () {
-			console.log(`${PREFIX} 🧪 Manual test triggered!`)
-			addGoogleSearchButton("manual")
-		}
-		console.log(
-			`${PREFIX} ✅ Setup complete! Try window._testGoogleSearch() to test manually`,
-		)
-	}
+        // Expose test function globally
+        window._testGoogleSearch = function () {
+            console.log(`${PREFIX} 🧪 Manual test triggered!`)
+            addGoogleSearchButton('manual')
+        }
+        console.log(
+            `${PREFIX} ✅ Setup complete! Try window._testGoogleSearch() to test manually`
+        )
+    }
 
-	// =============================================================================
-	// INITIALIZATION
-	// =============================================================================
-	if (document.readyState === "complete") {
-		console.log(`${PREFIX} Document already loaded, setting up now...`)
-		setupListeners()
-	} else if (document.readyState === "interactive") {
-		console.log(`${PREFIX} Document interactive, waiting for full load...`)
-		window.addEventListener("load", function () {
-			console.log(`${PREFIX} window.load fired, waiting 1s for React...`)
-			setTimeout(setupListeners, 1000)
-		})
-	} else {
-		console.log(
-			`${PREFIX} Document still loading, waiting for DOMContentLoaded...`,
-		)
-		document.addEventListener("DOMContentLoaded", function () {
-			console.log(`${PREFIX} DOMContentLoaded fired, waiting 500ms...`)
-			setTimeout(setupListeners, 500)
-		})
-	}
+    // =============================================================================
+    // INITIALIZATION
+    // =============================================================================
+    if (document.readyState === 'complete') {
+        console.log(`${PREFIX} Document already loaded, setting up now...`)
+        setupListeners()
+    } else if (document.readyState === 'interactive') {
+        console.log(`${PREFIX} Document interactive, waiting for full load...`)
+        window.addEventListener('load', function () {
+            console.log(`${PREFIX} window.load fired, waiting 1s for React...`)
+            setTimeout(setupListeners, 1000)
+        })
+    } else {
+        console.log(
+            `${PREFIX} Document still loading, waiting for DOMContentLoaded...`
+        )
+        document.addEventListener('DOMContentLoaded', function () {
+            console.log(`${PREFIX} DOMContentLoaded fired, waiting 500ms...`)
+            setTimeout(setupListeners, 500)
+        })
+    }
 
-	console.log(`${PREFIX} Initialization complete`)
+    console.log(`${PREFIX} Initialization complete`)
 })()
 
 //!		 8. Hide Upsell Banners (Upgrade, Try Computer, etc.)
 ;(() => {
-	const removeBanners = () => {
-		removeUpgradeToMaxBanner()
-		removeUpgradeNowBanner()
-		removeTryThisAnswerBanner()
-		removeTryComputerBanner()
-	}
+    const removeBanners = () => {
+        removeUpgradeToMaxBanner()
+        removeUpgradeNowBanner()
+        removeTryThisAnswerBanner()
+        removeTryComputerBanner()
+    }
 
-	const removeUpgradeToMaxBanner = () => {
-		const upgradeBtn = Array.from(document.querySelectorAll("div, button")).find(
-			(el) => el.textContent.trim() === "Upgrade to Max",
-		)
-		if (!upgradeBtn) return
+    const removeUpgradeToMaxBanner = () => {
+        const upgradeBtn = Array.from(
+            document.querySelectorAll('div, button')
+        ).find((el) => el.textContent.trim() === 'Upgrade to Max')
+        if (!upgradeBtn) return
 
-		const banner = upgradeBtn.closest(".shadow-xl") || upgradeBtn.closest(".shadow-md")
-		if (banner) {
-			banner.remove()
-		}
-	}
+        const banner =
+            upgradeBtn.closest('.shadow-xl') || upgradeBtn.closest('.shadow-md')
+        if (banner) {
+            banner.remove()
+        }
+    }
 
-	const removeUpgradeNowBanner = () => {
-		const upgradeBtn = Array.from(document.querySelectorAll("div, button")).find(
-			(el) => el.textContent.trim() === "Upgrade now",
-		)
-		if (!upgradeBtn) return
+    const removeUpgradeNowBanner = () => {
+        const upgradeBtn = Array.from(
+            document.querySelectorAll('div, button')
+        ).find((el) => el.textContent.trim() === 'Upgrade now')
+        if (!upgradeBtn) return
 
-		const banner = upgradeBtn.closest(".shadow-md") || upgradeBtn.closest(".shadow-xl")
-		if (banner) {
-			banner.remove()
-		}
-	}
+        const banner =
+            upgradeBtn.closest('.shadow-md') || upgradeBtn.closest('.shadow-xl')
+        if (banner) {
+            banner.remove()
+        }
+    }
 
-	const getOwnText = (el) => {
-		return Array.from(el.childNodes)
-			.filter((n) => n.nodeType === Node.TEXT_NODE)
-			.map((n) => n.textContent)
-			.join("")
-			.trim()
-	}
+    const getOwnText = (el) => {
+        return Array.from(el.childNodes)
+            .filter((n) => n.nodeType === Node.TEXT_NODE)
+            .map((n) => n.textContent)
+            .join('')
+            .trim()
+    }
 
-	const removeTryThisAnswerBanner = () => {
-		const target = Array.from(document.querySelectorAll("*")).find((el) => {
-			const own = getOwnText(el)
-			if (!own.startsWith("Try this answer with")) return false
-			return !Array.from(el.querySelectorAll("*")).some((child) =>
-				getOwnText(child).startsWith("Try this answer with"),
-			)
-		})
+    const removeTryThisAnswerBanner = () => {
+        const target = Array.from(document.querySelectorAll('*')).find((el) => {
+            const own = getOwnText(el)
+            if (!own.startsWith('Try this answer with')) return false
+            return !Array.from(el.querySelectorAll('*')).some((child) =>
+                getOwnText(child).startsWith('Try this answer with')
+            )
+        })
 
-		if (target && target.parentElement && target.parentElement.parentElement) {
-			target.parentElement.parentElement.remove()
-		}
-	}
+        if (
+            target &&
+            target.parentElement &&
+            target.parentElement.parentElement
+        ) {
+            target.parentElement.parentElement.remove()
+        }
+    }
 
-	const removeTryComputerBanner = () => {
-		// 1. Check for specific triggers (labels, images, or specific icons)
-		const trigger =
-			document.querySelector('[aria-label="Try Computer"]') ||
-			document.querySelector('img[src*="perplexity_computer_upsell.png"]') ||
-			Array.from(document.querySelectorAll("use")).find(
-				(use) =>
-					use.getAttribute("xlink:href") === "#pplx-icon-custom-computer" ||
-					use.getAttribute("href") === "#pplx-icon-custom-computer",
-			)
+    const removeTryComputerBanner = () => {
+        // 1. Check for specific triggers (labels, images, or specific icons)
+        const trigger =
+            document.querySelector('[aria-label="Try Computer"]') ||
+            document.querySelector(
+                'img[src*="perplexity_computer_upsell.png"]'
+            ) ||
+            Array.from(document.querySelectorAll('use')).find(
+                (use) =>
+                    use.getAttribute('xlink:href') ===
+                        '#pplx-icon-custom-computer' ||
+                    use.getAttribute('href') === '#pplx-icon-custom-computer'
+            )
 
-		if (trigger) {
-			const banner =
-				trigger.closest(".shadow-xl") ||
-				trigger.closest(".bottom-md") ||
-				trigger.closest(".rounded-2xl")
-			if (banner) {
-				banner.remove()
-				console.log("[Perplexity Improvements] Removed 'Try Computer' banner via trigger")
-				return
-			}
-		}
+        if (trigger) {
+            const banner =
+                trigger.closest('.shadow-xl') ||
+                trigger.closest('.bottom-md') ||
+                trigger.closest('.rounded-2xl')
+            if (banner) {
+                banner.remove()
+                console.log(
+                    "[Perplexity Improvements] Removed 'Try Computer' banner via trigger"
+                )
+                return
+            }
+        }
 
-		// 2. Scan for specific banners by content patterns
-		document.querySelectorAll(".shadow-xl, .shadow-md, .rounded-2xl").forEach((el) => {
-			const text = el.textContent || ""
-			const hasComputerUpsell =
-				text.includes("Computer connects to 400+ apps") ||
-				text.includes("Put Computer to work") ||
-				(text.includes("Try Computer") &&
-					(text.includes("Computer can") ||
-						text.includes("autonomously") ||
-						text.includes("connected tools")))
+        // 2. Scan for specific banners by content patterns
+        document
+            .querySelectorAll('.shadow-xl, .shadow-md, .rounded-2xl')
+            .forEach((el) => {
+                const text = el.textContent || ''
+                const hasComputerUpsell =
+                    text.includes('Computer connects to 400+ apps') ||
+                    text.includes('Put Computer to work') ||
+                    (text.includes('Try Computer') &&
+                        (text.includes('Computer can') ||
+                            text.includes('autonomously') ||
+                            text.includes('connected tools')))
 
-			if (hasComputerUpsell) {
-				el.remove()
-				console.log("[Perplexity Improvements] Removed Computer upsell banner via text scan")
-			}
-		})
-	}
+                if (hasComputerUpsell) {
+                    el.remove()
+                    console.log(
+                        '[Perplexity Improvements] Removed Computer upsell banner via text scan'
+                    )
+                }
+            })
+    }
 
-	// Use MutationObserver for instant removal
-	const observer = new MutationObserver(removeBanners)
-	observer.observe(document.body, { childList: true, subtree: true })
+    // Use MutationObserver for instant removal
+    const observer = new MutationObserver(removeBanners)
+    observer.observe(document.body, { childList: true, subtree: true })
 
-	// Fallback interval for SPA navigation or items that don't trigger subtree mutations correctly
-	setInterval(removeBanners, 1000)
+    // Fallback interval for SPA navigation or items that don't trigger subtree mutations correctly
+    setInterval(removeBanners, 1000)
 
-	// Initial run
-	if (document.readyState === "complete" || document.readyState === "interactive") {
-		removeBanners()
-	}
+    // Initial run
+    if (
+        document.readyState === 'complete' ||
+        document.readyState === 'interactive'
+    ) {
+        removeBanners()
+    }
 })()
-
 
 //!	9. Rate Limit Display
 ;(() => {
-	"use strict"
+    'use strict'
 
-	const BADGE_ID = "pplx-rate-limit-badge"
-	const REFRESH_MS = 60_000
+    const BADGE_ID = 'pplx-rate-limit-badge'
+    const REFRESH_MS = 300_000 // 5 minutes
+    const CACHE_KEY = 'pplx-rate-limit-cache'
+    const TS_KEY = 'pplx-rate-limit-ts'
 
-	async function fetchLimits() {
-		try {
-			const r = await fetch("/rest/rate-limit/all")
-			if (!r.ok) throw new Error(`HTTP ${r.status}`)
-			const d = await r.json()
-			return {
-				pro: d.remaining_pro ?? "?",
-				research: d.remaining_research ?? "?",
-			}
-		} catch (e) {
-			console.error("[pplx-rate-limit] Fetch error:", e)
-			return { pro: "!", research: "!" }
-		}
-	}
+    async function fetchLimits(force = false) {
+        const now = Date.now()
+        if (!force) {
+            const cached = localStorage.getItem(CACHE_KEY)
+            const lastTS = parseInt(localStorage.getItem(TS_KEY) || '0')
+            if (cached && now - lastTS < REFRESH_MS) {
+                try {
+                    return JSON.parse(cached)
+                } catch (e) {}
+            }
+        }
 
-	function buildBadge() {
-		const wrap = document.createElement("div")
-		wrap.id = BADGE_ID
-		wrap.title = "Pro / Research queries remaining — click to refresh"
-		Object.assign(wrap.style, {
-			display: "inline-flex",
-			alignItems: "center",
-			gap: "6px",
-			fontSize: "12px",
-			lineHeight: "1",
-			color: "var(--text-quiet, #888)",
-			fontFamily: "inherit",
-			height: "32px",
-			padding: "0 10px",
-			borderRadius: "999px",
-			cursor: "pointer",
-			userSelect: "none",
-			whiteSpace: "nowrap",
-			transition: "all 0.2s ease",
-			border: "1px solid transparent",
-		})
+        try {
+            const r = await fetch('/rest/rate-limit/all')
+            if (!r.ok) throw new Error(`HTTP ${r.status}`)
+            const d = await r.json()
+            const limits = {
+                pro: d.remaining_pro ?? '?',
+                research: d.remaining_research ?? '?',
+            }
+            localStorage.setItem(CACHE_KEY, JSON.stringify(limits))
+            localStorage.setItem(TS_KEY, now.toString())
+            return limits
+        } catch (e) {
+            console.error('[pplx-rate-limit] Fetch error:', e)
+            const cached = localStorage.getItem(CACHE_KEY)
+            if (cached) {
+                try {
+                    return JSON.parse(cached)
+                } catch (err) {}
+            }
+            return { pro: '!', research: '!' }
+        }
+    }
 
-		wrap.onmouseenter = () => {
-			wrap.style.background = "var(--bg-quiet, rgba(0,0,0,0.04))"
-			wrap.style.borderColor = "var(--border-subtle, rgba(0,0,0,0.1))"
-		}
-		wrap.onmouseleave = () => {
-			wrap.style.background = "transparent"
-			wrap.style.borderColor = "transparent"
-		}
+    function buildBadge() {
+        const wrap = document.createElement('div')
+        wrap.id = BADGE_ID
+        wrap.title = 'Pro / Research queries remaining — click to refresh'
+        Object.assign(wrap.style, {
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '6px',
+            fontSize: '12px',
+            lineHeight: '1',
+            color: 'var(--text-quiet, #888)',
+            fontFamily: 'inherit',
+            height: '32px',
+            padding: '0 10px',
+            borderRadius: '999px',
+            cursor: 'pointer',
+            userSelect: 'none',
+            whiteSpace: 'nowrap',
+            transition: 'all 0.2s ease',
+            border: '1px solid transparent',
+        })
 
-		wrap.innerHTML = `
+        wrap.onmouseenter = () => {
+            wrap.style.background = 'var(--bg-quiet, rgba(0,0,0,0.04))'
+            wrap.style.borderColor = 'var(--border-subtle, rgba(0,0,0,0.1))'
+        }
+        wrap.onmouseleave = () => {
+            wrap.style.background = 'transparent'
+            wrap.style.borderColor = 'transparent'
+        }
+
+        wrap.innerHTML = `
             <span title="Pro queries remaining" style="display:inline-flex;align-items:center;gap:4px;">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                     <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
@@ -839,78 +888,91 @@
             </span>
         `
 
-		wrap.onclick = async (e) => {
-			e.stopPropagation()
-			setValues("…", "…")
-			const { pro, research } = await fetchLimits()
-			setValues(pro, research)
-		}
+        wrap.onclick = async (e) => {
+            e.stopPropagation()
+            setValues('…', '…')
+            const { pro, research } = await fetchLimits(true)
+            setValues(pro, research)
+        }
 
-		return wrap
-	}
+        return wrap
+    }
 
-	function setValues(pro, research) {
-		const p = document.getElementById("pplx-rl-pro")
-		const r = document.getElementById("pplx-rl-research")
-		if (p) p.textContent = pro
-		if (r) r.textContent = research
-	}
+    function setValues(pro, research) {
+        const p = document.getElementById('pplx-rl-pro')
+        const r = document.getElementById('pplx-rl-research')
+        if (p) p.textContent = pro
+        if (r) r.textContent = research
+    }
 
-	function getModelButton() {
-		// Use the stable ID of the input to find the local context
-		const input = document.getElementById("ask-input")
-		if (!input) return null
+    function getModelButton() {
+        // Use the stable ID of the input to find the local context
+        const input = document.getElementById('ask-input')
+        if (!input) return null
 
-		// The container is the grand-parent of the input area (uid 5077)
-		const container =
-			input.closest("div:has(> .px-3 #ask-input)") || input.closest(".grid")
-		if (!container) return null
+        // The container is the grand-parent of the input area (uid 5077)
+        const container =
+            input.closest('div:has(> .px-3 #ask-input)') ||
+            input.closest('.grid')
+        if (!container) return null
 
-		// Find the model selection button (it has text and a menu popup)
-		// It's usually the first button with text inside the bottom right action area
-		const buttons = Array.from(
-			container.querySelectorAll('button[aria-haspopup="menu"]'),
-		)
-		return buttons.find((btn) => btn.innerText.length > 0) || null
-	}
+        // Find the model selection button (it has text and a menu popup)
+        // It's usually the first button with text inside the bottom right action area
+        const buttons = Array.from(
+            container.querySelectorAll('button[aria-haspopup="menu"]')
+        )
+        return buttons.find((btn) => btn.innerText.length > 0) || null
+    }
 
-	async function tryInject() {
-		if (document.getElementById(BADGE_ID)) return
-		const modelBtn = getModelButton()
-		if (!modelBtn) return
+    async function tryInject() {
+        if (document.getElementById(BADGE_ID)) return
+        const modelBtn = getModelButton()
+        if (!modelBtn) return
 
-		const badge = buildBadge()
-		// Inject before the model button's wrapper to keep it in the same flex row
-		modelBtn.parentElement.parentElement.insertBefore(
-			badge,
-			modelBtn.parentElement,
-		)
+        const badge = buildBadge()
+        // Inject before the model button's wrapper to keep it in the same flex row
+        modelBtn.parentElement.parentElement.insertBefore(
+            badge,
+            modelBtn.parentElement
+        )
 
-		const { pro, research } = await fetchLimits()
-		setValues(pro, research)
-	}
+        const { pro, research } = await fetchLimits()
+        setValues(pro, research)
+    }
 
-	const mo = new MutationObserver(() => {
-		if (!document.getElementById(BADGE_ID)) {
-			tryInject()
-		}
-	})
+    const mo = new MutationObserver(() => {
+        if (!document.getElementById(BADGE_ID)) {
+            tryInject()
+        }
+    })
 
-	function start() {
-		mo.observe(document.body, { childList: true, subtree: true })
-		tryInject()
-		setInterval(async () => {
-			const { pro, research } = await fetchLimits()
-			setValues(pro, research)
-		}, REFRESH_MS)
-	}
+    function start() {
+        mo.observe(document.body, { childList: true, subtree: true })
+        tryInject()
 
-	if (
-		document.readyState === "complete" ||
-		document.readyState === "interactive"
-	) {
-		start()
-	} else {
-		window.addEventListener("DOMContentLoaded", start)
-	}
+        // Periodic refresh (throttled by fetchLimits)
+        setInterval(async () => {
+            const { pro, research } = await fetchLimits()
+            setValues(pro, research)
+        }, 60_000)
+
+        // Sync with other tabs
+        window.addEventListener('storage', (e) => {
+            if (e.key === CACHE_KEY && e.newValue) {
+                try {
+                    const { pro, research } = JSON.parse(e.newValue)
+                    setValues(pro, research)
+                } catch (err) {}
+            }
+        })
+    }
+
+    if (
+        document.readyState === 'complete' ||
+        document.readyState === 'interactive'
+    ) {
+        start()
+    } else {
+        window.addEventListener('DOMContentLoaded', start)
+    }
 })()
