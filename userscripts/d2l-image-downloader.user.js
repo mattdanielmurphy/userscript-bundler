@@ -212,16 +212,37 @@
 				saveAs(content, "images.zip")
 			}
 		} else if (event.data && event.data.type === "D2L_EXTRACT_SCRIPT_REQUEST") {
-			console.log(`[D2L-SCRIPT] Received script extraction request in ${window.location.href}`)
+			console.log(
+				`[D2L-SCRIPT] Received script extraction request in ${window.location.href}`,
+			)
 			const script = await extractScriptInFrame()
 			if (script) {
-				console.log(`[D2L-SCRIPT] Sending extraction response from ${window.location.href}`)
+				console.log(
+					`[D2L-SCRIPT] Sending extraction response from ${window.location.href}`,
+				)
 				window.top.postMessage(
-					{ type: "D2L_EXTRACT_SCRIPT_RESPONSE", script },
+					{
+						type: "D2L_EXTRACT_SCRIPT_RESPONSE",
+						script,
+						url: window.location.href,
+					},
 					"*",
 				)
 			} else {
-				console.log(`[D2L-SCRIPT] No script content found to send in response.`)
+				console.log(`[D2L-SCRIPT] No script content found in ${window.location.href}`)
+			}
+			// Forward to nested iframes
+			const children = findIframes()
+			if (children.length > 0) {
+				console.log(
+					`[D2L-SCRIPT] Forwarding request to ${children.length} nested iframes from ${window.location.href}`,
+				)
+				children.forEach((c) =>
+					c.contentWindow.postMessage(
+						{ type: "D2L_EXTRACT_SCRIPT_REQUEST" },
+						"*",
+					),
+				)
 			}
 		}
 	})
@@ -327,53 +348,54 @@
 			async function handleScriptDownload() {
 				console.log(`[D2L-SCRIPT] Script download triggered.`)
 				const results = []
+
+				// Listener for responses from all frames (including nested)
+				const collectionListener = (event) => {
+					if (
+						event.data &&
+						event.data.type === "D2L_EXTRACT_SCRIPT_RESPONSE"
+					) {
+						console.log(
+							`[D2L-SCRIPT] Collected response from ${event.data.url}`,
+						)
+						results.push(event.data.script)
+					}
+				}
+				window.addEventListener("message", collectionListener)
+
+				// 1. Extract from top frame
 				const topScript = await extractScriptInFrame()
 				if (topScript) results.push(topScript)
 
+				// 2. Request from all direct iframes (which will forward recursively)
 				const iframes = findIframes()
-				console.log(`[D2L-SCRIPT] Requesting scripts from ${iframes.length} iframes.`)
-				const iframeScripts = await Promise.all(
-					iframes.map((iframe) => {
-						return new Promise((resolve) => {
-							const listener = (event) => {
-								if (
-									event.data &&
-									event.data.type === "D2L_EXTRACT_SCRIPT_RESPONSE" &&
-									event.source === iframe.contentWindow
-								) {
-									console.log(`[D2L-SCRIPT] Received response from an iframe.`)
-									window.removeEventListener("message", listener)
-									resolve(event.data.script)
-								}
-							}
-							window.addEventListener("message", listener)
-							iframe.contentWindow.postMessage(
-								{ type: "D2L_EXTRACT_SCRIPT_REQUEST" },
-								"*",
-							)
-							setTimeout(() => {
-								window.removeEventListener("message", listener)
-								resolve(null)
-							}, 2000)
-						})
-					}),
+				console.log(
+					`[D2L-SCRIPT] Broadcasting request to ${iframes.length} direct iframes.`,
+				)
+				iframes.forEach((f) =>
+					f.contentWindow.postMessage(
+						{ type: "D2L_EXTRACT_SCRIPT_REQUEST" },
+						"*",
+					),
 				)
 
-				iframeScripts.forEach((s) => {
-					if (s) results.push(s)
-				})
-
-				console.log(`[D2L-SCRIPT] Total scripts collected: ${results.length}`)
-				if (results.length > 0) {
-					console.log(`[D2L-SCRIPT] Saving script file...`)
-					const blob = new Blob([results.join("\n\n---\n\n")], {
-						type: "text/plain;charset=utf-8",
-					})
-					saveAs(blob, `script-${new Date().getTime()}.txt`)
-				} else {
-					console.warn(`[D2L-SCRIPT] No script content collected from any frame.`)
-					alert("No script content found to save.")
-				}
+				// 3. Wait for collection window (1s)
+				setTimeout(() => {
+					window.removeEventListener("message", collectionListener)
+					console.log(
+						`[D2L-SCRIPT] Collection finished. Total scripts: ${results.length}`,
+					)
+					if (results.length > 0) {
+						console.log(`[D2L-SCRIPT] Saving combined script file...`)
+						const blob = new Blob([results.join("\n\n---\n\n")], {
+							type: "text/plain;charset=utf-8",
+						})
+						saveAs(blob, `script-${new Date().getTime()}.txt`)
+					} else {
+						console.warn(`[D2L-SCRIPT] No script content found in any frame.`)
+						alert("No script content found to save.")
+					}
+				}, 1000)
 			}
 
 			scriptBtn.onclick = handleScriptDownload
