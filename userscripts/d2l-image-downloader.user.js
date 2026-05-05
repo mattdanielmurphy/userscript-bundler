@@ -183,6 +183,17 @@
 		})
 	}
 
+	async function extractScriptInFrame() {
+		const elements = Array.from(document.querySelectorAll(".video-script"))
+		if (elements.length === 0) return null
+
+		const scriptParts = elements
+			.map((el) => el.textContent.trim())
+			.filter((text) => text !== "")
+
+		return scriptParts.join("\n\n")
+	}
+
 	window.addEventListener("message", async (event) => {
 		if (event.data && event.data.type === "D2L_SNAPSHOT") {
 			await takeSnapshotInFrame()
@@ -196,6 +207,14 @@
 				items.forEach((it) => zip.file(it.filename, it.blob))
 				const content = await zip.generateAsync({ type: "blob" })
 				saveAs(content, "images.zip")
+			}
+		} else if (event.data && event.data.type === "D2L_EXTRACT_SCRIPT_REQUEST") {
+			const script = await extractScriptInFrame()
+			if (script) {
+				window.top.postMessage(
+					{ type: "D2L_EXTRACT_SCRIPT_RESPONSE", script },
+					"*",
+				)
 			}
 		}
 	})
@@ -217,6 +236,23 @@
             #d2l-dl-btn .icon { min-width: 48px; display: flex; align-items: center; justify-content: center; }
             #d2l-dl-btn .text { opacity: 0; max-width: 0; transition: all 0.3s ease; font-size: 14px; }
             #d2l-dl-btn:hover .text { opacity: 1; max-width: 120px; margin-right: 16px; }
+
+            #d2l-script-btn {
+                position: fixed; bottom: 20px; right: 80px; z-index: 2147483647;
+                background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+                color: white; border: 1px solid rgba(255,255,255,0.1);
+                border-radius: 24px; width: 48px; height: 48px;
+                display: flex; align-items: center; justify-content: center;
+                cursor: pointer; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+                transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+                backdrop-filter: blur(10px); opacity: 0.9; overflow: hidden;
+                white-space: nowrap; font-family: -apple-system, sans-serif; font-weight: 600;
+                display: none;
+            }
+            #d2l-script-btn:hover { width: 160px; opacity: 1; border-radius: 12px; }
+            #d2l-script-btn .icon { min-width: 48px; display: flex; align-items: center; justify-content: center; }
+            #d2l-script-btn .text { opacity: 0; max-width: 0; transition: all 0.3s ease; font-size: 14px; }
+            #d2l-script-btn:hover .text { opacity: 1; max-width: 100px; margin-right: 16px; }
 
             #d2l-dl-overlay {
                 position: fixed; top: 0; left: 0; width: 100%; height: 100%;
@@ -275,6 +311,57 @@
 			btn.id = "d2l-dl-btn"
 			btn.innerHTML = `<div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg></div><div class="text">Content Tools</div>`
 			document.body.appendChild(btn)
+
+			const scriptBtn = document.createElement("button")
+			scriptBtn.id = "d2l-script-btn"
+			scriptBtn.innerHTML = `<div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg></div><div class="text">Save Script</div>`
+			document.body.appendChild(scriptBtn)
+
+			async function handleScriptDownload() {
+				const results = []
+				const topScript = await extractScriptInFrame()
+				if (topScript) results.push(topScript)
+
+				const iframes = findIframes()
+				const iframeScripts = await Promise.all(
+					iframes.map((iframe) => {
+						return new Promise((resolve) => {
+							const listener = (event) => {
+								if (
+									event.data &&
+									event.data.type === "D2L_EXTRACT_SCRIPT_RESPONSE" &&
+									event.source === iframe.contentWindow
+								) {
+									window.removeEventListener("message", listener)
+									resolve(event.data.script)
+								}
+							}
+							window.addEventListener("message", listener)
+							iframe.contentWindow.postMessage(
+								{ type: "D2L_EXTRACT_SCRIPT_REQUEST" },
+								"*",
+							)
+							setTimeout(() => {
+								window.removeEventListener("message", listener)
+								resolve(null)
+							}, 2000)
+						})
+					}),
+				)
+
+				iframeScripts.forEach((s) => {
+					if (s) results.push(s)
+				})
+
+				if (results.length > 0) {
+					const blob = new Blob([results.join("\n\n---\n\n")], {
+						type: "text/plain;charset=utf-8",
+					})
+					saveAs(blob, `script-${new Date().getTime()}.txt`)
+				}
+			}
+
+			scriptBtn.onclick = handleScriptDownload
 
 			const overlay = document.createElement("div")
 			overlay.id = "d2l-dl-overlay"
@@ -421,12 +508,36 @@
 		if (document.body) createUI()
 		else window.addEventListener("DOMContentLoaded", createUI)
 
-		const rmChat = () => {
+		window.addEventListener("message", (event) => {
+			if (event.data && event.data.type === "D2L_HAS_VIDEO_SCRIPT") {
+				const sbtn = document.getElementById("d2l-script-btn")
+				if (sbtn) sbtn.style.display = "flex"
+			}
+		})
+
+		const updateVisibility = () => {
 			const c = document.getElementById("chatFrame")
 			if (c) c.remove()
+
+			if (document.querySelector(".video-script")) {
+				const sbtn = document.getElementById("d2l-script-btn")
+				if (sbtn) sbtn.style.display = "flex"
+			}
 		}
-		rmChat()
-		new MutationObserver(rmChat).observe(document.documentElement, {
+		updateVisibility()
+		new MutationObserver(updateVisibility).observe(document.documentElement, {
+			childList: true,
+			subtree: true,
+		})
+	} else {
+		// Iframe logic to report presence of video-script
+		const reportPresence = () => {
+			if (document.querySelector(".video-script")) {
+				window.top.postMessage({ type: "D2L_HAS_VIDEO_SCRIPT" }, "*")
+			}
+		}
+		reportPresence()
+		new MutationObserver(reportPresence).observe(document.documentElement, {
 			childList: true,
 			subtree: true,
 		})
