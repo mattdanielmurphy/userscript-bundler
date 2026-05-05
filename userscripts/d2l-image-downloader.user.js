@@ -16,6 +16,7 @@
 
 ;(function () {
 	"use strict"
+	console.log(`[D2L-DL] Userscript initialized in ${window.location.href} (Top: ${window === window.top})`)
 
 	const IS_TOP = window === window.top
 
@@ -185,12 +186,14 @@
 
 	async function extractScriptInFrame() {
 		const elements = Array.from(document.querySelectorAll(".video-script"))
+		console.log(`[D2L-SCRIPT] Found ${elements.length} .video-script elements in ${window.location.href}`)
 		if (elements.length === 0) return null
 
 		const scriptParts = elements
 			.map((el) => el.textContent.trim())
 			.filter((text) => text !== "")
 
+		console.log(`[D2L-SCRIPT] Extracted ${scriptParts.length} parts from this frame.`)
 		return scriptParts.join("\n\n")
 	}
 
@@ -209,12 +212,16 @@
 				saveAs(content, "images.zip")
 			}
 		} else if (event.data && event.data.type === "D2L_EXTRACT_SCRIPT_REQUEST") {
+			console.log(`[D2L-SCRIPT] Received script extraction request in ${window.location.href}`)
 			const script = await extractScriptInFrame()
 			if (script) {
+				console.log(`[D2L-SCRIPT] Sending extraction response from ${window.location.href}`)
 				window.top.postMessage(
 					{ type: "D2L_EXTRACT_SCRIPT_RESPONSE", script },
 					"*",
 				)
+			} else {
+				console.log(`[D2L-SCRIPT] No script content found to send in response.`)
 			}
 		}
 	})
@@ -318,11 +325,13 @@
 			document.body.appendChild(scriptBtn)
 
 			async function handleScriptDownload() {
+				console.log(`[D2L-SCRIPT] Script download triggered.`)
 				const results = []
 				const topScript = await extractScriptInFrame()
 				if (topScript) results.push(topScript)
 
 				const iframes = findIframes()
+				console.log(`[D2L-SCRIPT] Requesting scripts from ${iframes.length} iframes.`)
 				const iframeScripts = await Promise.all(
 					iframes.map((iframe) => {
 						return new Promise((resolve) => {
@@ -332,6 +341,7 @@
 									event.data.type === "D2L_EXTRACT_SCRIPT_RESPONSE" &&
 									event.source === iframe.contentWindow
 								) {
+									console.log(`[D2L-SCRIPT] Received response from an iframe.`)
 									window.removeEventListener("message", listener)
 									resolve(event.data.script)
 								}
@@ -353,11 +363,16 @@
 					if (s) results.push(s)
 				})
 
+				console.log(`[D2L-SCRIPT] Total scripts collected: ${results.length}`)
 				if (results.length > 0) {
+					console.log(`[D2L-SCRIPT] Saving script file...`)
 					const blob = new Blob([results.join("\n\n---\n\n")], {
 						type: "text/plain;charset=utf-8",
 					})
 					saveAs(blob, `script-${new Date().getTime()}.txt`)
+				} else {
+					console.warn(`[D2L-SCRIPT] No script content collected from any frame.`)
+					alert("No script content found to save.")
 				}
 			}
 
@@ -533,6 +548,7 @@
 		// Iframe logic to report presence of video-script
 		const reportPresence = () => {
 			if (document.querySelector(".video-script")) {
+				console.log(`[D2L-SCRIPT] Found script in iframe: ${window.location.href}, reporting to top...`)
 				window.top.postMessage({ type: "D2L_HAS_VIDEO_SCRIPT" }, "*")
 			}
 		}
