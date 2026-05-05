@@ -180,8 +180,34 @@
 			backgroundColor: "#ffffff",
 		})
 		canvas.toBlob((blob) => {
-			saveAs(blob, `snapshot-${new Date().getTime()}.png`)
+			downloadBlob(blob, `snapshot-${new Date().getTime()}.png`)
 		})
+	}
+
+	function downloadBlob(blob, filename) {
+		try {
+			if (typeof saveAs !== "undefined") {
+				saveAs(blob, filename)
+			} else {
+				console.warn(
+					`[D2L-DL] saveAs not found, using fallback download method.`,
+				)
+				const url = URL.createObjectURL(blob)
+				const a = document.createElement("a")
+				a.href = url
+				a.download = filename
+				a.style.display = "none"
+				document.body.appendChild(a)
+				a.click()
+				setTimeout(() => {
+					document.body.removeChild(a)
+					URL.revokeObjectURL(url)
+				}, 100)
+			}
+		} catch (err) {
+			console.error(`[D2L-DL] Failed to download file:`, err)
+			alert(`Download failed: ${err.message}`)
+		}
 	}
 
 	async function extractScriptInFrame() {
@@ -209,7 +235,7 @@
 				const zip = new JSZip()
 				items.forEach((it) => zip.file(it.filename, it.blob))
 				const content = await zip.generateAsync({ type: "blob" })
-				saveAs(content, "images.zip")
+				downloadBlob(content, "images.zip")
 			}
 		} else if (event.data && event.data.type === "D2L_EXTRACT_SCRIPT_REQUEST") {
 			console.log(
@@ -387,10 +413,11 @@
 					)
 					if (results.length > 0) {
 						console.log(`[D2L-SCRIPT] Saving combined script file...`)
-						const blob = new Blob([results.join("\n\n---\n\n")], {
+						const content = results.join("\n\n---\n\n")
+						const blob = new Blob([content], {
 							type: "text/plain;charset=utf-8",
 						})
-						saveAs(blob, `script-${new Date().getTime()}.txt`)
+						downloadBlob(blob, `script-${new Date().getTime()}.txt`)
 					} else {
 						console.warn(`[D2L-SCRIPT] No script content found in any frame.`)
 						alert("No script content found to save.")
@@ -491,7 +518,7 @@
 									const zip = new JSZip()
 									items.forEach((it) => zip.file(it.filename, it.blob))
 									const content = await zip.generateAsync({ type: "blob" })
-									saveAs(content, "images.zip")
+									downloadBlob(content, "images.zip")
 								}
 							})
 						} else {
@@ -523,7 +550,7 @@
 									const zip = new JSZip()
 									items.forEach((it) => zip.file(it.filename, it.blob))
 									const content = await zip.generateAsync({ type: "blob" })
-									saveAs(content, "top-images.zip")
+									downloadBlob(content, "top-images.zip")
 								}
 							})
 						} else {
