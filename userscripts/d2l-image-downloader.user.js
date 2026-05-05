@@ -212,15 +212,37 @@
 
 	async function extractScriptInFrame() {
 		const elements = Array.from(document.querySelectorAll(".video-script"))
-		console.log(`[D2L-SCRIPT] Found ${elements.length} .video-script elements in ${window.location.href}`)
+		console.log(
+			`[D2L-SCRIPT] Found ${elements.length} .video-script elements in ${window.location.href}`,
+		)
 		if (elements.length === 0) return null
 
 		const scriptParts = elements
 			.map((el) => el.textContent.trim())
 			.filter((text) => text !== "")
 
-		console.log(`[D2L-SCRIPT] Extracted ${scriptParts.length} parts from this frame.`)
+		console.log(
+			`[D2L-SCRIPT] Extracted ${scriptParts.length} parts from this frame.`,
+		)
 		return scriptParts.join("\n\n")
+	}
+
+	function extractTitleInFrame() {
+		const numEl = document.querySelector(".lesson-header-number")
+		const nameEl = document.querySelector(".lesson-header-name")
+		const videoNameEl = document.querySelector(".video-name")
+
+		const parts = []
+		if (numEl) parts.push(numEl.textContent.trim())
+		if (nameEl) parts.push(nameEl.textContent.trim())
+		else if (videoNameEl) parts.push(videoNameEl.textContent.trim())
+
+		const title = parts.join(" - ")
+		return title || document.title || "script"
+	}
+
+	function sanitizeFilename(name) {
+		return name.replace(/[<>:"/\\|?*]/g, "").trim()
 	}
 
 	window.addEventListener("message", async (event) => {
@@ -251,6 +273,7 @@
 						type: "D2L_EXTRACT_SCRIPT_RESPONSE",
 						script,
 						url: window.location.href,
+						title: extractTitleInFrame(),
 					},
 					"*",
 				)
@@ -376,6 +399,7 @@
 				const results = []
 
 				// Listener for responses from all frames (including nested)
+				let bestTitle = extractTitleInFrame()
 				const collectionListener = (event) => {
 					if (
 						event.data &&
@@ -385,6 +409,9 @@
 							`[D2L-SCRIPT] Collected response from ${event.data.url}`,
 						)
 						results.push(event.data.script)
+						if (event.data.title && event.data.title !== "script") {
+							bestTitle = event.data.title
+						}
 					}
 				}
 				window.addEventListener("message", collectionListener)
@@ -417,7 +444,8 @@
 						const blob = new Blob([content], {
 							type: "text/plain;charset=utf-8",
 						})
-						downloadBlob(blob, `script-${new Date().getTime()}.txt`)
+						const filename = `${sanitizeFilename(bestTitle)}.txt`
+						downloadBlob(blob, filename)
 					} else {
 						console.warn(`[D2L-SCRIPT] No script content found in any frame.`)
 						alert("No script content found to save.")
