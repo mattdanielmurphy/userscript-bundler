@@ -17,6 +17,9 @@
     )
 
     const LAYOUT_CSS = `
+        html {
+            min-width: fit-content !important;
+        }
         #whiteBoard, .mainMenu, ul[class="mainMenu"], .questionSlide__container--showSolution {
             display: none !important;
         }
@@ -99,6 +102,13 @@
             flex-shrink: 1 !important;
             min-width: 100px !important;
             margin: 0 15px !important;
+        }
+        /* Ensure tables are scrollable and don't cut off on the left */
+        .contentContainer table {
+            display: block !important;
+            overflow-x: auto !important;
+            max-width: 100% !important;
+            -webkit-overflow-scrolling: touch !important;
         }
         .custom-yes-show, .custom-no-skip {
             margin-left: 5px;
@@ -2051,11 +2061,23 @@
                 // 5. Check if we're done (Process up to second-to-last slide, skipping the "completed" slide)
                 if (currentSlide >= totalSlides - 1 || !nextBtn) {
                     updateControlBarStatus('Lesson Complete!')
-                    const practiceLink = findInIframes(window, 'li.cornerMenu__item--pencil a').el
-                    if (practiceLink) {
+                    
+                    // Specific sequence: Print (Notes) then Practice
+                    const printBtn = findInIframes(window, 'ul.cornerMenu a[title="Print"]').el
+                    const practiceBtn = findInIframes(window, 'ul.cornerMenu a[title="Practice"]').el
+
+                    if (printBtn) {
+                        updateControlBarStatus('Downloading Notes...')
+                        console.log('[Userscript] Lesson complete. Triggering Notes download.')
+                        printBtn.click()
+                        // Small delay to ensure download triggers before navigation
+                        await new Promise(r => setTimeout(r, 1500))
+                    }
+
+                    if (practiceBtn) {
                         updateControlBarStatus('Going to Practice...')
                         console.log('%cLesson complete. Clicking Practice link.', 'color: #ff3385; font-weight: bold;')
-                        practiceLink.click()
+                        practiceBtn.click()
                     } else {
                         updateControlBarStatus('Practice link not found.')
                         console.warn('[Userscript] Could not find Practice link to click.')
