@@ -119,8 +119,10 @@
 					border-radius: 12px;
 					padding: 10px 20px;
 					display: flex;
+					flex-wrap: wrap;
 					align-items: center;
-					gap: 15px;
+					justify-content: center;
+					gap: 10px 15px;
 					width: auto;
 					max-width: calc(100% - 40px);
 					box-sizing: border-box;
@@ -155,8 +157,7 @@
 					display: flex;
 					align-items: center;
 					gap: 8px;
-					border-left: 1px solid #444;
-					padding-left: 15px;
+					padding-left: 5px;
 				}
 				.ac-label {
 					font-size: 11px;
@@ -778,7 +779,7 @@
                 <input type="checkbox" id="ac-mute-check" ${isAutomationMuted ? 'checked' : ''}>
                 <label for="ac-mute-check" class="ac-label">Mute</label>
             </div>
-            <div style="display: flex; gap: 8px; border-left: 1px solid #444; padding-left: 15px;">
+			<div class="ac-btn-group" style="display: flex; gap: 8px; align-items: center;">
                 <button class="ac-btn" id="ac-skip-btn" style="background: #007aff; border-color: #007aff; color: white;">Skip</button>
                 <button class="ac-btn" id="ac-pause-btn">Pause</button>
                 <button class="ac-btn" id="ac-stop-btn" style="background: #cc2222; border-color: #990000;">Stop</button>
