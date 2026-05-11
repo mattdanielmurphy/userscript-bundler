@@ -121,6 +121,9 @@
 					display: flex;
 					align-items: center;
 					gap: 15px;
+					width: auto;
+					max-width: calc(100% - 40px);
+					box-sizing: border-box;
 					z-index: 10000;
 					box-shadow: 0 8px 32px rgba(0,0,0,0.6);
 					color: white;
@@ -128,6 +131,12 @@
 					pointer-events: auto;
 					user-select: none;
 					cursor: move;
+					transition: background-color 0.3s ease, border-color 0.3s ease, transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s ease;
+				}
+				#automation-control-bar.paused {
+					background: rgba(130, 20, 60, 0.95) !important; /* Deep Premium Pink/Wine */
+					border-color: #ff3385 !important;
+					box-shadow: 0 8px 32px rgba(255, 51, 133, 0.3);
 				}
 				#automation-control-bar.hidden {
 					opacity: 0;
@@ -712,6 +721,22 @@
     let initialJumpTriggered = false
     let isSkipRequested = false
 
+    const setAutomationPaused = (paused) => {
+        isAutomationPaused = paused
+        const bar = document.getElementById('automation-control-bar')
+        if (bar) {
+            bar.classList.toggle('paused', isAutomationPaused)
+            const pauseBtn = bar.querySelector('#ac-pause-btn')
+            if (pauseBtn) {
+                pauseBtn.textContent = isAutomationPaused ? 'Resume' : 'Pause'
+                pauseBtn.classList.toggle('paused', isAutomationPaused)
+            }
+        }
+        console.log(
+            `[Userscript] Automation ${isAutomationPaused ? 'PAUSED' : 'RESUMED'}`
+        )
+    }
+
     const showControlBar = (downloading) => {
         let bar = document.getElementById('automation-control-bar')
         if (bar) {
@@ -773,6 +798,14 @@
             console.log(
                 `[Userscript] Automation speed updated to: ${automationSpeed}x`
             )
+
+            // Apply immediately if automation is running
+            if (isAutomationRunning) {
+                const { el: audio } = findInIframes(window, 'audio#n')
+                if (audio) {
+                    audio.playbackRate = automationSpeed
+                }
+            }
         })
 
         const dllCheck = bar.querySelector('#ac-dwell-check')
@@ -807,12 +840,7 @@
 
         const pauseBtn = bar.querySelector('#ac-pause-btn')
         pauseBtn.addEventListener('click', () => {
-            isAutomationPaused = !isAutomationPaused
-            pauseBtn.textContent = isAutomationPaused ? 'Resume' : 'Pause'
-            pauseBtn.classList.toggle('paused', isAutomationPaused)
-            console.log(
-                `[Userscript] Automation ${isAutomationPaused ? 'PAUSED' : 'RESUMED'}`
-            )
+            setAutomationPaused(!isAutomationPaused)
         })
 
         const stopBtn = bar.querySelector('#ac-stop-btn')
@@ -820,7 +848,7 @@
             console.log('[Userscript] Stopping automation and clearing state.')
             sessionStorage.removeItem(RUNNING_KEY)
             isAutomationRunning = false
-            isAutomationPaused = false
+            setAutomationPaused(false)
             hideControlBar()
         })
 
@@ -1595,6 +1623,10 @@
             })
         )
 
+        // Sync UI with current state
+        const muteCheck = document.getElementById('ac-mute-check')
+        if (muteCheck) muteCheck.checked = isAutomationMuted
+
         try {
             updateControlBarStatus('Loading Metadata...')
             console.log('Waiting for metadata elements to load...')
@@ -1633,7 +1665,27 @@
                     ).el
                     audio = findInIframes(window, 'audio#n').el
 
-                    if (canvas && seekbar && audio) break
+                    if (canvas && seekbar && audio) {
+                        if (isAutomationMuted) audio.muted = true
+
+                        // Sync pause state with video
+                        if (!audio._pauseSyncInjected) {
+                            audio._pauseSyncInjected = true
+                            audio.addEventListener('pause', () => {
+                                if (isAutomationRunning && !isAutomationPaused) {
+                                    console.log('[Userscript] Audio PAUSED detected - syncing automation state.')
+                                    setAutomationPaused(true)
+                                }
+                            })
+                            audio.addEventListener('play', () => {
+                                if (isAutomationRunning && isAutomationPaused) {
+                                    console.log('[Userscript] Audio PLAY detected - syncing automation state.')
+                                    setAutomationPaused(false)
+                                }
+                            })
+                        }
+                        break
+                    }
                     retryCount++
                     await new Promise((r) => setTimeout(r, 500))
                 }
@@ -1748,6 +1800,15 @@
                     audio.addEventListener(evt, h)
                     return { evt, h }
                 })
+
+                // Force mute persistence via listener
+                const forceMute = () => {
+                    if (isAutomationMuted && !audio.muted) {
+                        audio.muted = true
+                    }
+                }
+                audio.addEventListener('volumechange', forceMute)
+                handlers.push({ evt: 'volumechange', h: forceMute })
                 const pollId = setInterval(
                     () => recorder('POLL', { buf: checkLoadingState() }),
                     100
@@ -1979,58 +2040,14 @@
                 // 5. Check if we're done (Process up to second-to-last slide, skipping the "completed" slide)
                 if (currentSlide >= totalSlides - 1 || !nextBtn) {
                     updateControlBarStatus('Lesson Complete!')
-                    console.log('Lesson complete. Checking for next lesson...')
-                    const lessonTitleRaw = (() => {
-                        const { el } = findInIframes(window, '#LessonTitle')
-                        return el ? el.textContent.trim() : ''
-                    })()
-                    const nextLesson = getNextLessonLink(
-                        lessonTitleRaw,
-                        LESSON_EXCLUDES
-                    )
-
-                    if (nextLesson) {
-                        updateControlBarStatus('Next Lesson...')
-                        console.log(
-                            `%cAdvancing to next lesson: ${nextLesson.textContent.trim()}`,
-                            'color: #ff9900; font-weight: bold;'
-                        )
-                        nextLesson.click()
-
-                        // Wait for lesson transition
-                        let transitioned = false
-                        for (let i = 0; i < 100; i++) {
-                            await new Promise((r) => setTimeout(r, 100))
-                            const { el: newTitleEl } = findInIframes(
-                                window,
-                                '#LessonTitle'
-                            )
-                            const newTitle = newTitleEl
-                                ? newTitleEl.textContent.trim()
-                                : ''
-                            if (newTitle && newTitle !== lessonTitleRaw) {
-                                transitioned = true
-                                break
-                            }
-                        }
-
-                        if (transitioned) {
-                            console.log(
-                                'Transition detected. Waiting for content to stabilize...'
-                            )
-                            await new Promise((r) => setTimeout(r, 3000))
-                            // Refresh metadata
-                            const found = getMetadata()
-                            if (found.lesson !== meta.lesson) {
-                                meta = found
-                                console.log('New metadata loaded:', meta)
-                                continue // Restart loop for new lesson
-                            }
-                        } else {
-                            console.warn(
-                                'Timed out waiting for lesson transition.'
-                            )
-                        }
+                    const practiceLink = findInIframes(window, 'li.cornerMenu__item--pencil a').el
+                    if (practiceLink) {
+                        updateControlBarStatus('Going to Practice...')
+                        console.log('%cLesson complete. Clicking Practice link.', 'color: #ff3385; font-weight: bold;')
+                        practiceLink.click()
+                    } else {
+                        updateControlBarStatus('Practice link not found.')
+                        console.warn('[Userscript] Could not find Practice link to click.')
                     }
 
                     updateControlBarStatus('Finished!')
@@ -2102,6 +2119,24 @@
             }
         } finally {
             isAutomationRunning = false
+            isAutomationPaused = false
+            resumeScheduled = false
+            sessionStorage.removeItem(RUNNING_KEY)
+
+            // Restore audio state
+            try {
+                const { el: audio } = findInIframes(window, 'audio#n')
+                if (audio) {
+                    audio.playbackRate = 1.0
+                    // We only unmute if the user hasn't explicitly enabled automation mute
+                    if (!isAutomationMuted) {
+                        audio.muted = false
+                    }
+                }
+            } catch (e) {
+                // Ignore errors during final cleanup
+            }
+
             setTimeout(hideControlBar, 2000)
             console.log('[Userscript] Automation sequence ended.')
         }
