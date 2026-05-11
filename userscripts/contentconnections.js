@@ -911,7 +911,7 @@
     }
 
     const waitIfPaused = async () => {
-        while (isAutomationPaused) {
+        while (isAutomationPaused && isAutomationRunning) {
             await new Promise((r) => setTimeout(r, 200))
         }
     }
@@ -1770,9 +1770,9 @@
                     audio.playbackRate = automationSpeed
                 }
 
-                const requiredDwellMs = useDwellTime
-                    ? (audio.duration || 0) * (1000 / automationSpeed)
-                    : 0
+                // NOTE: requiredDwellMs is computed dynamically each poll tick so
+                // speed/delay changes take effect immediately.
+                const audioDuration = audio.duration || 0
                 const slideStartTimeActual = Date.now()
 
                 // 3b. Wait for seekbar.max to be stable
@@ -1898,13 +1898,28 @@
                 )
                 console.table(flightLog)
 
-                // Calculate remaining dwell time
+                // Calculate remaining dwell time.
+                // requiredDwellMs is re-evaluated each tick so speed/delay
+                // changes from the control bar apply immediately.
                 while (true) {
+                    if (!isAutomationRunning) break // Stop button was pressed
                     await waitIfPaused()
+                    if (!isAutomationRunning) break // Stop button pressed while paused
+
                     const elapsedOnSlide = Date.now() - slideStartTimeActual
+
+                    // Re-read live values every tick so control-bar edits take effect now
+                    const currentRequiredDwellMs = useDwellTime
+                        ? audioDuration * (1000 / automationSpeed)
+                        : 0
+                    // Also sync playback rate if it changed
+                    if (useDwellTime && audio.playbackRate !== automationSpeed) {
+                        audio.playbackRate = automationSpeed
+                    }
+
                     const minTotalWait = Math.max(
                         automationDelay,
-                        requiredDwellMs
+                        currentRequiredDwellMs
                     )
                     const remainingWait = minTotalWait - elapsedOnSlide
 
@@ -1919,7 +1934,7 @@
                     }
 
                     const reason =
-                        useDwellTime && requiredDwellMs > automationDelay
+                        useDwellTime && currentRequiredDwellMs > automationDelay
                             ? 'Tricking progress'
                             : 'User delay'
                     updateControlBarStatus(
@@ -1943,7 +1958,9 @@
                     )
                 }
 
+                if (!isAutomationRunning) break // Stop pressed during dwell
                 await waitIfPaused()
+                if (!isAutomationRunning) break // Stop pressed while paused
 
                 // 5. Check if we're done (Process up to second-to-last slide, skipping the "completed" slide)
                 if (currentSlide >= totalSlides - 1 || !nextBtn) {
@@ -2023,6 +2040,10 @@
                 const currentSlideNow = matchFinal
                     ? parseInt(matchFinal[1])
                     : currentSlide
+
+                if (!isAutomationRunning) break // Stop pressed before next-slide click
+                await waitIfPaused() // Honour Pause before advancing
+                if (!isAutomationRunning) break // Stop pressed while paused
 
                 if (currentSlideNow === currentSlide) {
                     updateControlBarStatus('Next Slide...')
