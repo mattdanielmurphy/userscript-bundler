@@ -1673,12 +1673,27 @@
                             audio._pauseSyncInjected = true
                             audio.addEventListener('pause', () => {
                                 if (isAutomationRunning && !isAutomationPaused) {
-                                    console.log('[Userscript] Audio PAUSED detected - syncing automation state.')
+                                    // 1. Ignore pauses near the very end (natural slide completion)
+                                    const isNearEnd = audio.duration > 0 && (audio.duration - audio.currentTime < 0.8)
+                                    if (isNearEnd) {
+                                        console.log('[Userscript] Audio PAUSED near end - ignoring sync to allow transition.')
+                                        return
+                                    }
+
+                                    // 2. Ignore pauses caused by focus loss/tab switching
+                                    if (document.hidden || !document.hasFocus()) {
+                                        console.log('[Userscript] Audio PAUSED due to focus loss - auto-resuming.')
+                                        audio.play().catch(() => {})
+                                        return
+                                    }
+
+                                    console.log('[Userscript] Audio PAUSED by user - syncing automation state.')
                                     setAutomationPaused(true)
                                 }
                             })
                             audio.addEventListener('play', () => {
                                 if (isAutomationRunning && isAutomationPaused) {
+                                    // Only auto-resume if we were actually paused (e.g. user clicked play on video)
                                     console.log('[Userscript] Audio PLAY detected - syncing automation state.')
                                     setAutomationPaused(false)
                                 }
