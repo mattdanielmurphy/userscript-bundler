@@ -21,15 +21,33 @@
             display: none !important;
         }
         .contentContainer {
-            margin-left: 1em !important;
-            margin-right: 1em !important;
+            margin-left: auto !important;
+            margin-right: auto !important;
+            padding-left: 1em !important;
+            padding-right: 1em !important;
             max-width: none !important;
+            display: block !important; /* Block display with margin:auto prevents left clipping */
+        }
+        /* Fix for left-side clipping when zoomed in on centered elements (tables, etc) */
+        table, .table, .matrix, .display-equation, .mediaPlayer__iframe, .mediaPlayer__iframeContainer {
+            margin-left: auto !important;
+            margin-right: auto !important;
+            display: table !important; /* Force block-like centering behavior */
+        }
+        table {
+            display: table !important;
+        }
+        .mediaPlayer__iframe, .mediaPlayer__iframeContainer {
+            display: block !important;
+        }
+        .questionSlide, .questionSlide__container {
+            display: flex !important;
+            flex-direction: column !important;
+            align-items: safe center !important;
+            justify-content: flex-start !important;
         }
         .pageTitle {
             margin-left: 1em !important;
-        }
-        .mediaPlayer__iframe {
-            /* Width removed: conflicts with site's internal scaling logic */
         }
         /* Target main slide canvas while avoiding whiteboard/graphs */
         canvas:not(#whiteBoard__canvas):not(.dcg-graph-inner) {
