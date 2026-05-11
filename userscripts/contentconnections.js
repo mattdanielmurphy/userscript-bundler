@@ -1687,6 +1687,12 @@
                                         return
                                     }
 
+                                    // 3. Ignore pauses at the very beginning (initial load/skip state)
+                                    if (audio.currentTime < 0.5) {
+                                        console.log('[Userscript] Audio PAUSED at start - ignoring (initial load/skip).')
+                                        return
+                                    }
+
                                     console.log('[Userscript] Audio PAUSED by user - syncing automation state.')
                                     setAutomationPaused(true)
                                 }
