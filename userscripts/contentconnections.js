@@ -926,6 +926,24 @@
         `[Userscript] Target slide from URL: ${initialTargetSlide || 'none'}`
     )
 
+    /**
+     * Updates the '?slide=n' parameter in the URL without reloading the page.
+     */
+    const updateUrlSlide = (slideNum) => {
+        try {
+            const url = new URL(window.location.href)
+            if (url.searchParams.get('slide') !== String(slideNum)) {
+                console.log(
+                    `[Userscript] Updating URL parameter: ?slide=${slideNum}`
+                )
+                url.searchParams.set('slide', slideNum)
+                window.history.replaceState({}, '', url.toString())
+            }
+        } catch (e) {
+            console.error('[Userscript] Failed to update URL slide parameter:', e)
+        }
+    }
+
     // --- Canvas Discovery & Utilities ---
 
     /**
@@ -1105,15 +1123,8 @@
         }
 
         // Perform URL persistence (ONLY after initial jump is confirmed and settled)
-        if (initialSyncDone && !isAutomationRunning && !isAutomationActive()) {
-            const url = new URL(window.location.href)
-            if (url.searchParams.get('slide') !== String(currentSlide)) {
-                console.log(
-                    `[Userscript] [syncSlideState] Updating URL parameter: ?slide=${currentSlide}`
-                )
-                url.searchParams.set('slide', currentSlide)
-                window.history.replaceState({}, '', url)
-            }
+        if (initialSyncDone) {
+            updateUrlSlide(currentSlide)
         }
 
         // Handle playback on slide change (excluding automation and initial load jump)
@@ -1645,6 +1656,9 @@
                 const match = slideText.match(/Slide (\d+) of (\d+)/i)
                 const currentSlide = match ? parseInt(match[1]) : 1
                 const totalSlides = match ? parseInt(match[2]) : 1
+
+                // Update URL to reflect current slide state
+                updateUrlSlide(currentSlide)
 
                 const actionText = downloadSlides ? 'Capturing' : 'Skipping'
                 updateControlBarStatus(`${actionText} ${slideText}...`)
