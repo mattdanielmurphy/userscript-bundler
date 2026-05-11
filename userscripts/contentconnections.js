@@ -21,33 +21,15 @@
             display: none !important;
         }
         .contentContainer {
-            margin-left: auto !important;
-            margin-right: auto !important;
-            padding-left: 1em !important;
-            padding-right: 1em !important;
+            margin-left: 1em !important;
+            margin-right: 1em !important;
             max-width: none !important;
-            display: block !important; /* Block display with margin:auto prevents left clipping */
-        }
-        /* Fix for left-side clipping when zoomed in on centered elements (tables, etc) */
-        table, .table, .matrix, .display-equation, .mediaPlayer__iframe, .mediaPlayer__iframeContainer {
-            margin-left: auto !important;
-            margin-right: auto !important;
-            display: table !important; /* Force block-like centering behavior */
-        }
-        table {
-            display: table !important;
-        }
-        .mediaPlayer__iframe, .mediaPlayer__iframeContainer {
-            display: block !important;
-        }
-        .questionSlide, .questionSlide__container {
-            display: flex !important;
-            flex-direction: column !important;
-            align-items: safe center !important;
-            justify-content: flex-start !important;
         }
         .pageTitle {
             margin-left: 1em !important;
+        }
+        .mediaPlayer__iframe {
+            /* Width removed: conflicts with site's internal scaling logic */
         }
         /* Target main slide canvas while avoiding whiteboard/graphs */
         canvas:not(#whiteBoard__canvas):not(.dcg-graph-inner) {
@@ -854,6 +836,10 @@
         const skipBtn = bar.querySelector('#ac-skip-btn')
         skipBtn.addEventListener('click', () => {
             isSkipRequested = true
+            setAutomationPaused(false) // Ensure unpaused on skip
+            // Try to force play on current audio if possible to unblock site state
+            const { el: audio } = findInIframes(window, 'audio#n')
+            if (audio && audio.paused) audio.play().catch(() => {})
             console.log('[Userscript] Skip requested for current slide.')
         })
 
@@ -958,7 +944,7 @@
     }
 
     const waitIfPaused = async () => {
-        while (isAutomationPaused && isAutomationRunning) {
+        while (isAutomationPaused && isAutomationRunning && !isSkipRequested) {
             await new Promise((r) => setTimeout(r, 200))
         }
     }
@@ -1691,29 +1677,11 @@
                         if (!audio._pauseSyncInjected) {
                             audio._pauseSyncInjected = true
                             audio.addEventListener('pause', () => {
-                                if (isAutomationRunning && !isAutomationPaused) {
-                                    // 1. Ignore pauses near the very end (natural slide completion)
-                                    const isNearEnd = audio.duration > 0 && (audio.duration - audio.currentTime < 0.8)
-                                    if (isNearEnd) {
-                                        console.log('[Userscript] Audio PAUSED near end - ignoring sync to allow transition.')
-                                        return
-                                    }
-
-                                    // 2. Ignore pauses caused by focus loss/tab switching
-                                    if (document.hidden || !document.hasFocus()) {
-                                        console.log('[Userscript] Audio PAUSED due to focus loss - auto-resuming.')
-                                        audio.play().catch(() => {})
-                                        return
-                                    }
-
-                                    // 3. Ignore pauses at the very beginning (initial load/skip state)
-                                    if (audio.currentTime < 0.5) {
-                                        console.log('[Userscript] Audio PAUSED at start - ignoring (initial load/skip).')
-                                        return
-                                    }
-
-                                    console.log('[Userscript] Audio PAUSED by user - syncing automation state.')
-                                    setAutomationPaused(true)
+                                if (isAutomationRunning && !isAutomationPaused && !isSkipRequested) {
+                                    // We no longer pause the skipper automatically when the video pauses, 
+                                    // as requested by the user to ensure autoplay and continuous skipping.
+                                    // Instead, we just try to resume playback if we're not supposed to be paused.
+                                    console.log('[Userscript] Audio PAUSED - automation will attempt to resume playback.')
                                 }
                             })
                             audio.addEventListener('play', () => {
@@ -1869,6 +1837,9 @@
                 canvas.dispatchEvent(new MouseEvent('mousedown', clickOpts))
                 canvas.dispatchEvent(new MouseEvent('mouseup', clickOpts))
                 canvas.dispatchEvent(new MouseEvent('click', clickOpts))
+                
+                // Explicitly call play() to ensure autoplay even if canvas click didn't trigger it
+                audio.play().catch(() => {})
 
                 // 3a. Wait for initial readiness and setup trickery
                 recorder('WAITING FOR INITIAL READY')
