@@ -397,43 +397,29 @@
     }
 
     const addCustomButtons = () => {
-        const buttonGroup = document.querySelector(
-            '.questionSlide__buttonGroup--correctness'
-        )
-        if (
-            !buttonGroup ||
-            buttonGroup.querySelector('.custom-button-added-marker')
-        )
-            return
+        const { el: buttonGroup, doc } = findInIframes(window, '.questionSlide__buttonGroup--correctness')
+        if (!buttonGroup || buttonGroup.querySelector('.custom-button-added-marker')) return
 
         // Mark as processed to avoid double addition
-        const marker = document.createElement('span')
+        const marker = doc.createElement('span')
         marker.className = 'custom-button-added-marker'
         marker.style.display = 'none'
         buttonGroup.appendChild(marker)
 
-        const yesBtn = buttonGroup.querySelector(
-            '.questionSlide__button--correct'
-        )
-        const noBtn = buttonGroup.querySelector(
-            '.questionSlide__button--notCorrect'
-        )
+        const yesBtn = buttonGroup.querySelector('.questionSlide__button--correct')
+        const noBtn = buttonGroup.querySelector('.questionSlide__button--notCorrect')
 
         if (!yesBtn || !noBtn) return
 
         // Create "Yes (Show Solution)"
-        const yesShowSolBtn = document.createElement('button')
-        yesShowSolBtn.className =
-            'questionSlide__button questionSlide__button--correct custom-yes-show'
-        yesShowSolBtn.innerHTML =
-            '<i class="fas fa-check-circle"></i> Yes (Show Sol.)'
+        const yesShowSolBtn = doc.createElement('button')
+        yesShowSolBtn.className = 'questionSlide__button questionSlide__button--correct custom-yes-show'
+        yesShowSolBtn.innerHTML = '<i class="fas fa-check-circle"></i> Yes (Show Sol.)'
 
         // Create "No (Skip Solution)"
-        const noSkipSolBtn = document.createElement('button')
-        noSkipSolBtn.className =
-            'questionSlide__button questionSlide__button--notCorrect custom-no-skip'
-        noSkipSolBtn.innerHTML =
-            '<i class="fas fa-times-circle"></i> No (Skip Sol.)'
+        const noSkipSolBtn = doc.createElement('button')
+        noSkipSolBtn.className = 'questionSlide__button questionSlide__button--notCorrect custom-no-skip'
+        noSkipSolBtn.innerHTML = '<i class="fas fa-times-circle"></i> No (Skip Sol.)'
 
         // Insert order: Yes, Yes (Show Sol.), No, No (Skip Sol.)
         yesBtn.after(yesShowSolBtn)
@@ -504,9 +490,7 @@
         let attempts = 0
         // Poll for the video for ~2 seconds (Show Solution click reaction time)
         const interval = setInterval(() => {
-            const video = document.querySelector(
-                '.questionSlide__container--solution video'
-            )
+            const { el: video } = findInIframes(window, '.questionSlide__container--solution video')
             if (video) {
                 if (video.paused) {
                     // Attempt play
@@ -542,7 +526,7 @@
 
     // Chain the corner menu print click to the form's final print action
     const setupPrintChaining = () => {
-        const cornerPrintBtn = document.querySelector('a[onclick*="showPrint"]')
+        const { el: cornerPrintBtn, doc } = findInIframes(window, 'a[onclick*="showPrint"], ul.cornerMenu a[title="Print"]')
         if (cornerPrintBtn && !cornerPrintBtn.dataset.chained) {
             cornerPrintBtn.dataset.chained = 'true'
             cornerPrintBtn.addEventListener('click', (e) => {
@@ -552,9 +536,7 @@
 
                 // Give the site a moment to show the form
                 setTimeout(() => {
-                    const finalPrintBtn = document.querySelector(
-                        '#PrintQuestions button[onclick*="PrintPractice"]'
-                    )
+                    const { el: finalPrintBtn } = findInIframes(window, '#PrintQuestions button[onclick*="PrintPractice"]')
                     if (finalPrintBtn) {
                         console.log(
                             '[Userscript] Triggering final Print button'
@@ -574,16 +556,14 @@
 
     // 6. "Automatically show next answer" Checkbox
     const addAutoShowCheckbox = () => {
-        const buttonGroup = document.querySelector(
-            '.questionSlide__buttonGroup--correctness'
-        )
+        const { el: buttonGroup, doc } = findInIframes(window, '.questionSlide__buttonGroup--correctness')
         if (!buttonGroup) return // Not visible yet
 
         // Check if parent already has it (we append to parent to be "below" the group)
         const parent = buttonGroup.parentNode
         if (parent.querySelector('.auto-show-answer-container')) return
 
-        const container = document.createElement('div')
+        const container = doc.createElement('div')
         container.className = 'auto-show-answer-container'
         container.style.marginTop = '15px'
         container.style.display = 'flex'
@@ -593,7 +573,7 @@
         container.style.fontFamily = 'inherit'
         container.style.fontSize = '14px'
 
-        const checkbox = document.createElement('input')
+        const checkbox = doc.createElement('input')
         checkbox.type = 'checkbox'
         checkbox.id = 'cb_auto_show_answer'
         checkbox.style.cursor = 'pointer'
@@ -610,7 +590,7 @@
             if (e.target.checked) attemptAutoShowAnswer()
         })
 
-        const label = document.createElement('label')
+        const label = doc.createElement('label')
         label.htmlFor = 'cb_auto_show_answer'
         label.textContent = 'Automatically show next answer'
         label.style.cursor = 'pointer'
@@ -646,27 +626,36 @@
         }
 
         // Try class selector first
-        let showAnswerBtn = document.querySelector(
-            '.questionSlide__button--showAnswer'
-        )
+        let { el: showAnswerBtn, doc: btnDoc } = findInIframes(window, '.questionSlide__button--showAnswer')
 
         if (!showAnswerBtn) {
-            // If not found, try text-based search (case-insensitive) for ANY button/input containing "Show Answer"
-            const allButtons = document.querySelectorAll(
-                'button, .questionSlide__button, input[type="button"]'
-            )
-            for (const btn of allButtons) {
-                const text = (btn.textContent || btn.value || '').toLowerCase()
-                if (text.includes('show answer')) {
-                    showAnswerBtn = btn
-                    break
-                }
+            // If not found, try text-based search (case-insensitive) for ANY button/input containing "Show Answer" in all iframes
+            const searchAllDocs = (win) => {
+                try {
+                    const allButtons = win.document.querySelectorAll('button, .questionSlide__button, input[type="button"]')
+                    for (const btn of allButtons) {
+                        const text = (btn.textContent || btn.value || '').toLowerCase()
+                        if (text.includes('show answer')) return { el: btn, doc: win.document }
+                    }
+                    const iframes = win.document.querySelectorAll('iframe')
+                    for (const f of iframes) {
+                        const found = searchAllDocs(f.contentWindow)
+                        if (found) return found
+                    }
+                } catch (e) {}
+                return null
+            }
+            const res = searchAllDocs(window)
+            if (res) {
+                showAnswerBtn = res.el
+                btnDoc = res.doc
             }
         }
 
         // Check if button exists and hasn't been clicked by us yet
         if (showAnswerBtn && !showAnswerBtn.dataset.autoClicked) {
             showAnswerBtn.dataset.autoClicked = 'true'
+            const targetDoc = btnDoc || document
 
             // Try clicking multiple times to ensure the framework catches it
             // (Listeners might not be attached immediately upon DOM insertion)
@@ -674,7 +663,7 @@
 
             clickSequence.forEach((delay) => {
                 setTimeout(() => {
-                    if (document.body.contains(showAnswerBtn)) {
+                    if (targetDoc.body.contains(showAnswerBtn)) {
                         showAnswerBtn.click()
                         // Dispatch generic mouse events just in case
                         showAnswerBtn.dispatchEvent(
