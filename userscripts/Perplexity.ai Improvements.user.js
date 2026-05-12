@@ -672,6 +672,29 @@
 
 //!		 8. Hide Upsell Banners (Upgrade, Try Computer, etc.)
 ;(() => {
+    // Add CSS rule for immediate hiding
+    const style = document.createElement('style')
+    style.textContent = `
+        /* Hide Upsell Banners */
+        .rounded-2xl:has(use[href*="computer"]),
+        .rounded-2xl:has(use[*|href*="computer"]),
+        .rounded-2xl:has(button[aria-label="Try Computer"]),
+        .rounded-2xl:has(img[src*="computer"]),
+        .bg-raised:has(use[href*="computer"]),
+        .bg-raised:has(use[*|href*="computer"]),
+        /* Hide the wrappers too if possible */
+        div:has(> div > .rounded-2xl:has(use[href*="computer"])),
+        div:has(> div > .bg-raised:has(use[href*="computer"])) {
+            display: none !important;
+            visibility: hidden !important;
+            height: 0 !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            pointer-events: none !important;
+        }
+    `
+    document.head.appendChild(style)
+
     const removeBanners = () => {
         removeUpgradeToMaxBanner()
         removeUpgradeNowBanner()
@@ -742,16 +765,32 @@
                 (use) =>
                     use.getAttribute('xlink:href') ===
                         '#pplx-icon-custom-computer' ||
-                    use.getAttribute('href') === '#pplx-icon-custom-computer'
+                    use.getAttribute('href') === '#pplx-icon-custom-computer' ||
+                    (use.href && use.href.baseVal === '#pplx-icon-custom-computer')
             )
 
         if (trigger) {
             const banner =
                 trigger.closest('.shadow-xl') ||
                 trigger.closest('.bottom-md') ||
-                trigger.closest('.rounded-2xl')
+                trigger.closest('.rounded-2xl') ||
+                trigger.closest('.bg-raised')
             if (banner) {
-                banner.remove()
+                // Try to remove the wrapper divs with opacity: 1 if they exist
+                let toRemove = banner
+                if (
+                    toRemove.parentElement &&
+                    toRemove.parentElement.style.opacity === '1'
+                ) {
+                    toRemove = toRemove.parentElement
+                    if (
+                        toRemove.parentElement &&
+                        toRemove.parentElement.style.opacity === '1'
+                    ) {
+                        toRemove = toRemove.parentElement
+                    }
+                }
+                toRemove.remove()
                 console.log(
                     "[Perplexity Improvements] Removed 'Try Computer' banner via trigger"
                 )
@@ -761,19 +800,35 @@
 
         // 2. Scan for specific banners by content patterns
         document
-            .querySelectorAll('.shadow-xl, .shadow-md, .rounded-2xl')
+            .querySelectorAll('.shadow-xl, .shadow-md, .rounded-2xl, .bg-raised')
             .forEach((el) => {
                 const text = el.textContent || ''
                 const hasComputerUpsell =
                     text.includes('Computer connects to 400+ apps') ||
                     text.includes('Put Computer to work') ||
+                    text.includes('Ship faster with Computer') ||
+                    text.includes('Computer handles competitive analysis') ||
                     (text.includes('Try Computer') &&
                         (text.includes('Computer can') ||
                             text.includes('autonomously') ||
                             text.includes('connected tools')))
 
                 if (hasComputerUpsell) {
-                    el.remove()
+                    // Try to remove the wrapper divs with opacity: 1 if they exist
+                    let toRemove = el
+                    if (
+                        toRemove.parentElement &&
+                        toRemove.parentElement.style.opacity === '1'
+                    ) {
+                        toRemove = toRemove.parentElement
+                        if (
+                            toRemove.parentElement &&
+                            toRemove.parentElement.style.opacity === '1'
+                        ) {
+                            toRemove = toRemove.parentElement
+                        }
+                    }
+                    toRemove.remove()
                     console.log(
                         '[Perplexity Improvements] Removed Computer upsell banner via text scan'
                     )

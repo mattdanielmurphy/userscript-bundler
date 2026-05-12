@@ -1,0 +1,11 @@
+## Pending Changes
+- feat(perplexity): expanded 'Try Computer' banner removal to handle multiple variants using text patterns and icon triggers
+- fix(d2l-image-downloader): optimized DOM traversal using TreeWalker to prevent hangs on large pages
+- feat(d2l-image-downloader): added support for StudyForge and ContentConnections domains
+- fix(d2l-image-downloader): improved filename extraction and added detection for .sf-lesson-content containers
+- fix(bundler): restored missing userscript headers in d2l-image-downloader.user.js to ensure it's included in the bundle
+- feat(contentconnections): added optional audio mute toggle to the automation control bar
+- fix(contentconnections): fixed audio mute persistence across slides and added a manual 'Skip' button to the automation bar
+- feat(contentconnections): made automation tab-specific by switching running state storage to sessionStorage
+- feat(contentconnections): made the automation control bar draggable and persistent via localStorage
+- feat(perplexity): throttled rate-limit API calls to 5min intervals and synchronized display across multiple tabs via localStorage
