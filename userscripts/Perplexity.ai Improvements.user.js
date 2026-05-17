@@ -806,6 +806,7 @@
                 const hasComputerUpsell =
                     text.includes('Computer connects to 400+ apps') ||
                     text.includes('Put Computer to work') ||
+                    text.includes('Put Perplexity Computer to work') ||
                     text.includes('Ship faster with Computer') ||
                     text.includes('Computer handles competitive analysis') ||
                     (text.includes('Try Computer') &&
