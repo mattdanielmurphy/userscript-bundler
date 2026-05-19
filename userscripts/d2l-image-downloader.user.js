@@ -168,12 +168,15 @@
 			return
 		}
 
-		const video = container.querySelector("video")
+		const video = Array.from(container.querySelectorAll("video")).find((v) => {
+			const style = window.getComputedStyle(v)
+			return style.display !== "none" && style.visibility !== "hidden" && v.offsetWidth > 0
+		})
 		const lessonHeaderEl = document.querySelector("h1.lesson-header-number")
 		const selectedTabEl = document.querySelector("li.tab.viewed.selected")
 
 		if (!video) {
-			console.error("[D2L-DL] Video element not found.")
+			console.error("[D2L-DL] No active video found.")
 			return
 		}
 
@@ -237,6 +240,14 @@
 			canvas.width = video.videoWidth || video.clientWidth
 			canvas.height = video.videoHeight || video.clientHeight
 			const ctx = canvas.getContext("2d")
+
+			// Briefly toggle play/pause if paused to flush the video buffer to the canvas
+			if (video.paused) {
+				video.play()
+				await new Promise((r) => setTimeout(r, 100))
+				video.pause()
+			}
+
 			ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
 
 			const dataUrl = canvas.toDataURL("image/png")
