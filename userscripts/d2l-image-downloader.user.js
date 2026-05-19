@@ -159,7 +159,77 @@
 		return results
 	}
 
+	async function downloadStudyForgeFrame() {
+		const container = document.querySelector(".video-wrapper")
+		const nav = document.querySelector("nav.relative.mx-auto.my-0.flex")
+
+		if (!container || !nav) {
+			console.error("[D2L-DL] Required elements (video container or navigation bar) not found.")
+			return
+		}
+
+		const video = container.querySelector("video")
+		const videoNameEl = container.querySelector(".video-name")
+
+		if (!video) {
+			console.error("[D2L-DL] Video element not found inside the wrapper.")
+			return
+		}
+
+		// 1. Extract breadcrumbs from the nav bar
+		const navItemsContainer = nav.querySelector(".overflow-hidden")
+		let navParts = []
+		if (navItemsContainer) {
+			navParts = navItemsContainer.innerText
+				.split("\n")
+				.map((t) => t.trim())
+				.filter((t) => t.length > 0)
+		}
+
+		// 2. Extract the video name
+		const videoName = videoNameEl ? videoNameEl.textContent.trim() : "Unknown Frame"
+
+		// 3. Determine lesson number (extracts digits from title or defaults to 1)
+		const lessonMatch = videoName.match(/(\d+(\.\d+)*)/)
+		const lessonNum = lessonMatch ? lessonMatch[1] : "1"
+
+		// 4. Construct and sanitize the filename
+		const fullTitle = [...navParts, `${videoName} (${lessonNum})`].join(" - ")
+		const fileName = `${fullTitle}.png`.replace(/[<>:"/\\|?*]/g, "")
+
+		// 5. Capture the frame using Canvas
+		try {
+			const canvas = document.createElement("canvas")
+			// Use video dimensions for high quality
+			canvas.width = video.videoWidth || video.clientWidth
+			canvas.height = video.videoHeight || video.clientHeight
+
+			const ctx = canvas.getContext("2d")
+			ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+
+			// 6. Trigger Download
+			const dataUrl = canvas.toDataURL("image/png")
+			const link = document.createElement("a")
+			link.download = fileName
+			link.href = dataUrl
+			document.body.appendChild(link)
+			link.click()
+			document.body.removeChild(link)
+
+			console.log(`[D2L-DL] Successfully saved: ${fileName}`)
+		} catch (e) {
+			console.error(
+				"[D2L-DL] Failed to capture frame. This is often due to CORS if the video is hosted on a different domain without cross-origin headers.",
+				e,
+			)
+		}
+	}
+
 	async function takeSnapshotInFrame() {
+		if (window.location.hostname.includes("studyforge.net")) {
+			await downloadStudyForgeFrame()
+			return
+		}
 		const candidates = [
 			".content-panel",
 			".content-block",
@@ -384,9 +454,14 @@
 		document.head.appendChild(styleEl)
 
 		function createUI() {
+			const isStudyForge = window.location.hostname.includes("studyforge.net")
 			const btn = document.createElement("button")
 			btn.id = "d2l-dl-btn"
-			btn.innerHTML = `<div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg></div><div class="text">Content Tools</div>`
+			if (isStudyForge) {
+				btn.innerHTML = `<div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg></div><div class="text">Download Frame</div>`
+			} else {
+				btn.innerHTML = `<div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg></div><div class="text">Content Tools</div>`
+			}
 			document.body.appendChild(btn)
 
 			const scriptBtn = document.createElement("button")
@@ -594,7 +669,11 @@
 				overlay.onclick = hide
 			}
 
-			btn.addEventListener("click", showMenu)
+			if (isStudyForge) {
+				btn.addEventListener("click", downloadStudyForgeFrame)
+			} else {
+				btn.addEventListener("click", showMenu)
+			}
 		}
 
 		if (document.body) createUI()
