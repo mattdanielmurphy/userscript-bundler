@@ -163,34 +163,45 @@
 		const container = document.querySelector(".video-wrapper")
 		const nav = document.querySelector("nav.relative.mx-auto.my-0.flex")
 
-		if (!container || !nav) {
-			console.error("[D2L-DL] Required elements not found.")
+		if (!container) {
+			console.error("[D2L-DL] Video wrapper not found.")
 			return
 		}
 
-		const video = Array.from(container.querySelectorAll("video")).find((v) => {
+		// FIND THE ACTIVE VIDEO
+		// The page has multiple video tags; we find the one that is actually visible.
+		const videos = Array.from(document.querySelectorAll("video"))
+		const video = videos.find((v) => {
 			const style = window.getComputedStyle(v)
-			return style.display !== "none" && style.visibility !== "hidden" && v.offsetWidth > 0
+			const parentStyle = window.getComputedStyle(v.parentElement)
+			return (
+				style.visibility !== "hidden" &&
+				style.display !== "none" &&
+				parentStyle.visibility !== "hidden" &&
+				v.offsetWidth > 0
+			)
 		})
 		const lessonHeaderEl = document.querySelector("h1.lesson-header-number")
 		const selectedTabEl = document.querySelector("li.tab.viewed.selected")
 
 		if (!video) {
-			console.error("[D2L-DL] No active video found.")
+			console.error("[D2L-DL] Active video element not found. Make sure the video is visible on screen.")
 			return
 		}
 
 		// 1. Extract breadcrumbs (Calculus, Functions, etc.)
-		const navItemsContainer = nav.querySelector(".overflow-hidden")
 		let navParts = []
-		if (navItemsContainer) {
-			navParts = navItemsContainer.innerText
-				.split("\n")
-				.map((t) => t.trim())
-				.filter((t) => t.length > 0 && !["Search", "Next Lesson", "Welcome", "Matthew Murphy"].includes(t))
+		if (nav) {
+			const navItemsContainer = nav.querySelector(".overflow-hidden")
+			if (navItemsContainer) {
+				navParts = navItemsContainer.innerText
+					.split("\n")
+					.map((t) => t.trim())
+					.filter((t) => t.length > 0 && !["Search", "Next Lesson", "Welcome", "Matthew Murphy"].includes(t))
 
-			// Safety check to remove potential trailing profile name if it escaped the filter
-			if (navParts.length > 3) navParts.pop()
+				// Safety check to remove potential trailing profile name if it escaped the filter
+				if (navParts.length > 3) navParts.pop()
+			}
 		}
 
 		// 2. Extract Lesson Number (from "Lesson 2")
@@ -240,6 +251,10 @@
 			canvas.width = video.videoWidth || video.clientWidth
 			canvas.height = video.videoHeight || video.clientHeight
 			const ctx = canvas.getContext("2d")
+
+			if (video.readyState < 2) {
+				console.warn("[D2L-DL] Video data not fully loaded yet. Capture might be blank.")
+			}
 
 			// Briefly toggle play/pause if paused to flush the video buffer to the canvas
 			if (video.paused) {
