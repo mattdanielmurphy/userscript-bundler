@@ -674,4 +674,207 @@
 	}
 
 	startObservers()
+
+	// ═══════════════════════════════════════════════════════════
+	// GEMINI MODEL OPTIMIZER
+	// ═══════════════════════════════════════════════════════════
+
+	const OPTIMIZER_SCRIPT_ID = 'gemini_optimizer_final_v11'
+
+	if (window[OPTIMIZER_SCRIPT_ID]) {
+		window[OPTIMIZER_SCRIPT_ID].observer.disconnect()
+	}
+
+	function getModelName(item) {
+		const clone = item.cloneNode(true)
+		// Remove icons, SVGs, and other non-text decorative components
+		clone.querySelectorAll('mat-icon, g-icon, svg, .icon, img').forEach(el => el.remove())
+		
+		// Try to find known title elements or classes
+		const titleEl = clone.querySelector('.bard-mode-menu-item-title, .model-title, [class*="title"], strong, b')
+		if (titleEl) {
+			const text = titleEl.innerText.trim()
+			if (text) return text
+		}
+		
+		// Otherwise, split by newline and take the first non-empty line
+		const lines = clone.innerText.split('\n')
+			.map(line => line.trim())
+			.filter(line => line.length > 0)
+		
+		if (lines.length > 0) {
+			return lines[0]
+		}
+		return ''
+	}
+
+	function isModelMatch(modelName, labelText) {
+		const clean = (str) => str.toLowerCase()
+			.replace(/\bgemini\b/g, '')
+			.replace(/\bgoogle\b/g, '')
+			.replace(/[^a-z0-9.-]/g, ' ')
+			.replace(/\s+/g, ' ')
+			.trim()
+		
+		const cleanModel = clean(modelName)
+		const cleanLabel = clean(labelText)
+		
+		if (!cleanModel || !cleanLabel) return false
+		
+		const hasLite = (str) => str.includes('lite')
+		if (hasLite(cleanModel) !== hasLite(cleanLabel)) {
+			return false
+		}
+		
+		return cleanLabel.includes(cleanModel) || cleanModel.includes(cleanLabel)
+	}
+
+	async function performSelection(modelName, targetThinking) {
+		const originalModelBtn = Array.from(document.querySelectorAll('.mat-mdc-menu-item.bard-mode-list-button'))
+			.find(el => getModelName(el).toLowerCase() === modelName.toLowerCase())
+
+		if (!originalModelBtn) return
+
+		const trigger = document.querySelector('button.input-area-switch')
+		const currentLabel = trigger?.innerText.toLowerCase() || ''
+		const isTargetModelSelected = isModelMatch(modelName, currentLabel)
+		const isCurrentlyExtended = currentLabel.includes('extended') || currentLabel.includes('thinking')
+
+		const overlayContainer = document.querySelector('.cdk-overlay-container')
+		const hideOverlay = () => { if (overlayContainer) overlayContainer.style.opacity = '0'; }
+		const showOverlay = () => { if (overlayContainer) overlayContainer.style.opacity = '1'; }
+
+		if (targetThinking === 'extended') {
+			if (isTargetModelSelected && isCurrentlyExtended) {
+				document.body.click()
+				return
+			}
+			
+			hideOverlay()
+			originalModelBtn.click()
+			
+			setTimeout(async () => {
+				const newTrigger = document.querySelector('button.input-area-switch')
+				if (newTrigger) newTrigger.click()
+				await new Promise(r => setTimeout(r, 60))
+				
+				const header = document.querySelector('.thinking-level-header')
+				if (header) {
+					header.click()
+					await new Promise(r => setTimeout(r, 40))
+					const opt = Array.from(document.querySelectorAll('.thinking-level-option-title'))
+						.find(o => o.innerText.toLowerCase().includes('extended'))
+					if (opt) opt.click()
+				}
+				showOverlay()
+			}, 180)
+		} else {
+			if (isTargetModelSelected && isCurrentlyExtended) {
+				hideOverlay()
+				const header = document.querySelector('.thinking-level-header')
+				if (header) {
+					header.click()
+					await new Promise(r => setTimeout(r, 40))
+					const opt = Array.from(document.querySelectorAll('.thinking-level-option-title'))
+						.find(o => o.innerText.toLowerCase().includes('standard'))
+					if (opt) opt.click()
+				}
+				showOverlay()
+			} else {
+				originalModelBtn.click()
+			}
+		}
+	}
+
+	function modifyMenu() {
+		document.querySelectorAll('.thinking-level-divider, .upgrade-container.g1-upsell-container')
+			.forEach(el => el.style.setProperty('display', 'none', 'important'))
+
+		const panels = document.querySelectorAll('.mat-mdc-menu-panel')
+		panels.forEach(panel => {
+			if (panel.querySelector('.custom-menu-grid-row')) return
+
+			const menuItems = Array.from(panel.querySelectorAll('.mat-mdc-menu-item.bard-mode-list-button'))
+			if (menuItems.length === 0) return
+
+			const header = panel.querySelector('.thinking-level-header')
+			if (header) {
+				header.style.cssText = 'width: 0; height: 0; opacity: 0; overflow: hidden; padding: 0; margin: 0; border: none; min-height: 0; position: absolute; pointer-events: auto;'
+			}
+
+			const trigger = document.querySelector('button.input-area-switch')
+			const currentLabelText = trigger?.innerText.toLowerCase() || ''
+
+			menuItems.forEach(item => {
+				const modelName = getModelName(item)
+				if (!modelName) return
+				
+				const isThisModelSelected = isModelMatch(modelName, currentLabelText)
+				const isExtended = currentLabelText.includes('extended') || currentLabelText.includes('thinking')
+
+				const grid = document.createElement('div')
+				grid.className = 'custom-menu-grid-row'
+				grid.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr; gap: 0; margin: 0;'
+
+				const baseBtnStyle = 'padding: 14px 10px; margin: 0; border: none; background: transparent; cursor: pointer; font-family: "Google Sans Flex", sans-serif; font-weight: 500; font-size: 14px; text-align: center; color: #e3e3e3; transition: all 0.2s ease;'
+
+				const createBtn = (label, isStandard) => {
+					const btn = document.createElement('button')
+					btn.innerText = label
+					btn.style.cssText = baseBtnStyle
+					
+					const isActive = isStandard ? (isThisModelSelected && !isExtended) : (isThisModelSelected && isExtended)
+					
+					if (isActive) {
+						btn.style.backgroundColor = isStandard ? 'rgba(255, 255, 255, 0.12)' : 'rgba(168, 199, 250, 0.2)'
+						btn.style.borderColor = '#a8c7fa'
+						btn.style.boxShadow = '0 0 4px rgba(168, 199, 250, 0.2)'
+						if (!isStandard) btn.style.color = '#a8c7fa'
+					}
+
+					btn.onmouseenter = () => {
+						if (!isActive) {
+							btn.style.backgroundColor = 'rgba(255, 255, 255, 0.08)'
+							btn.style.borderColor = '#8e918f'
+						}
+					}
+					btn.onmouseleave = () => {
+						if (!isActive) {
+							btn.style.backgroundColor = 'transparent'
+							btn.style.borderColor = '#444746'
+						}
+					}
+
+					btn.onclick = (e) => {
+						e.preventDefault()
+						e.stopPropagation()
+						performSelection(modelName, isStandard ? 'standard' : 'extended')
+					}
+					return btn
+				}
+
+				grid.appendChild(createBtn(modelName, true))
+				grid.appendChild(createBtn(modelName + ' Thinking', false))
+
+				item.style.display = 'none'
+				item.parentNode.insertBefore(grid, item)
+			})
+		})
+	}
+
+	function startOptimizer() {
+		if (!document.body) {
+			requestAnimationFrame(startOptimizer)
+			return
+		}
+		const observer = new MutationObserver(modifyMenu)
+		observer.observe(document.body, { childList: true, subtree: true })
+		modifyMenu()
+
+		window[OPTIMIZER_SCRIPT_ID] = { observer }
+		console.log('Gemini Optimizer Active (Dynamic Models).')
+	}
+
+	startOptimizer()
 })()
+
