@@ -164,50 +164,81 @@
 		const nav = document.querySelector("nav.relative.mx-auto.my-0.flex")
 
 		if (!container || !nav) {
-			console.error("[D2L-DL] Required elements (video container or navigation bar) not found.")
+			console.error("[D2L-DL] Required elements not found.")
 			return
 		}
 
 		const video = container.querySelector("video")
-		const videoNameEl = container.querySelector(".video-name")
+		const lessonHeaderEl = document.querySelector("h1.lesson-header-number")
+		const selectedTabEl = document.querySelector("li.tab.viewed.selected")
 
 		if (!video) {
-			console.error("[D2L-DL] Video element not found inside the wrapper.")
+			console.error("[D2L-DL] Video element not found.")
 			return
 		}
 
-		// 1. Extract breadcrumbs from the nav bar
+		// 1. Extract breadcrumbs (Calculus, Functions, etc.)
 		const navItemsContainer = nav.querySelector(".overflow-hidden")
 		let navParts = []
 		if (navItemsContainer) {
 			navParts = navItemsContainer.innerText
 				.split("\n")
 				.map((t) => t.trim())
-				.filter((t) => t.length > 0)
+				.filter((t) => t.length > 0 && !["Search", "Next Lesson", "Welcome", "Matthew Murphy"].includes(t))
+
+			// Safety check to remove potential trailing profile name if it escaped the filter
+			if (navParts.length > 3) navParts.pop()
 		}
 
-		// 2. Extract the video name
-		const videoName = videoNameEl ? videoNameEl.textContent.trim() : "Unknown Frame"
+		// 2. Extract Lesson Number (from "Lesson 2")
+		const lessonText = lessonHeaderEl ? lessonHeaderEl.textContent.trim() : ""
+		const lessonNum = (lessonText.match(/\d+/) || ["1"])[0]
 
-		// 3. Determine lesson number (extracts digits from title or defaults to 1)
-		const lessonMatch = videoName.match(/(\d+(\.\d+)*)/)
-		const lessonNum = lessonMatch ? lessonMatch[1] : "1"
+		// 3. Extract Video Number and Specific Video Name from the Tab
+		// The tab contains text like "3", "3 - Vertical Line Test", "Ref V.421"
+		let videoNum = "1"
+		let videoTitle = "Unknown Video"
 
-		// 4. Construct and sanitize the filename
-		const fullTitle = [...navParts, `${videoName} (${lessonNum})`].join(" - ")
+		if (selectedTabEl) {
+			const lines = selectedTabEl.textContent
+				.split("\n")
+				.map((s) => s.trim())
+				.filter((s) => s.length > 0)
+
+			// Find the line that looks like "3 - Vertical Line Test"
+			const titleLine = lines.find((l) => l.includes(" - "))
+			if (titleLine) {
+				const parts = titleLine.split(" - ")
+				videoNum = parts[0].trim()
+				videoTitle = parts[1].trim()
+			} else if (lines.length > 0) {
+				videoNum = lines[0]
+			}
+		}
+
+		// 4. Construct the final filename
+		// Format: Breadcrumbs (Lesson #) - Video Title (Video #)
+		if (navParts.length > 0) {
+			navParts[navParts.length - 1] = `${navParts[navParts.length - 1]} (${lessonNum})`
+		} else {
+			navParts.push(`(${lessonNum})`)
+		}
+
+		const fullTitle = [
+			...navParts,
+			`${videoTitle} (${videoNum})`
+		].join(" - ")
+
 		const fileName = `${fullTitle}.png`.replace(/[<>:"/\\|?*]/g, "")
 
-		// 5. Capture the frame using Canvas
+		// 5. Capture the frame
 		try {
 			const canvas = document.createElement("canvas")
-			// Use video dimensions for high quality
 			canvas.width = video.videoWidth || video.clientWidth
 			canvas.height = video.videoHeight || video.clientHeight
-
 			const ctx = canvas.getContext("2d")
 			ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
 
-			// 6. Trigger Download
 			const dataUrl = canvas.toDataURL("image/png")
 			const link = document.createElement("a")
 			link.download = fileName
@@ -216,12 +247,9 @@
 			link.click()
 			document.body.removeChild(link)
 
-			console.log(`[D2L-DL] Successfully saved: ${fileName}`)
+			console.log(`[D2L-DL] Saved: ${fileName}`)
 		} catch (e) {
-			console.error(
-				"[D2L-DL] Failed to capture frame. This is often due to CORS if the video is hosted on a different domain without cross-origin headers.",
-				e,
-			)
+			console.error("[D2L-DL] Capture failed.", e)
 		}
 	}
 
