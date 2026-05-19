@@ -15,468 +15,526 @@
 // ==/UserScript==
 
 ;(function () {
-	"use strict"
-	console.log(`[D2L-DL] Userscript initialized in ${window.location.href} (Top: ${window === window.top})`)
+    'use strict'
+    console.log(
+        `[D2L-DL] Userscript initialized in ${window.location.href} (Top: ${window === window.top})`
+    )
 
-	const IS_TOP = window === window.top
-	const downloadCounts = {}
+    const IS_TOP = window === window.top
+    const downloadCounts = {}
 
-	// 1. Optimized helper function to find the element across Shadow boundaries
-	function findInShadow(selector, root = document) {
-		const el = root.querySelector(selector)
-		if (el) return el
+    // 1. Optimized helper function to find the element across Shadow boundaries
+    function findInShadow(selector, root = document) {
+        const el = root.querySelector(selector)
+        if (el) return el
 
-		// Only iterate over elements that could potentially have a shadowRoot
-		const walkers = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT, {
-			acceptNode: (node) =>
-				node.shadowRoot ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP,
-		})
+        // Only iterate over elements that could potentially have a shadowRoot
+        const walkers = document.createTreeWalker(
+            root,
+            NodeFilter.SHOW_ELEMENT,
+            {
+                acceptNode: (node) =>
+                    node.shadowRoot
+                        ? NodeFilter.FILTER_ACCEPT
+                        : NodeFilter.FILTER_SKIP,
+            }
+        )
 
-		let node
-		while ((node = walkers.nextNode())) {
-			const found = findInShadow(selector, node.shadowRoot)
-			if (found) return found
-		}
-		return null
-	}
+        let node
+        while ((node = walkers.nextNode())) {
+            const found = findInShadow(selector, node.shadowRoot)
+            if (found) return found
+        }
+        return null
+    }
 
-	// Helper to find all iframes even inside shadow roots
-	function findIframes(root = document, list = []) {
-		list.push(...Array.from(root.querySelectorAll("iframe")))
+    // Helper to find all iframes even inside shadow roots
+    function findIframes(root = document, list = []) {
+        list.push(...Array.from(root.querySelectorAll('iframe')))
 
-		const walkers = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT, {
-			acceptNode: (node) =>
-				node.shadowRoot ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP,
-		})
+        const walkers = document.createTreeWalker(
+            root,
+            NodeFilter.SHOW_ELEMENT,
+            {
+                acceptNode: (node) =>
+                    node.shadowRoot
+                        ? NodeFilter.FILTER_ACCEPT
+                        : NodeFilter.FILTER_SKIP,
+            }
+        )
 
-		let node
-		while ((node = walkers.nextNode())) {
-			findIframes(node.shadowRoot, list)
-		}
-		return list
-	}
+        let node
+        while ((node = walkers.nextNode())) {
+            findIframes(node.shadowRoot, list)
+        }
+        return list
+    }
 
-	// Helper to find all images even inside shadow roots
-	function findImages(root = document, list = []) {
-		list.push(...Array.from(root.querySelectorAll("img")))
+    // Helper to find all images even inside shadow roots
+    function findImages(root = document, list = []) {
+        list.push(...Array.from(root.querySelectorAll('img')))
 
-		const walkers = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT, {
-			acceptNode: (node) =>
-				node.shadowRoot ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP,
-		})
+        const walkers = document.createTreeWalker(
+            root,
+            NodeFilter.SHOW_ELEMENT,
+            {
+                acceptNode: (node) =>
+                    node.shadowRoot
+                        ? NodeFilter.FILTER_ACCEPT
+                        : NodeFilter.FILTER_SKIP,
+            }
+        )
 
-		let node
-		while ((node = walkers.nextNode())) {
-			findImages(node.shadowRoot, list)
-		}
-		return list
-	}
+        let node
+        while ((node = walkers.nextNode())) {
+            findImages(node.shadowRoot, list)
+        }
+        return list
+    }
 
-	function checkQMode() {
-		let isQMode = false
-		try {
-			isQMode =
-				/\/lesson\/\d+#Q\d+/.test(window.location.href) ||
-				(window.top && /\/lesson\/\d+#Q\d+/.test(window.top.location.href))
-		} catch (err) {
-			isQMode = /\/lesson\/\d+#Q\d+/.test(window.location.href)
-		}
-		return isQMode
-	}
+    function checkQMode() {
+        let isQMode = false
+        try {
+            isQMode =
+                /\/lesson\/\d+#Q\d+/.test(window.location.href) ||
+                (window.top &&
+                    /\/lesson\/\d+#Q\d+/.test(window.top.location.href))
+        } catch (err) {
+            isQMode = /\/lesson\/\d+#Q\d+/.test(window.location.href)
+        }
+        return isQMode
+    }
 
-	function findInDocumentOrIframes(selector, doc = document) {
-		const found = findInShadow(selector, doc)
-		if (found) return found
+    function findInDocumentOrIframes(selector, doc = document) {
+        const found = findInShadow(selector, doc)
+        if (found) return found
 
-		const iframes = findIframes(doc)
-		for (const iframe of iframes) {
-			try {
-				if (iframe.contentDocument) {
-					const el = findInDocumentOrIframes(selector, iframe.contentDocument)
-					if (el) return el
-				}
-			} catch (e) {
-				// Cross-origin iframe, ignore
-			}
-		}
-		return null
-	}
+        const iframes = findIframes(doc)
+        for (const iframe of iframes) {
+            try {
+                if (iframe.contentDocument) {
+                    const el = findInDocumentOrIframes(
+                        selector,
+                        iframe.contentDocument
+                    )
+                    if (el) return el
+                }
+            } catch (e) {
+                // Cross-origin iframe, ignore
+            }
+        }
+        return null
+    }
 
-	async function getTargetImages() {
-		const candidates = [
-			".d2l-html-block-rendered",
-			".d2l-fileviewer-render-container",
-			".sf-lesson-content", // StudyForge
-			".sf-page-content", // StudyForge
-			".content-area", // Generic StudyForge/ContentConnections
-			"main",
-			'[role="main"]',
-			".d2l-content-container",
-			"#d2l_content",
-			".content-panel",
-			".content-block",
-			".document-container",
-			"#app",
-		]
+    async function getTargetImages() {
+        const candidates = [
+            '.d2l-html-block-rendered',
+            '.d2l-fileviewer-render-container',
+            '.sf-lesson-content', // StudyForge
+            '.sf-page-content', // StudyForge
+            '.content-area', // Generic StudyForge/ContentConnections
+            'main',
+            '[role="main"]',
+            '.d2l-content-container',
+            '#d2l_content',
+            '.content-panel',
+            '.content-block',
+            '.document-container',
+            '#app',
+        ]
 
-		let container = null
-		for (const selector of candidates) {
-			container = findInShadow(selector)
-			if (container) break
-		}
+        let container = null
+        for (const selector of candidates) {
+            container = findInShadow(selector)
+            if (container) break
+        }
 
-		if (!container) container = document.body
+        if (!container) container = document.body
 
-		let images = findImages(container)
-		return images.filter((img) => {
-			if (
-				img.closest(
-					"nav, header, footer, .d2l-navigation-s, .d2l-header, .navigation-menu, .header-button-tray, .sf-nav",
-				)
-			)
-				return false
-			const width = img.naturalWidth || img.width
-			const height = img.naturalHeight || img.height
-			// Allow small images if they are in a content block but not icons
-			if (width > 0 && height > 0 && width < 30 && height < 30) {
-				if (img.classList.contains("d2l-icon") || img.src.includes("icon"))
-					return false
-			}
-			if (!img.src || img.src.startsWith("data:")) return false
-			const srcLower = img.src.toLowerCase()
-			if (srcLower.includes("icon") && !srcLower.includes("content")) {
-				if (width < 64 && height < 64) return false
-			}
-			return true
-		})
-	}
+        let images = findImages(container)
+        return images.filter((img) => {
+            if (
+                img.closest(
+                    'nav, header, footer, .d2l-navigation-s, .d2l-header, .navigation-menu, .header-button-tray, .sf-nav'
+                )
+            )
+                return false
+            const width = img.naturalWidth || img.width
+            const height = img.naturalHeight || img.height
+            // Allow small images if they are in a content block but not icons
+            if (width > 0 && height > 0 && width < 30 && height < 30) {
+                if (
+                    img.classList.contains('d2l-icon') ||
+                    img.src.includes('icon')
+                )
+                    return false
+            }
+            if (!img.src || img.src.startsWith('data:')) return false
+            const srcLower = img.src.toLowerCase()
+            if (srcLower.includes('icon') && !srcLower.includes('content')) {
+                if (width < 64 && height < 64) return false
+            }
+            return true
+        })
+    }
 
-	async function bundleImagesInFrame() {
-		const images = await getTargetImages()
-		if (images.length === 0) {
-			console.log("[D2L-DL] No images found in this frame.")
-			return []
-		}
+    async function bundleImagesInFrame() {
+        const images = await getTargetImages()
+        if (images.length === 0) {
+            console.log('[D2L-DL] No images found in this frame.')
+            return []
+        }
 
-		console.log(`[D2L-DL] Bundling ${images.length} images...`)
-		const results = []
-		for (let i = 0; i < images.length; i++) {
-			try {
-				const src = images[i].src
-				const response = await fetch(src)
-				if (!response.ok) throw new Error(`HTTP ${response.status}`)
-				const blob = await response.blob()
+        console.log(`[D2L-DL] Bundling ${images.length} images...`)
+        const results = []
+        for (let i = 0; i < images.length; i++) {
+            try {
+                const src = images[i].src
+                const response = await fetch(src)
+                if (!response.ok) throw new Error(`HTTP ${response.status}`)
+                const blob = await response.blob()
 
-				// Smart filename extraction
-				let filename = ""
-				try {
-					const url = new URL(src)
-					const pathParts = url.pathname.split("/")
-					filename = pathParts.pop() || "image"
-					if (!filename.includes(".") && response.type) {
-						// Try to get extension from mime type
-						const ext = blob.type.split("/")[1]?.replace("jpeg", "jpg") || "png"
-						filename += `.${ext}`
-					}
-				} catch (e) {
-					filename = `image-${i}.png`
-				}
+                // Smart filename extraction
+                let filename = ''
+                try {
+                    const url = new URL(src)
+                    const pathParts = url.pathname.split('/')
+                    filename = pathParts.pop() || 'image'
+                    if (!filename.includes('.') && response.type) {
+                        // Try to get extension from mime type
+                        const ext =
+                            blob.type.split('/')[1]?.replace('jpeg', 'jpg') ||
+                            'png'
+                        filename += `.${ext}`
+                    }
+                } catch (e) {
+                    filename = `image-${i}.png`
+                }
 
-				results.push({ filename, blob })
-			} catch (err) {
-				console.error(`[D2L-DL] Failed to fetch image:`, images[i].src, err)
-			}
-		}
-		return results
-	}
+                results.push({ filename, blob })
+            } catch (err) {
+                console.error(
+                    `[D2L-DL] Failed to fetch image:`,
+                    images[i].src,
+                    err
+                )
+            }
+        }
+        return results
+    }
 
-	async function downloadStudyForgeFrame() {
-		const container = document.querySelector(".video-wrapper")
-		const nav = document.querySelector("nav.relative.mx-auto.my-0.flex")
+    async function downloadStudyForgeFrame() {
+        const container = document.querySelector('.video-wrapper')
+        const nav = document.querySelector('nav.relative.mx-auto.my-0.flex')
 
-		if (!container) {
-			console.error("[D2L-DL] Video wrapper not found.")
-			return
-		}
+        if (!container) {
+            console.error('[D2L-DL] Video wrapper not found.')
+            return
+        }
 
-		// FIND THE ACTIVE VIDEO
-		// The page has multiple video tags; we find the one that is actually visible.
-		const videos = Array.from(document.querySelectorAll("video"))
-		const video = videos.find((v) => {
-			const style = window.getComputedStyle(v)
-			const parentStyle = window.getComputedStyle(v.parentElement)
-			return (
-				style.visibility !== "hidden" &&
-				style.display !== "none" &&
-				parentStyle.visibility !== "hidden" &&
-				v.offsetWidth > 0
-			)
-		})
-		let lessonHeaderEl = document.querySelector("h1.lesson-header-number")
-		if (!lessonHeaderEl) {
-			const h1s = Array.from(document.querySelectorAll("h1"))
-			lessonHeaderEl = h1s.find((h) => h.textContent.includes("Lesson"))
-		}
-		const selectedTabEl = document.querySelector("li.tab.viewed.selected")
+        // FIND THE ACTIVE VIDEO
+        // The page has multiple video tags; we find the one that is actually visible.
+        const videos = Array.from(document.querySelectorAll('video'))
+        const video = videos.find((v) => {
+            const style = window.getComputedStyle(v)
+            const parentStyle = window.getComputedStyle(v.parentElement)
+            return (
+                style.visibility !== 'hidden' &&
+                style.display !== 'none' &&
+                parentStyle.visibility !== 'hidden' &&
+                v.offsetWidth > 0
+            )
+        })
+        let lessonHeaderEl = document.querySelector('h1.lesson-header-number')
+        if (!lessonHeaderEl) {
+            const h1s = Array.from(document.querySelectorAll('h1'))
+            lessonHeaderEl = h1s.find((h) => h.textContent.includes('Lesson'))
+        }
+        const selectedTabEl = document.querySelector('li.tab.viewed.selected')
 
-		if (!video) {
-			console.error("[D2L-DL] Active video element not found. Make sure the video is visible on screen.")
-			return
-		}
+        if (!video) {
+            console.error(
+                '[D2L-DL] Active video element not found. Make sure the video is visible on screen.'
+            )
+            return
+        }
 
-		// 1. Extract breadcrumbs (Calculus, Functions, etc.)
-		let navParts = []
-		if (nav) {
-			const navItemsContainer = nav.querySelector(".overflow-hidden")
-			if (navItemsContainer) {
-				navParts = navItemsContainer.innerText
-					.split("\n")
-					.map((t) => t.trim())
-					.filter((t) => t.length > 0 && !["Search", "Next Lesson", "Welcome", "Matthew Murphy"].includes(t))
+        // 1. Extract breadcrumbs (Calculus, Functions, etc.)
+        let navParts = []
+        if (nav) {
+            const navItemsContainer = nav.querySelector('.overflow-hidden')
+            if (navItemsContainer) {
+                navParts = navItemsContainer.innerText
+                    .split('\n')
+                    .map((t) => t.trim())
+                    .filter(
+                        (t) =>
+                            t.length > 0 &&
+                            ![
+                                'Search',
+                                'Next Lesson',
+                                'Welcome',
+                                'Matthew Murphy',
+                            ].includes(t)
+                    )
 
-				// Safety check to remove potential trailing profile name if it escaped the filter
-				if (navParts.length > 3) navParts.pop()
-			}
-		}
+                // Safety check to remove potential trailing profile name if it escaped the filter
+                if (navParts.length > 3) navParts.pop()
+            }
+        }
 
-		// 2. Extract Lesson Number (from "Lesson 2")
-		const lessonText = lessonHeaderEl ? lessonHeaderEl.textContent.trim() : ""
-		const lessonNum = (lessonText.match(/\d+/) || ["1"])[0]
+        // 2. Extract Lesson Number (from "Lesson 2")
+        const lessonText = lessonHeaderEl
+            ? lessonHeaderEl.textContent.trim()
+            : ''
+        const lessonNum = (lessonText.match(/\d+/) || ['1'])[0]
 
-		// 3. Extract Video Number and Specific Video Name from the Tab
-		// The tab contains text like "3", "3 - Vertical Line Test", "Ref V.421"
-		let videoNum = "1"
-		let videoTitle = "Unknown Video"
+        // 3. Extract Video Number and Specific Video Name from the Tab
+        // The tab contains text like "3", "3 - Vertical Line Test", "Ref V.421"
+        let videoNum = '1'
+        let videoTitle = 'Unknown Video'
 
-		if (selectedTabEl) {
-			const lines = selectedTabEl.textContent
-				.split("\n")
-				.map((s) => s.trim())
-				.filter((s) => s.length > 0)
+        if (selectedTabEl) {
+            const lines = selectedTabEl.textContent
+                .split('\n')
+                .map((s) => s.trim())
+                .filter((s) => s.length > 0)
 
-			// Find the line that looks like "3 - Vertical Line Test"
-			const titleLine = lines.find((l) => l.includes(" - "))
-			if (titleLine) {
-				const parts = titleLine.split(" - ")
-				videoNum = parts[0].trim()
-				videoTitle = parts[1].trim()
-			} else if (lines.length > 0) {
-				videoNum = lines[0]
-			}
-		} else {
-			// Fallback if there are no tabs (single-video pages)
-			const videoNameEl = document.querySelector(".video-name")
-			if (videoNameEl) {
-				videoTitle = videoNameEl.textContent.trim()
-			} else {
-				const lessonHeaderNameEl = document.querySelector(".lesson-header-name")
-				if (lessonHeaderNameEl) {
-					videoTitle = lessonHeaderNameEl.textContent.trim()
-				}
-			}
-		}
+            // Find the line that looks like "3 - Vertical Line Test"
+            const titleLine = lines.find((l) => l.includes(' - '))
+            if (titleLine) {
+                const parts = titleLine.split(' - ')
+                videoNum = parts[0].trim()
+                videoTitle = parts[1].trim()
+            } else if (lines.length > 0) {
+                videoNum = lines[0]
+            }
+        } else {
+            // Fallback if there are no tabs (single-video pages)
+            const videoNameEl = document.querySelector('.video-name')
+            if (videoNameEl) {
+                videoTitle = videoNameEl.textContent.trim()
+            } else {
+                const lessonHeaderNameEl = document.querySelector(
+                    '.lesson-header-name'
+                )
+                if (lessonHeaderNameEl) {
+                    videoTitle = lessonHeaderNameEl.textContent.trim()
+                }
+            }
+        }
 
-		// 4. Construct the final filename
-		// Format: Breadcrumbs (Lesson #) - Video Title (Video #)
-		if (navParts.length > 0) {
-			navParts[navParts.length - 1] = `${navParts[navParts.length - 1]} (${lessonNum})`
-		} else {
-			navParts.push(`(${lessonNum})`)
-		}
+        // 4. Construct the final filename
+        // Format: Breadcrumbs (Lesson #) - Video Title (Video #)
+        if (navParts.length > 0) {
+            navParts[navParts.length - 1] =
+                `${navParts[navParts.length - 1]} (${lessonNum})`
+        } else {
+            navParts.push(`(${lessonNum})`)
+        }
 
-		const fullTitle = [
-			...navParts,
-			`${videoTitle} (${videoNum})`
-		].join(" - ")
+        const fullTitle = [...navParts, `${videoTitle} (${videoNum})`].join(
+            ' - '
+        )
 
-		// Track download counts per title/video
-		let countSuffix = ""
-		if (downloadCounts[fullTitle]) {
-			downloadCounts[fullTitle] += 1
-			countSuffix = ` ${downloadCounts[fullTitle]}`
-		} else {
-			downloadCounts[fullTitle] = 1
-		}
+        // Track download counts per title/video
+        let countSuffix = ''
+        if (downloadCounts[fullTitle]) {
+            downloadCounts[fullTitle] += 1
+            countSuffix = ` ${downloadCounts[fullTitle]}`
+        } else {
+            downloadCounts[fullTitle] = 1
+        }
 
-		const fileName = `${fullTitle}${countSuffix}.png`.replace(/[<>:"/\\|?*]/g, "")
+        const fileName = `${fullTitle}${countSuffix}.png`.replace(
+            /[<>:"/\\|?*]/g,
+            ''
+        )
 
-		// 5. Capture the frame
-		try {
-			const canvas = document.createElement("canvas")
-			canvas.width = video.videoWidth || video.clientWidth
-			canvas.height = video.videoHeight || video.clientHeight
-			const ctx = canvas.getContext("2d")
+        // 5. Capture the frame
+        try {
+            const canvas = document.createElement('canvas')
+            canvas.width = video.videoWidth || video.clientWidth
+            canvas.height = video.videoHeight || video.clientHeight
+            const ctx = canvas.getContext('2d')
 
-			if (video.readyState < 2) {
-				console.warn("[D2L-DL] Video data not fully loaded yet. Capture might be blank.")
-			}
+            if (video.readyState < 2) {
+                console.warn(
+                    '[D2L-DL] Video data not fully loaded yet. Capture might be blank.'
+                )
+            }
 
-			// Briefly toggle play/pause if paused to flush the video buffer to the canvas
-			if (video.paused && !video.ended) {
-				video.play()
-				await new Promise((r) => setTimeout(r, 100))
-				video.pause()
-			}
+            // Briefly toggle play/pause if paused to flush the video buffer to the canvas
+            if (video.paused && !video.ended) {
+                video.play()
+                await new Promise((r) => setTimeout(r, 100))
+                video.pause()
+            }
 
-			ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
 
-			const dataUrl = canvas.toDataURL("image/png")
-			const link = document.createElement("a")
-			link.download = fileName
-			link.href = dataUrl
-			document.body.appendChild(link)
-			link.click()
-			document.body.removeChild(link)
+            const dataUrl = canvas.toDataURL('image/png')
+            const link = document.createElement('a')
+            link.download = fileName
+            link.href = dataUrl
+            document.body.appendChild(link)
+            link.click()
+            document.body.removeChild(link)
 
-			console.log(`[D2L-DL] Saved: ${fileName}`)
-		} catch (e) {
-			console.error("[D2L-DL] Capture failed.", e)
-		}
-	}
+            console.log(`[D2L-DL] Saved: ${fileName}`)
+        } catch (e) {
+            console.error('[D2L-DL] Capture failed.', e)
+        }
+    }
 
-	async function takeSnapshotInFrame() {
-		if (window.location.hostname.includes("studyforge.net")) {
-			await downloadStudyForgeFrame()
-			return
-		}
-		const candidates = [
-			".content-panel",
-			".content-block",
-			".d2l-html-block-rendered",
-			"main",
-		]
-		let target = null
-		for (const s of candidates) {
-			target = findInShadow(s)
-			if (target) break
-		}
-		if (!target) target = document.body
+    async function takeSnapshotInFrame() {
+        if (window.location.hostname.includes('studyforge.net')) {
+            await downloadStudyForgeFrame()
+            return
+        }
+        const candidates = [
+            '.content-panel',
+            '.content-block',
+            '.d2l-html-block-rendered',
+            'main',
+        ]
+        let target = null
+        for (const s of candidates) {
+            target = findInShadow(s)
+            if (target) break
+        }
+        if (!target) target = document.body
 
-		console.log(`[D2L-DL] Taking high-res snapshot of:`, target)
-		const canvas = await html2canvas(target, {
-			scale: 2,
-			useCORS: true,
-			backgroundColor: "#ffffff",
-		})
-		canvas.toBlob((blob) => {
-			downloadBlob(blob, `snapshot-${new Date().getTime()}.png`)
-		})
-	}
+        console.log(`[D2L-DL] Taking high-res snapshot of:`, target)
+        const canvas = await html2canvas(target, {
+            scale: 2,
+            useCORS: true,
+            backgroundColor: '#ffffff',
+        })
+        canvas.toBlob((blob) => {
+            downloadBlob(blob, `snapshot-${new Date().getTime()}.png`)
+        })
+    }
 
-	function downloadBlob(blob, filename) {
-		try {
-			if (typeof saveAs !== "undefined") {
-				saveAs(blob, filename)
-			} else {
-				console.warn(
-					`[D2L-DL] saveAs not found, using fallback download method.`,
-				)
-				const url = URL.createObjectURL(blob)
-				const a = document.createElement("a")
-				a.href = url
-				a.download = filename
-				a.style.display = "none"
-				document.body.appendChild(a)
-				a.click()
-				setTimeout(() => {
-					document.body.removeChild(a)
-					URL.revokeObjectURL(url)
-				}, 100)
-			}
-		} catch (err) {
-			console.error(`[D2L-DL] Failed to download file:`, err)
-			alert(`Download failed: ${err.message}`)
-		}
-	}
+    function downloadBlob(blob, filename) {
+        try {
+            if (typeof saveAs !== 'undefined') {
+                saveAs(blob, filename)
+            } else {
+                console.warn(
+                    `[D2L-DL] saveAs not found, using fallback download method.`
+                )
+                const url = URL.createObjectURL(blob)
+                const a = document.createElement('a')
+                a.href = url
+                a.download = filename
+                a.style.display = 'none'
+                document.body.appendChild(a)
+                a.click()
+                setTimeout(() => {
+                    document.body.removeChild(a)
+                    URL.revokeObjectURL(url)
+                }, 100)
+            }
+        } catch (err) {
+            console.error(`[D2L-DL] Failed to download file:`, err)
+            alert(`Download failed: ${err.message}`)
+        }
+    }
 
-	async function extractScriptInFrame() {
-		const elements = Array.from(document.querySelectorAll(".video-script"))
-		console.log(
-			`[D2L-SCRIPT] Found ${elements.length} .video-script elements in ${window.location.href}`,
-		)
-		if (elements.length === 0) return null
+    async function extractScriptInFrame() {
+        const elements = Array.from(document.querySelectorAll('.video-script'))
+        console.log(
+            `[D2L-SCRIPT] Found ${elements.length} .video-script elements in ${window.location.href}`
+        )
+        if (elements.length === 0) return null
 
-		const scriptParts = elements
-			.map((el) => el.textContent.trim())
-			.filter((text) => text !== "")
+        const scriptParts = elements
+            .map((el) => el.textContent.trim())
+            .filter((text) => text !== '')
 
-		console.log(
-			`[D2L-SCRIPT] Extracted ${scriptParts.length} parts from this frame.`,
-		)
-		return scriptParts.join("\n\n")
-	}
+        console.log(
+            `[D2L-SCRIPT] Extracted ${scriptParts.length} parts from this frame.`
+        )
+        return scriptParts.join('\n\n')
+    }
 
-	function extractTitleInFrame() {
-		const numEl = document.querySelector(".lesson-header-number")
-		const nameEl = document.querySelector(".lesson-header-name")
-		const videoNameEl = document.querySelector(".video-name")
+    function extractTitleInFrame() {
+        const numEl = document.querySelector('.lesson-header-number')
+        const nameEl = document.querySelector('.lesson-header-name')
+        const videoNameEl = document.querySelector('.video-name')
 
-		const parts = []
-		if (numEl) parts.push(numEl.textContent.trim())
-		if (nameEl) parts.push(nameEl.textContent.trim())
-		else if (videoNameEl) parts.push(videoNameEl.textContent.trim())
+        const parts = []
+        if (numEl) parts.push(numEl.textContent.trim())
+        if (nameEl) parts.push(nameEl.textContent.trim())
+        else if (videoNameEl) parts.push(videoNameEl.textContent.trim())
 
-		const title = parts.join(" - ")
-		return title || document.title || "script"
-	}
+        const title = parts.join(' - ')
+        return title || document.title || 'script'
+    }
 
-	function sanitizeFilename(name) {
-		return name.replace(/[<>:"/\\|?*]/g, "").trim()
-	}
+    function sanitizeFilename(name) {
+        return name.replace(/[<>:"/\\|?*]/g, '').trim()
+    }
 
-	window.addEventListener("message", async (event) => {
-		if (event.data && event.data.type === "D2L_SNAPSHOT") {
-			await takeSnapshotInFrame()
-		} else if (
-			event.data &&
-			event.data.type === "D2L_TRIGGER_DOWNLOAD_SINGLE"
-		) {
-			const items = await bundleImagesInFrame()
-			if (items.length > 0) {
-				const zip = new JSZip()
-				items.forEach((it) => zip.file(it.filename, it.blob))
-				const content = await zip.generateAsync({ type: "blob" })
-				downloadBlob(content, "images.zip")
-			}
-		} else if (event.data && event.data.type === "D2L_EXTRACT_SCRIPT_REQUEST") {
-			console.log(
-				`[D2L-SCRIPT] Received script extraction request in ${window.location.href}`,
-			)
-			const script = await extractScriptInFrame()
-			if (script) {
-				console.log(
-					`[D2L-SCRIPT] Sending extraction response from ${window.location.href}`,
-				)
-				window.top.postMessage(
-					{
-						type: "D2L_EXTRACT_SCRIPT_RESPONSE",
-						script,
-						url: window.location.href,
-						title: extractTitleInFrame(),
-					},
-					"*",
-				)
-			} else {
-				console.log(`[D2L-SCRIPT] No script content found in ${window.location.href}`)
-			}
-			// Forward to nested iframes
-			const children = findIframes()
-			if (children.length > 0) {
-				console.log(
-					`[D2L-SCRIPT] Forwarding request to ${children.length} nested iframes from ${window.location.href}`,
-				)
-				children.forEach((c) =>
-					c.contentWindow.postMessage(
-						{ type: "D2L_EXTRACT_SCRIPT_REQUEST" },
-						"*",
-					),
-				)
-			}
-		}
-	})
+    window.addEventListener('message', async (event) => {
+        if (event.data && event.data.type === 'D2L_SNAPSHOT') {
+            await takeSnapshotInFrame()
+        } else if (
+            event.data &&
+            event.data.type === 'D2L_TRIGGER_DOWNLOAD_SINGLE'
+        ) {
+            const items = await bundleImagesInFrame()
+            if (items.length > 0) {
+                const zip = new JSZip()
+                items.forEach((it) => zip.file(it.filename, it.blob))
+                const content = await zip.generateAsync({ type: 'blob' })
+                downloadBlob(content, 'images.zip')
+            }
+        } else if (
+            event.data &&
+            event.data.type === 'D2L_EXTRACT_SCRIPT_REQUEST'
+        ) {
+            console.log(
+                `[D2L-SCRIPT] Received script extraction request in ${window.location.href}`
+            )
+            const script = await extractScriptInFrame()
+            if (script) {
+                console.log(
+                    `[D2L-SCRIPT] Sending extraction response from ${window.location.href}`
+                )
+                window.top.postMessage(
+                    {
+                        type: 'D2L_EXTRACT_SCRIPT_RESPONSE',
+                        script,
+                        url: window.location.href,
+                        title: extractTitleInFrame(),
+                    },
+                    '*'
+                )
+            } else {
+                console.log(
+                    `[D2L-SCRIPT] No script content found in ${window.location.href}`
+                )
+            }
+            // Forward to nested iframes
+            const children = findIframes()
+            if (children.length > 0) {
+                console.log(
+                    `[D2L-SCRIPT] Forwarding request to ${children.length} nested iframes from ${window.location.href}`
+                )
+                children.forEach((c) =>
+                    c.contentWindow.postMessage(
+                        { type: 'D2L_EXTRACT_SCRIPT_REQUEST' },
+                        '*'
+                    )
+                )
+            }
+        }
+    })
 
-	if (IS_TOP) {
-		const styles = `
+    if (IS_TOP) {
+        const styles = `
             #d2l-dl-btn {
                 position: fixed; bottom: 20px; right: 20px; z-index: 2147483647;
                 background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
@@ -556,119 +614,205 @@
                 background: rgba(0, 122, 255, 0.05); z-index: 2147483645;
                 transition: all 0.2s ease; border-radius: 4px; display: none;
             }
+
+            #d2l-prompt-btn {
+                position: fixed; bottom: 20px; right: 20px; z-index: 2147483647;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                color: white; border: 1px solid rgba(255,255,255,0.1);
+                border-radius: 24px; width: 48px; height: 48px;
+                display: flex; align-items: center; justify-content: center;
+                cursor: pointer; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+                transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+                backdrop-filter: blur(10px); opacity: 0.9; overflow: hidden;
+                white-space: nowrap; font-family: -apple-system, sans-serif; font-weight: 600;
+                display: none;
+            }
+            #d2l-prompt-btn:hover { width: 160px; opacity: 1; border-radius: 12px; }
+            #d2l-prompt-btn .icon { min-width: 48px; display: flex; align-items: center; justify-content: center; }
+            #d2l-prompt-btn .text { opacity: 0; max-width: 0; transition: all 0.3s ease; font-size: 14px; }
+            #d2l-prompt-btn:hover .text { opacity: 1; max-width: 100px; margin-right: 16px; }
+            #d2l-prompt-btn.copied {
+                background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+            }
         `
 
-		const styleEl = document.createElement("style")
-		styleEl.innerHTML = styles
-		document.head.appendChild(styleEl)
+        const styleEl = document.createElement('style')
+        styleEl.innerHTML = styles
+        document.head.appendChild(styleEl)
 
-		function createUI() {
-			const isStudyForge = window.location.hostname.includes("studyforge.net")
-			const btn = document.createElement("button")
-			btn.id = "d2l-dl-btn"
-			if (isStudyForge) {
-				btn.innerHTML = `<div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg></div><div class="text">Download Frame</div>`
-			} else {
-				btn.innerHTML = `<div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg></div><div class="text">Content Tools</div>`
-			}
-			document.body.appendChild(btn)
+        function createUI() {
+            const isStudyForge =
+                window.location.hostname.includes('studyforge.net')
+            const btn = document.createElement('button')
+            btn.id = 'd2l-dl-btn'
+            if (isStudyForge) {
+                btn.innerHTML = `<div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg></div><div class="text">Download Frame</div>`
+            } else {
+                btn.innerHTML = `<div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg></div><div class="text">Content Tools</div>`
+            }
+            document.body.appendChild(btn)
 
-			const scriptBtn = document.createElement("button")
-			scriptBtn.id = "d2l-script-btn"
-			scriptBtn.innerHTML = `<div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg></div><div class="text">Save Script</div>`
-			document.body.appendChild(scriptBtn)
+            const scriptBtn = document.createElement('button')
+            scriptBtn.id = 'd2l-script-btn'
+            scriptBtn.innerHTML = `<div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg></div><div class="text">Save Script</div>`
+            document.body.appendChild(scriptBtn)
 
-			async function handleScriptDownload() {
-				console.log(`[D2L-SCRIPT] Script download triggered.`)
-				const results = []
+            const promptBtn = document.createElement('button')
+            promptBtn.id = 'd2l-prompt-btn'
+            promptBtn.innerHTML = `<div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect></svg></div><div class="text">Copy Prompt</div>`
+            document.body.appendChild(promptBtn)
 
-				// Listener for responses from all frames (including nested)
-				let bestTitle = extractTitleInFrame()
-				const collectionListener = (event) => {
-					if (
-						event.data &&
-						event.data.type === "D2L_EXTRACT_SCRIPT_RESPONSE"
-					) {
-						console.log(
-							`[D2L-SCRIPT] Collected response from ${event.data.url}`,
-						)
-						results.push(event.data.script)
-						if (event.data.title && event.data.title !== "script") {
-							bestTitle = event.data.title
-						}
-					}
-				}
-				window.addEventListener("message", collectionListener)
+            promptBtn.onclick = () => {
+                const promptText = "Provide algebraic solutions in individual code blocks using these formatting rules:\n" +
+                    "- Simplify all equations and use a \"lazy student\" style (skip obvious intermediate steps).\n" +
+                    "- Use a single space on otherwise empty lines to prevent them from being trimmed.\n" +
+                    "- Include spaces between operators (e.g., y = 5x + 6), but NOT inside fractions (use 1/-5, not 1 /-5).\n" +
+                    "- Use abbreviations where possible (e.g., // for parallel, perp for perpendicular, pt for point).\n" +
+                    "- If a variable is already defined on a previous line, use \"=\" on successive lines instead of repeating the variable name.\n" +
+                    "- EXCEPTION: For the final answer line of an equation, always include the full \"y =\" or \"x =\" for clarity.\n" +
+                    "- Above each code block, include the question numbers in the dual format: Q[Lesson#] ([Ref#]).\n" +
+                    "- Example: If the lesson question is 9 and the reference number in the corner is 87, write: Q9 (87).\n" +
+                    "- Do not include any question numbers or labels inside the code block itself.\n" +
+                    "\n" +
+                    "Format the structure exactly like this:\n" +
+                    "\n" +
+                    "Q9 (87)\n" +
+                    "\n" +
+                    "```\n" +
+                    " \n" +
+                    "intersection of 4x + 5y = 13 and 2x - 5y = -1, // to x-axis\n" +
+                    " \n" +
+                    "(4x + 5y) + (2x - 5y) = 13 + (-1)\n" +
+                    "6x = 12\n" +
+                    "x = 2\n" +
+                    " \n" +
+                    "4(2) + 5y = 13\n" +
+                    "5y = 5\n" +
+                    "y = 1\n" +
+                    " \n" +
+                    "// to x-axis\n" +
+                    "y = 1\n" +
+                    " \n" +
+                    "```"
 
-				// 1. Extract from top frame
-				const topScript = await extractScriptInFrame()
-				if (topScript) results.push(topScript)
+                navigator.clipboard
+                    .writeText(promptText)
+                    .then(() => {
+                        promptBtn.classList.add('copied')
+                        promptBtn.querySelector('.text').textContent = 'Copied!'
+                        setTimeout(() => {
+                            promptBtn.classList.remove('copied')
+                            promptBtn.querySelector('.text').textContent =
+                                'Copy Prompt'
+                        }, 2000)
+                    })
+                    .catch((err) => {
+                        console.error(
+                            '[D2L-DL] Failed to copy prompt to clipboard:',
+                            err
+                        )
+                    })
+            }
 
-				// 2. Request from all direct iframes (which will forward recursively)
-				const iframes = findIframes()
-				console.log(
-					`[D2L-SCRIPT] Broadcasting request to ${iframes.length} direct iframes.`,
-				)
-				iframes.forEach((f) =>
-					f.contentWindow.postMessage(
-						{ type: "D2L_EXTRACT_SCRIPT_REQUEST" },
-						"*",
-					),
-				)
+            async function handleScriptDownload() {
+                console.log(`[D2L-SCRIPT] Script download triggered.`)
+                const results = []
 
-				// 3. Wait for collection window (1s)
-				setTimeout(() => {
-					window.removeEventListener("message", collectionListener)
-					console.log(
-						`[D2L-SCRIPT] Collection finished. Total scripts: ${results.length}`,
-					)
-					if (results.length > 0) {
-						console.log(`[D2L-SCRIPT] Saving combined script file...`)
-						const content = results.join("\n\n---\n\n")
-						const blob = new Blob([content], {
-							type: "text/plain;charset=utf-8",
-						})
-						const filename = `${sanitizeFilename(bestTitle)}.txt`
-						downloadBlob(blob, filename)
-					} else {
-						console.warn(`[D2L-SCRIPT] No script content found in any frame.`)
-						alert("No script content found to save.")
-					}
-				}, 1000)
-			}
+                // Listener for responses from all frames (including nested)
+                let bestTitle = extractTitleInFrame()
+                const collectionListener = (event) => {
+                    if (
+                        event.data &&
+                        event.data.type === 'D2L_EXTRACT_SCRIPT_RESPONSE'
+                    ) {
+                        console.log(
+                            `[D2L-SCRIPT] Collected response from ${event.data.url}`
+                        )
+                        results.push(event.data.script)
+                        if (event.data.title && event.data.title !== 'script') {
+                            bestTitle = event.data.title
+                        }
+                    }
+                }
+                window.addEventListener('message', collectionListener)
 
-			scriptBtn.onclick = handleScriptDownload
+                // 1. Extract from top frame
+                const topScript = await extractScriptInFrame()
+                if (topScript) results.push(topScript)
 
-			const overlay = document.createElement("div")
-			overlay.id = "d2l-dl-overlay"
-			document.body.appendChild(overlay)
+                // 2. Request from all direct iframes (which will forward recursively)
+                const iframes = findIframes()
+                console.log(
+                    `[D2L-SCRIPT] Broadcasting request to ${iframes.length} direct iframes.`
+                )
+                iframes.forEach((f) =>
+                    f.contentWindow.postMessage(
+                        { type: 'D2L_EXTRACT_SCRIPT_REQUEST' },
+                        '*'
+                    )
+                )
 
-			const highlighter = document.createElement("div")
-			highlighter.id = "d2l-iframe-highlighter"
-			document.body.appendChild(highlighter)
+                // 3. Wait for collection window (1s)
+                setTimeout(() => {
+                    window.removeEventListener('message', collectionListener)
+                    console.log(
+                        `[D2L-SCRIPT] Collection finished. Total scripts: ${results.length}`
+                    )
+                    if (results.length > 0) {
+                        console.log(
+                            `[D2L-SCRIPT] Saving combined script file...`
+                        )
+                        const content = results.join('\n\n---\n\n')
+                        const blob = new Blob([content], {
+                            type: 'text/plain;charset=utf-8',
+                        })
+                        const filename = `${sanitizeFilename(bestTitle)}.txt`
+                        downloadBlob(blob, filename)
+                    } else {
+                        console.warn(
+                            `[D2L-SCRIPT] No script content found in any frame.`
+                        )
+                        alert('No script content found to save.')
+                    }
+                }, 1000)
+            }
 
-			const dialog = document.createElement("div")
-			dialog.id = "d2l-dl-dialog"
-			document.body.appendChild(dialog)
+            scriptBtn.onclick = handleScriptDownload
 
-			const hide = () => {
-				overlay.classList.remove("visible")
-				dialog.classList.remove("visible")
-				highlighter.style.display = "none"
-			}
+            const overlay = document.createElement('div')
+            overlay.id = 'd2l-dl-overlay'
+            document.body.appendChild(overlay)
 
-			function showMenu() {
-				const iframes = findIframes()
-				const frames = [
-					{ name: "Top Page", frame: window, desc: "Main document container" },
-					...iframes.map((f, i) => ({
-						name: f.title || f.name || f.id || `Iframe #${i + 1}`,
-						frame: f,
-						desc: f.src.split("/").pop() || "Embedded frame",
-					})),
-				]
+            const highlighter = document.createElement('div')
+            highlighter.id = 'd2l-iframe-highlighter'
+            document.body.appendChild(highlighter)
 
-				dialog.innerHTML = `
+            const dialog = document.createElement('div')
+            dialog.id = 'd2l-dl-dialog'
+            document.body.appendChild(dialog)
+
+            const hide = () => {
+                overlay.classList.remove('visible')
+                dialog.classList.remove('visible')
+                highlighter.style.display = 'none'
+            }
+
+            function showMenu() {
+                const iframes = findIframes()
+                const frames = [
+                    {
+                        name: 'Top Page',
+                        frame: window,
+                        desc: 'Main document container',
+                    },
+                    ...iframes.map((f, i) => ({
+                        name: f.title || f.name || f.id || `Iframe #${i + 1}`,
+                        frame: f,
+                        desc: f.src.split('/').pop() || 'Embedded frame',
+                    })),
+                ]
+
+                dialog.innerHTML = `
                     <h2>Content Tools</h2>
                     <p>Select a frame to download images (ZIP) or take a snapshot.</p>
                     <div class="d2l-dl-frame-list">
@@ -679,8 +823,8 @@
                             </div>
                         </div>
                         ${frames
-													.map(
-														(f, i) => `
+                            .map(
+                                (f, i) => `
                             <div class="d2l-dl-frame-item" data-index="${i}">
                                 <div class="info">
                                     <div class="title">${f.name}</div>
@@ -695,169 +839,199 @@
                                     </div>
                                 </div>
                             </div>
-                        `,
-													)
-													.join("")}
+                        `
+                            )
+                            .join('')}
                     </div>
                     <div style="display:flex; justify-content:space-between">
                         <button id="d2l-dl-close" style="background:none; border:none; color:#555; cursor:pointer; font-size:11px">Close</button>
                     </div>
                 `
 
-				overlay.classList.add("visible")
-				dialog.classList.add("visible")
+                overlay.classList.add('visible')
+                dialog.classList.add('visible')
 
-				dialog.querySelectorAll(".d2l-dl-frame-item").forEach((item) => {
-					item.addEventListener("mouseenter", () => {
-						const idx = item.getAttribute("data-index")
-						if (!idx) return
-						const f = frames[parseInt(idx)]
-						if (f.frame !== window && f.frame.getBoundingClientRect) {
-							const r = f.frame.getBoundingClientRect()
-							highlighter.style.cssText = `top:${r.top}px; left:${r.left}px; width:${r.width}px; height:${r.height}px; display:block;`
-						} else highlighter.style.display = "none"
-					})
-				})
+                dialog
+                    .querySelectorAll('.d2l-dl-frame-item')
+                    .forEach((item) => {
+                        item.addEventListener('mouseenter', () => {
+                            const idx = item.getAttribute('data-index')
+                            if (!idx) return
+                            const f = frames[parseInt(idx)]
+                            if (
+                                f.frame !== window &&
+                                f.frame.getBoundingClientRect
+                            ) {
+                                const r = f.frame.getBoundingClientRect()
+                                highlighter.style.cssText = `top:${r.top}px; left:${r.left}px; width:${r.width}px; height:${r.height}px; display:block;`
+                            } else highlighter.style.display = 'none'
+                        })
+                    })
 
-				dialog.querySelectorAll(".zip-btn").forEach((btn) => {
-					btn.addEventListener("click", (e) => {
-						e.stopPropagation()
-						const f = frames[parseInt(btn.dataset.index)]
-						hide()
-						if (f.frame === window) {
-							bundleImagesInFrame().then(async (items) => {
-								if (items.length > 0) {
-									const zip = new JSZip()
-									items.forEach((it) => zip.file(it.filename, it.blob))
-									const content = await zip.generateAsync({ type: "blob" })
-									downloadBlob(content, "images.zip")
-								}
-							})
-						} else {
-							f.frame.contentWindow.postMessage(
-								{ type: "D2L_TRIGGER_DOWNLOAD_SINGLE" },
-								"*",
-							)
-						}
-					})
-				})
+                dialog.querySelectorAll('.zip-btn').forEach((btn) => {
+                    btn.addEventListener('click', (e) => {
+                        e.stopPropagation()
+                        const f = frames[parseInt(btn.dataset.index)]
+                        hide()
+                        if (f.frame === window) {
+                            bundleImagesInFrame().then(async (items) => {
+                                if (items.length > 0) {
+                                    const zip = new JSZip()
+                                    items.forEach((it) =>
+                                        zip.file(it.filename, it.blob)
+                                    )
+                                    const content = await zip.generateAsync({
+                                        type: 'blob',
+                                    })
+                                    downloadBlob(content, 'images.zip')
+                                }
+                            })
+                        } else {
+                            f.frame.contentWindow.postMessage(
+                                { type: 'D2L_TRIGGER_DOWNLOAD_SINGLE' },
+                                '*'
+                            )
+                        }
+                    })
+                })
 
-				dialog.querySelectorAll(".snapshot-btn").forEach((btn) => {
-					btn.addEventListener("click", (e) => {
-						e.stopPropagation()
-						const f = frames[parseInt(btn.dataset.index)]
-						hide()
-						if (f.frame === window) takeSnapshotInFrame()
-						else
-							f.frame.contentWindow.postMessage({ type: "D2L_SNAPSHOT" }, "*")
-					})
-				})
+                dialog.querySelectorAll('.snapshot-btn').forEach((btn) => {
+                    btn.addEventListener('click', (e) => {
+                        e.stopPropagation()
+                        const f = frames[parseInt(btn.dataset.index)]
+                        hide()
+                        if (f.frame === window) takeSnapshotInFrame()
+                        else
+                            f.frame.contentWindow.postMessage(
+                                { type: 'D2L_SNAPSHOT' },
+                                '*'
+                            )
+                    })
+                })
 
-				document.getElementById("d2l-dl-all").addEventListener("click", () => {
-					hide()
-					frames.forEach((f) => {
-						if (f.frame === window) {
-							bundleImagesInFrame().then(async (items) => {
-								if (items.length > 0) {
-									const zip = new JSZip()
-									items.forEach((it) => zip.file(it.filename, it.blob))
-									const content = await zip.generateAsync({ type: "blob" })
-									downloadBlob(content, "top-images.zip")
-								}
-							})
-						} else {
-							f.frame.contentWindow.postMessage(
-								{ type: "D2L_TRIGGER_DOWNLOAD_SINGLE" },
-								"*",
-							)
-						}
-					})
-				})
+                document
+                    .getElementById('d2l-dl-all')
+                    .addEventListener('click', () => {
+                        hide()
+                        frames.forEach((f) => {
+                            if (f.frame === window) {
+                                bundleImagesInFrame().then(async (items) => {
+                                    if (items.length > 0) {
+                                        const zip = new JSZip()
+                                        items.forEach((it) =>
+                                            zip.file(it.filename, it.blob)
+                                        )
+                                        const content = await zip.generateAsync(
+                                            { type: 'blob' }
+                                        )
+                                        downloadBlob(content, 'top-images.zip')
+                                    }
+                                })
+                            } else {
+                                f.frame.contentWindow.postMessage(
+                                    { type: 'D2L_TRIGGER_DOWNLOAD_SINGLE' },
+                                    '*'
+                                )
+                            }
+                        })
+                    })
 
-				document.getElementById("d2l-dl-close").onclick = hide
-				overlay.onclick = hide
-			}
+                document.getElementById('d2l-dl-close').onclick = hide
+                overlay.onclick = hide
+            }
 
-			if (isStudyForge) {
-				btn.addEventListener("click", downloadStudyForgeFrame)
-			} else {
-				btn.addEventListener("click", showMenu)
-			}
-		}
+            if (isStudyForge) {
+                btn.addEventListener('click', downloadStudyForgeFrame)
+            } else {
+                btn.addEventListener('click', showMenu)
+            }
+        }
 
-		if (document.body) createUI()
-		else window.addEventListener("DOMContentLoaded", createUI)
+        if (document.body) createUI()
+        else window.addEventListener('DOMContentLoaded', createUI)
 
-		window.addEventListener("message", (event) => {
-			if (event.data && event.data.type === "D2L_HAS_VIDEO_SCRIPT") {
-				const sbtn = document.getElementById("d2l-script-btn")
-				if (sbtn) sbtn.style.display = "flex"
-			}
-		})
+        window.addEventListener('message', (event) => {
+            if (event.data && event.data.type === 'D2L_HAS_VIDEO_SCRIPT') {
+                const sbtn = document.getElementById('d2l-script-btn')
+                if (sbtn) sbtn.style.display = 'flex'
+            }
+        })
 
-		const updateVisibility = () => {
-			const c = document.getElementById("chatFrame")
-			if (c) c.remove()
+        const updateVisibility = () => {
+            const c = document.getElementById('chatFrame')
+            if (c) c.remove()
 
-			const isQMode = checkQMode()
-			const dlBtn = document.getElementById("d2l-dl-btn")
-			const sbtn = document.getElementById("d2l-script-btn")
+            const isQMode = checkQMode()
+            const dlBtn = document.getElementById('d2l-dl-btn')
+            const sbtn = document.getElementById('d2l-script-btn')
+            const promptBtn = document.getElementById('d2l-prompt-btn')
 
-			if (isQMode) {
-				if (dlBtn) dlBtn.style.display = "none"
-				if (sbtn) sbtn.style.display = "none"
-			} else {
-				if (dlBtn) dlBtn.style.display = "flex"
-				if (sbtn) {
-					if (document.querySelector(".video-script")) {
-						sbtn.style.display = "flex"
-					} else {
-						sbtn.style.display = "none"
-					}
-				}
-			}
-		}
-		updateVisibility()
-		new MutationObserver(updateVisibility).observe(document.documentElement, {
-			childList: true,
-			subtree: true,
-		})
-		window.addEventListener("hashchange", updateVisibility)
-	} else {
-		// Iframe logic to report presence of video-script
-		const reportPresence = () => {
-			if (document.querySelector(".video-script")) {
-				console.log(`[D2L-SCRIPT] Found script in iframe: ${window.location.href}, reporting to top...`)
-				window.top.postMessage({ type: "D2L_HAS_VIDEO_SCRIPT" }, "*")
-			}
-		}
-		reportPresence()
-		new MutationObserver(reportPresence).observe(document.documentElement, {
-			childList: true,
-			subtree: true,
-		})
-	}
+            if (isQMode) {
+                if (dlBtn) dlBtn.style.display = 'none'
+                if (sbtn) sbtn.style.display = 'none'
+                if (promptBtn) promptBtn.style.display = 'flex'
+            } else {
+                if (dlBtn) dlBtn.style.display = 'flex'
+                if (promptBtn) promptBtn.style.display = 'none'
+                if (sbtn) {
+                    if (document.querySelector('.video-script')) {
+                        sbtn.style.display = 'flex'
+                    } else {
+                        sbtn.style.display = 'none'
+                    }
+                }
+            }
+        }
+        updateVisibility()
+        new MutationObserver(updateVisibility).observe(
+            document.documentElement,
+            {
+                childList: true,
+                subtree: true,
+            }
+        )
+        window.addEventListener('hashchange', updateVisibility)
+    } else {
+        // Iframe logic to report presence of video-script
+        const reportPresence = () => {
+            if (document.querySelector('.video-script')) {
+                console.log(
+                    `[D2L-SCRIPT] Found script in iframe: ${window.location.href}, reporting to top...`
+                )
+                window.top.postMessage({ type: 'D2L_HAS_VIDEO_SCRIPT' }, '*')
+            }
+        }
+        reportPresence()
+        new MutationObserver(reportPresence).observe(document.documentElement, {
+            childList: true,
+            subtree: true,
+        })
+    }
 
-	// Listen for 'T' keypress to click the text tool button in Q-mode (handles both top frame and nested iframes)
-	window.addEventListener("keydown", (e) => {
-		if (e.key === "t" || e.key === "T") {
-			const active = document.activeElement
-			if (
-				active &&
-				(active.tagName === "INPUT" ||
-					active.tagName === "TEXTAREA" ||
-					active.isContentEditable)
-			) {
-				return
-			}
-			if (checkQMode()) {
-				const btn = findInDocumentOrIframes("button.qf-button.text-tool")
-				if (btn) {
-					console.log("[D2L-DL] 'T' key pressed in Q-mode, clicking text tool button.")
-					btn.click()
-					e.preventDefault()
-				}
-			}
-		}
-	})
+    // Listen for 'T' keypress to click the text tool button in Q-mode (handles both top frame and nested iframes)
+    window.addEventListener('keydown', (e) => {
+        if (e.key === 't' || e.key === 'T') {
+            const active = document.activeElement
+            if (
+                active &&
+                (active.tagName === 'INPUT' ||
+                    active.tagName === 'TEXTAREA' ||
+                    active.isContentEditable)
+            ) {
+                return
+            }
+            if (checkQMode()) {
+                const btn = findInDocumentOrIframes(
+                    'button.qf-button.text-tool'
+                )
+                if (btn) {
+                    console.log(
+                        "[D2L-DL] 'T' key pressed in Q-mode, clicking text tool button."
+                    )
+                    btn.click()
+                    e.preventDefault()
+                }
+            }
+        }
+    })
 })()
