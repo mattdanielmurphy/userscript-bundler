@@ -257,7 +257,7 @@
 			}
 
 			// Briefly toggle play/pause if paused to flush the video buffer to the canvas
-			if (video.paused) {
+			if (video.paused && !video.ended) {
 				video.play()
 				await new Promise((r) => setTimeout(r, 100))
 				video.pause()
