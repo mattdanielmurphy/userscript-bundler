@@ -663,37 +663,36 @@
             document.body.appendChild(promptBtn)
 
             promptBtn.onclick = () => {
-                const promptText = "Provide algebraic solutions in individual code blocks using these formatting rules:\n" +
-                    "- Simplify all equations and use a \"lazy student\" style (skip obvious intermediate steps).\n" +
-                    "- Use a single space on otherwise empty lines to prevent them from being trimmed.\n" +
-                    "- Include spaces between operators (e.g., y = 5x + 6), but NOT inside fractions (use 1/-5, not 1 /-5).\n" +
-                    "- Use abbreviations where possible (e.g., // for parallel, perp for perpendicular, pt for point).\n" +
-                    "- If a variable is already defined on a previous line, use \"=\" on successive lines instead of repeating the variable name.\n" +
-                    "- EXCEPTION: For the final answer line of an equation, always include the full \"y =\" or \"x =\" for clarity.\n" +
-                    "- Above each code block, include the question numbers in the dual format: Q[Lesson#] ([Ref#]).\n" +
-                    "- Example: If the lesson question is 9 and the reference number in the corner is 87, write: Q9 (87).\n" +
-                    "- Do not include any question numbers or labels inside the code block itself.\n" +
-                    "\n" +
-                    "Format the structure exactly like this:\n" +
-                    "\n" +
-                    "Q9 (87)\n" +
-                    "\n" +
-                    "```\n" +
-                    " \n" +
-                    "intersection of 4x + 5y = 13 and 2x - 5y = -1, // to x-axis\n" +
-                    " \n" +
-                    "(4x + 5y) + (2x - 5y) = 13 + (-1)\n" +
-                    "6x = 12\n" +
-                    "x = 2\n" +
-                    " \n" +
-                    "4(2) + 5y = 13\n" +
-                    "5y = 5\n" +
-                    "y = 1\n" +
-                    " \n" +
-                    "// to x-axis\n" +
-                    "y = 1\n" +
-                    " \n" +
-                    "```"
+                const promptText = `Provide algebraic solutions in individual code blocks using these formatting rules:
+- Simplify all equations and use a "lazy student" style (skip obvious intermediate steps).
+- Use a single space on otherwise empty lines to prevent them from being trimmed.
+- Include spaces between operators (e.g., y = 5x + 6), but NOT inside fractions (use 1/-5, not 1 /-5).
+- Use abbreviations where possible (e.g., // for parallel, perp for perpendicular, pt for point).
+- If a variable is already defined on a previous line, use "=" on successive lines instead of repeating the variable name.
+- EXCEPTION: For the final answer line of an equation, always include the full "y =" or "x =" for clarity.
+- Above each code block, include the question numbers in the dual format: Q[Lesson#] ([Ref#]).
+- The [Lesson#] is the large number in the top-left; the [Ref#] is the smaller "Reference Q." number in the corner.
+- Do not include any question numbers or labels inside the code block itself.
+
+Format the structure exactly like this:
+
+Q9 (87)
+
+\`\`\` 
+intersection of 4x + 5y = 13 and 2x - 5y = -1, // to x-axis
+
+(4x + 5y) + (2x - 5y) = 13 + (-1)
+6x = 12
+x = 2
+
+4(2) + 5y = 13
+5y = 5
+y = 1
+
+// to x-axis
+y = 1
+
+\`\`\``;
 
                 navigator.clipboard
                     .writeText(promptText)
