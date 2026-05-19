@@ -181,7 +181,11 @@
 				v.offsetWidth > 0
 			)
 		})
-		const lessonHeaderEl = document.querySelector("h1.lesson-header-number")
+		let lessonHeaderEl = document.querySelector("h1.lesson-header-number")
+		if (!lessonHeaderEl) {
+			const h1s = Array.from(document.querySelectorAll("h1"))
+			lessonHeaderEl = h1s.find((h) => h.textContent.includes("Lesson"))
+		}
 		const selectedTabEl = document.querySelector("li.tab.viewed.selected")
 
 		if (!video) {
@@ -227,6 +231,17 @@
 				videoTitle = parts[1].trim()
 			} else if (lines.length > 0) {
 				videoNum = lines[0]
+			}
+		} else {
+			// Fallback if there are no tabs (single-video pages)
+			const videoNameEl = document.querySelector(".video-name")
+			if (videoNameEl) {
+				videoTitle = videoNameEl.textContent.trim()
+			} else {
+				const lessonHeaderNameEl = document.querySelector(".lesson-header-name")
+				if (lessonHeaderNameEl) {
+					videoTitle = lessonHeaderNameEl.textContent.trim()
+				}
 			}
 		}
 
