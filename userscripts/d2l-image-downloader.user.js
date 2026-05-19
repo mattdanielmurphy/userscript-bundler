@@ -19,6 +19,7 @@
 	console.log(`[D2L-DL] Userscript initialized in ${window.location.href} (Top: ${window === window.top})`)
 
 	const IS_TOP = window === window.top
+	const downloadCounts = {}
 
 	// 1. Optimized helper function to find the element across Shadow boundaries
 	function findInShadow(selector, root = document) {
@@ -258,7 +259,16 @@
 			`${videoTitle} (${videoNum})`
 		].join(" - ")
 
-		const fileName = `${fullTitle}.png`.replace(/[<>:"/\\|?*]/g, "")
+		// Track download counts per title/video
+		let countSuffix = ""
+		if (downloadCounts[fullTitle]) {
+			downloadCounts[fullTitle] += 1
+			countSuffix = ` ${downloadCounts[fullTitle]}`
+		} else {
+			downloadCounts[fullTitle] = 1
+		}
+
+		const fileName = `${fullTitle}${countSuffix}.png`.replace(/[<>:"/\\|?*]/g, "")
 
 		// 5. Capture the frame
 		try {
