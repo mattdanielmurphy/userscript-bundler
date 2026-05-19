@@ -72,6 +72,36 @@
 		return list
 	}
 
+	function checkQMode() {
+		let isQMode = false
+		try {
+			isQMode =
+				/\/lesson\/\d+#Q\d+/.test(window.location.href) ||
+				(window.top && /\/lesson\/\d+#Q\d+/.test(window.top.location.href))
+		} catch (err) {
+			isQMode = /\/lesson\/\d+#Q\d+/.test(window.location.href)
+		}
+		return isQMode
+	}
+
+	function findInDocumentOrIframes(selector, doc = document) {
+		const found = findInShadow(selector, doc)
+		if (found) return found
+
+		const iframes = findIframes(doc)
+		for (const iframe of iframes) {
+			try {
+				if (iframe.contentDocument) {
+					const el = findInDocumentOrIframes(selector, iframe.contentDocument)
+					if (el) return el
+				}
+			} catch (e) {
+				// Cross-origin iframe, ignore
+			}
+		}
+		return null
+	}
+
 	async function getTargetImages() {
 		const candidates = [
 			".d2l-html-block-rendered",
@@ -769,9 +799,22 @@
 			const c = document.getElementById("chatFrame")
 			if (c) c.remove()
 
-			if (document.querySelector(".video-script")) {
-				const sbtn = document.getElementById("d2l-script-btn")
-				if (sbtn) sbtn.style.display = "flex"
+			const isQMode = checkQMode()
+			const dlBtn = document.getElementById("d2l-dl-btn")
+			const sbtn = document.getElementById("d2l-script-btn")
+
+			if (isQMode) {
+				if (dlBtn) dlBtn.style.display = "none"
+				if (sbtn) sbtn.style.display = "none"
+			} else {
+				if (dlBtn) dlBtn.style.display = "flex"
+				if (sbtn) {
+					if (document.querySelector(".video-script")) {
+						sbtn.style.display = "flex"
+					} else {
+						sbtn.style.display = "none"
+					}
+				}
 			}
 		}
 		updateVisibility()
@@ -779,6 +822,7 @@
 			childList: true,
 			subtree: true,
 		})
+		window.addEventListener("hashchange", updateVisibility)
 	} else {
 		// Iframe logic to report presence of video-script
 		const reportPresence = () => {
@@ -793,4 +837,27 @@
 			subtree: true,
 		})
 	}
+
+	// Listen for 'T' keypress to click the text tool button in Q-mode (handles both top frame and nested iframes)
+	window.addEventListener("keydown", (e) => {
+		if (e.key === "t" || e.key === "T") {
+			const active = document.activeElement
+			if (
+				active &&
+				(active.tagName === "INPUT" ||
+					active.tagName === "TEXTAREA" ||
+					active.isContentEditable)
+			) {
+				return
+			}
+			if (checkQMode()) {
+				const btn = findInDocumentOrIframes("button.qf-button.text-tool")
+				if (btn) {
+					console.log("[D2L-DL] 'T' key pressed in Q-mode, clicking text tool button.")
+					btn.click()
+					e.preventDefault()
+				}
+			}
+		}
+	})
 })()
