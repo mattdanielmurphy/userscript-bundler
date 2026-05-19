@@ -223,6 +223,73 @@
         return results
     }
 
+    function getCurrentTitle() {
+        const nav = document.querySelector('nav.relative.mx-auto.my-0.flex')
+        let lessonHeaderEl = document.querySelector('h1.lesson-header-number')
+        if (!lessonHeaderEl) {
+            const h1s = Array.from(document.querySelectorAll('h1'))
+            lessonHeaderEl = h1s.find((h) => h.textContent.includes('Lesson'))
+        }
+        const selectedTabEl = document.querySelector('li.tab.viewed.selected')
+
+        let navParts = []
+        if (nav) {
+            const navItemsContainer = nav.querySelector('.overflow-hidden')
+            if (navItemsContainer) {
+                navParts = navItemsContainer.innerText
+                    .split('\n')
+                    .map((t) => t.trim())
+                    .filter(
+                        (t) =>
+                            t.length > 0 &&
+                            ![
+                                'Search',
+                                'Next Lesson',
+                                'Welcome',
+                                'Matthew Murphy',
+                            ].includes(t)
+                    )
+                if (navParts.length > 3) navParts.pop()
+            }
+        }
+
+        const lessonText = lessonHeaderEl ? lessonHeaderEl.textContent.trim() : ''
+        const lessonNum = (lessonText.match(/\d+/) || ['1'])[0]
+
+        let videoNum = '1'
+        let videoTitle = 'Unknown Video'
+        if (selectedTabEl) {
+            const lines = selectedTabEl.textContent
+                .split('\n')
+                .map((s) => s.trim())
+                .filter((s) => s.length > 0)
+            const titleLine = lines.find((l) => l.includes(' - '))
+            if (titleLine) {
+                const parts = titleLine.split(' - ')
+                videoNum = parts[0].trim()
+                videoTitle = parts[1].trim()
+            } else if (lines.length > 0) {
+                videoNum = lines[0]
+            }
+        } else {
+            const videoNameEl = document.querySelector('.video-name')
+            if (videoNameEl) {
+                videoTitle = videoNameEl.textContent.trim()
+            } else {
+                const lessonHeaderNameEl = document.querySelector('.lesson-header-name')
+                if (lessonHeaderNameEl) videoTitle = lessonHeaderNameEl.textContent.trim()
+            }
+        }
+
+        if (navParts.length > 0) {
+            navParts[navParts.length - 1] = `${navParts[navParts.length - 1]} (${lessonNum})`
+        } else {
+            navParts.push(`(${lessonNum})`)
+        }
+
+        return [...navParts, `${videoTitle} (${videoNum})`].join(' - ')
+    }
+
     async function downloadStudyForgeFrame() {
         const container = document.querySelector('.video-wrapper')
         const nav = document.querySelector('nav.relative.mx-auto.my-0.flex')
@@ -259,83 +326,8 @@
             return
         }
 
-        // 1. Extract breadcrumbs (Calculus, Functions, etc.)
-        let navParts = []
-        if (nav) {
-            const navItemsContainer = nav.querySelector('.overflow-hidden')
-            if (navItemsContainer) {
-                navParts = navItemsContainer.innerText
-                    .split('\n')
-                    .map((t) => t.trim())
-                    .filter(
-                        (t) =>
-                            t.length > 0 &&
-                            ![
-                                'Search',
-                                'Next Lesson',
-                                'Welcome',
-                                'Matthew Murphy',
-                            ].includes(t)
-                    )
-
-                // Safety check to remove potential trailing profile name if it escaped the filter
-                if (navParts.length > 3) navParts.pop()
-            }
-        }
-
-        // 2. Extract Lesson Number (from "Lesson 2")
-        const lessonText = lessonHeaderEl
-            ? lessonHeaderEl.textContent.trim()
-            : ''
-        const lessonNum = (lessonText.match(/\d+/) || ['1'])[0]
-
-        // 3. Extract Video Number and Specific Video Name from the Tab
-        // The tab contains text like "3", "3 - Vertical Line Test", "Ref V.421"
-        let videoNum = '1'
-        let videoTitle = 'Unknown Video'
-
-        if (selectedTabEl) {
-            const lines = selectedTabEl.textContent
-                .split('\n')
-                .map((s) => s.trim())
-                .filter((s) => s.length > 0)
-
-            // Find the line that looks like "3 - Vertical Line Test"
-            const titleLine = lines.find((l) => l.includes(' - '))
-            if (titleLine) {
-                const parts = titleLine.split(' - ')
-                videoNum = parts[0].trim()
-                videoTitle = parts[1].trim()
-            } else if (lines.length > 0) {
-                videoNum = lines[0]
-            }
-        } else {
-            // Fallback if there are no tabs (single-video pages)
-            const videoNameEl = document.querySelector('.video-name')
-            if (videoNameEl) {
-                videoTitle = videoNameEl.textContent.trim()
-            } else {
-                const lessonHeaderNameEl = document.querySelector(
-                    '.lesson-header-name'
-                )
-                if (lessonHeaderNameEl) {
-                    videoTitle = lessonHeaderNameEl.textContent.trim()
-                }
-            }
-        }
-
-        // 4. Construct the final filename
-        // Format: Breadcrumbs (Lesson #) - Video Title (Video #)
-        if (navParts.length > 0) {
-            navParts[navParts.length - 1] =
-                `${navParts[navParts.length - 1]} (${lessonNum})`
-        } else {
-            navParts.push(`(${lessonNum})`)
-        }
-
-        const fullTitle = [...navParts, `${videoTitle} (${videoNum})`].join(
-            ' - '
-        )
+        // Build the filename using the shared title helper
+        const fullTitle = getCurrentTitle()
 
         // Track download counts per title/video
         let countSuffix = ''
@@ -615,6 +607,29 @@
                 transition: all 0.2s ease; border-radius: 4px; display: none;
             }
 
+            #d2l-counter {
+                position: fixed; bottom: 76px; right: 20px; z-index: 2147483647;
+                display: none; align-items: center; gap: 6px;
+                background: rgba(26,26,26,0.92); border: 1px solid #444;
+                border-radius: 12px; padding: 4px 8px;
+                font-family: -apple-system, sans-serif; font-size: 12px; color: #ccc;
+                box-shadow: 0 2px 10px rgba(0,0,0,0.4); backdrop-filter: blur(8px);
+                user-select: none;
+            }
+            #d2l-counter .counter-label { color: #888; font-size: 11px; }
+            #d2l-counter .counter-value {
+                font-weight: 700; font-size: 14px; color: #fff;
+                min-width: 18px; text-align: center;
+            }
+            #d2l-counter .counter-btn {
+                width: 22px; height: 22px; display: flex; align-items: center; justify-content: center;
+                border-radius: 6px; background: rgba(255,255,255,0.08);
+                color: #aaa; cursor: pointer; font-size: 16px; line-height: 1;
+                transition: background 0.15s, color 0.15s; border: none;
+                font-family: -apple-system, sans-serif;
+            }
+            #d2l-counter .counter-btn:hover { background: rgba(255,255,255,0.2); color: #fff; }
+
             #d2l-prompt-btn {
                 position: fixed; bottom: 20px; right: 20px; z-index: 2147483647;
                 background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -692,7 +707,7 @@ y = 1
 // to x-axis
 y = 1
 
-\`\`\``;
+\`\`\``
 
                 navigator.clipboard
                     .writeText(promptText)
@@ -940,7 +955,55 @@ y = 1
             }
 
             if (isStudyForge) {
-                btn.addEventListener('click', downloadStudyForgeFrame)
+                // --- Counter widget ---
+                const counterEl = document.createElement('div')
+                counterEl.id = 'd2l-counter'
+                counterEl.innerHTML = `
+                    <span class="counter-label">next #</span>
+                    <button class="counter-btn" id="d2l-counter-dec" title="Decrement counter">−</button>
+                    <span class="counter-value" id="d2l-counter-val">1</span>
+                    <button class="counter-btn" id="d2l-counter-inc" title="Increment counter">+</button>
+                `
+                document.body.appendChild(counterEl)
+
+                function refreshCounter() {
+                    const title = getCurrentTitle()
+                    const count = downloadCounts[title] || 0
+                    const valEl = document.getElementById('d2l-counter-val')
+                    if (valEl) valEl.textContent = count + 1
+                    counterEl.style.display = 'flex'
+                }
+
+                document.getElementById('d2l-counter-dec').addEventListener('click', () => {
+                    const title = getCurrentTitle()
+                    if ((downloadCounts[title] || 0) > 0) {
+                        downloadCounts[title] = downloadCounts[title] - 1
+                        refreshCounter()
+                    }
+                })
+
+                document.getElementById('d2l-counter-inc').addEventListener('click', () => {
+                    const title = getCurrentTitle()
+                    downloadCounts[title] = (downloadCounts[title] || 0) + 1
+                    refreshCounter()
+                })
+
+                // Refresh counter after each download
+                btn.addEventListener('click', async () => {
+                    await downloadStudyForgeFrame()
+                    refreshCounter()
+                })
+
+                // Debounced refresh on DOM changes (catches tab/lesson switches)
+                let _counterDebounce = null
+                new MutationObserver(() => {
+                    clearTimeout(_counterDebounce)
+                    _counterDebounce = setTimeout(refreshCounter, 300)
+                }).observe(document.documentElement, {
+                    childList: true, subtree: true, attributes: false, characterData: false
+                })
+
+                refreshCounter()
             } else {
                 btn.addEventListener('click', showMenu)
             }
