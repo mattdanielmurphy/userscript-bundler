@@ -296,17 +296,177 @@
         return [...navParts, `${videoTitle} (${videoNum})`].join(' - ')
     }
 
-    function getCurrentCCText(video) {
+    // ── CC helpers ──────────────────────────────────────────────────────
+
+    function getCCTrack(video) {
         const track = Array.from(video.textTracks).find(
             (t) => t.kind === 'captions' || t.kind === 'subtitles'
         )
-        if (!track || !track.cues) return null
+        if (!track) return null
         if (track.mode === 'disabled') track.mode = 'hidden'
+        return track
+    }
+
+    function getAllCCCues(video) {
+        const track = getCCTrack(video)
+        if (!track || !track.cues) return []
+        return Array.from(track.cues).sort((a, b) => a.startTime - b.startTime)
+    }
+
+    function getCurrentCCText(video) {
+        const track = getCCTrack(video)
+        if (!track || !track.cues) return null
         const time = video.currentTime
         const match = Array.from(track.cues)
             .filter((c) => c.startTime <= time)
             .sort((a, b) => b.startTime - a.startTime)[0]
         return match ? match.text.replace(/\n/g, ' ') : null
+    }
+
+    function fmtTime(sec) {
+        const m = Math.floor(sec / 60)
+        const s = String(Math.floor(sec % 60)).padStart(2, '0')
+        return `${m}:${s}`
+    }
+
+    // Renders text onto an already-drawn canvas and triggers download
+    function renderCCAndDownload(canvas, ccText, scaleFactor, fileName) {
+        const ctx = canvas.getContext('2d')
+        if (ccText && ccText.trim()) {
+            const fontSize = Math.max(14, Math.round(canvas.height * 0.025))
+            ctx.font = `bold ${fontSize}px Roboto, sans-serif`
+            ctx.textAlign = 'center'
+            const padding = Math.round(fontSize * 0.5)
+            const lineY = canvas.height - padding * 1.2
+            const bgHeight = fontSize + padding * 1.5
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.40)'
+            ctx.fillRect(0, canvas.height - bgHeight, canvas.width, bgHeight)
+            ctx.shadowColor = 'rgba(0,0,0,0.9)'
+            ctx.shadowBlur = 4 * scaleFactor
+            ctx.fillStyle = '#ffffff'
+            ctx.fillText(ccText.trim(), canvas.width / 2, lineY, canvas.width - padding * 2)
+            ctx.shadowBlur = 0
+        }
+        const dataUrl = canvas.toDataURL('image/png')
+        const link = document.createElement('a')
+        link.download = fileName
+        link.href = dataUrl
+        document.body.appendChild(link)
+        link.click()
+        document.body.removeChild(link)
+        console.log(`[D2L-DL] Saved: ${fileName}`)
+    }
+
+    // Shows the CC picker modal; resolves with the final text string (possibly empty)
+    // or null if the user dismissed.
+    function showCCPicker(video, currentCueIdx, cues) {
+        return new Promise((resolve) => {
+            // ── backdrop + modal ──────────────────────────────────────
+            const backdrop = document.createElement('div')
+            backdrop.id = 'd2l-cc-backdrop'
+
+            backdrop.innerHTML = `
+                <div id="d2l-cc-modal">
+                    <div id="d2l-cc-modal-header">
+                        <div>
+                            <h3>Caption Text</h3>
+                            <p>Select lines to burn into the image, then edit if needed.</p>
+                        </div>
+                        <button id="d2l-cc-close" title="Cancel">✕</button>
+                    </div>
+                    <div id="d2l-cc-cue-list"></div>
+                    <div id="d2l-cc-editor-wrap">
+                        <label id="d2l-cc-editor-label" for="d2l-cc-editor">Edit text</label>
+                        <textarea id="d2l-cc-editor" rows="3" spellcheck="false"></textarea>
+                    </div>
+                    <div id="d2l-cc-footer">
+                        <button class="d2l-cc-btn secondary" id="d2l-cc-skip">No caption</button>
+                        <button class="d2l-cc-btn primary" id="d2l-cc-confirm">Download</button>
+                    </div>
+                </div>
+            `
+
+            document.body.appendChild(backdrop)
+            requestAnimationFrame(() => backdrop.classList.add('visible'))
+
+            const list = backdrop.querySelector('#d2l-cc-cue-list')
+            const editor = backdrop.querySelector('#d2l-cc-editor')
+            const checked = new Set()
+
+            // Pre-select current cue
+            if (currentCueIdx >= 0) checked.add(currentCueIdx)
+
+            function rebuildEditor() {
+                const lines = [...checked]
+                    .sort((a, b) => a - b)
+                    .map((i) => cues[i].text.replace(/\n/g, ' '))
+                editor.value = lines.join(' ')
+            }
+
+            // Render cue rows
+            cues.forEach((cue, i) => {
+                const row = document.createElement('div')
+                row.className =
+                    'D2L-cc-cue-row d2l-cc-cue-row' +
+                    (i === currentCueIdx ? ' current' : '') +
+                    (checked.has(i) ? ' checked' : '')
+
+                const cb = document.createElement('input')
+                cb.type = 'checkbox'
+                cb.checked = checked.has(i)
+
+                const textEl = document.createElement('div')
+                textEl.className = 'd2l-cc-cue-text'
+                textEl.textContent = cue.text.replace(/\n/g, ' ')
+
+                const badge = document.createElement('div')
+                badge.className = 'd2l-cc-time-badge'
+                badge.textContent = fmtTime(cue.startTime)
+
+                row.append(cb, textEl, badge)
+                list.appendChild(row)
+
+                function toggle() {
+                    if (checked.has(i)) {
+                        checked.delete(i)
+                        row.classList.remove('checked')
+                        cb.checked = false
+                    } else {
+                        checked.add(i)
+                        row.classList.add('checked')
+                        cb.checked = true
+                    }
+                    rebuildEditor()
+                }
+                row.addEventListener('click', (e) => {
+                    if (e.target !== cb) toggle()
+                })
+                cb.addEventListener('change', toggle)
+            })
+
+            rebuildEditor()
+
+            // Scroll current cue into view
+            const currentRow = list.children[currentCueIdx]
+            if (currentRow) {
+                currentRow.scrollIntoView({ block: 'center', behavior: 'instant' })
+            }
+
+            function dismiss(result) {
+                backdrop.classList.remove('visible')
+                setTimeout(() => backdrop.remove(), 250)
+                resolve(result)
+            }
+
+            backdrop.querySelector('#d2l-cc-close').addEventListener('click', () => dismiss(null))
+            backdrop.querySelector('#d2l-cc-skip').addEventListener('click', () => dismiss(''))
+            backdrop.querySelector('#d2l-cc-confirm').addEventListener('click', () => dismiss(editor.value))
+
+            // Click outside modal to cancel
+            backdrop.addEventListener('click', (e) => {
+                if (e.target === backdrop) dismiss(null)
+            })
+        })
     }
 
     async function downloadStudyForgeFrame() {
@@ -360,22 +520,15 @@
         )
 
         try {
-            const canvas = document.createElement('canvas')
-
-            // ADDED: Define a scale factor. 2x is usually a sweet spot for crispness without bloated file sizes.
             const scaleFactor = 2
-
-            // ADDED: Multiply base dimensions by the scale factor
+            const canvas = document.createElement('canvas')
             canvas.width = (video.videoWidth || video.clientWidth) * scaleFactor
-            canvas.height =
-                (video.videoHeight || video.clientHeight) * scaleFactor
+            canvas.height = (video.videoHeight || video.clientHeight) * scaleFactor
 
             const ctx = canvas.getContext('2d')
 
             if (video.readyState < 2) {
-                console.warn(
-                    '[D2L-DL] Video data not fully loaded yet. Capture might be blank.'
-                )
+                console.warn('[D2L-DL] Video data not fully loaded yet. Capture might be blank.')
             }
 
             if (video.paused && !video.ended) {
@@ -384,54 +537,31 @@
                 video.pause()
             }
 
-            // ADDED: Ensure image smoothing is enabled for the video upscale step
             ctx.imageSmoothingEnabled = true
             ctx.imageSmoothingQuality = 'high'
-
-            // The canvas width/height are now doubled, so the video stretches to fill it cleanly
             ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
 
-            const ccText = getCurrentCCText(video)
-            if (ccText) {
-                // Because canvas.height is scaled up, fontSize automatically scales up cleanly here
-                const fontSize = Math.max(14, Math.round(canvas.height * 0.025))
-                ctx.font = `bold ${fontSize}px Roboto, sans-serif`
-                ctx.textAlign = 'center'
+            // Show CC picker if cues are available; otherwise download immediately
+            const cues = getAllCCCues(video)
+            if (cues.length > 0) {
+                const time = video.currentTime
+                const currentCueIdx = cues.reduce((best, cue, i) => {
+                    if (cue.startTime <= time) {
+                        if (best === -1 || cue.startTime > cues[best].startTime) return i
+                    }
+                    return best
+                }, -1)
 
-                const padding = Math.round(fontSize * 0.5)
-                const lineY = canvas.height - padding * 1.2
-                const metrics = ctx.measureText(ccText)
-                const bgHeight = fontSize + padding * 1.5
-
-                ctx.fillStyle = 'rgba(0, 0, 0, 0.40)'
-                ctx.fillRect(
-                    0,
-                    canvas.height - bgHeight,
-                    canvas.width,
-                    bgHeight
-                )
-
-                ctx.shadowColor = 'rgba(0,0,0,0.9)'
-                ctx.shadowBlur = 4 * scaleFactor // ADDED: Scale the blur radius to match the higher resolution
-                ctx.fillStyle = '#ffffff'
-                ctx.fillText(
-                    ccText,
-                    canvas.width / 2,
-                    lineY,
-                    canvas.width - padding * 2
-                )
-                ctx.shadowBlur = 0
+                const chosenText = await showCCPicker(video, currentCueIdx, cues)
+                // null = user dismissed (cancel) → abort
+                if (chosenText === null) {
+                    console.log('[D2L-DL] Download cancelled.')
+                    return
+                }
+                renderCCAndDownload(canvas, chosenText, scaleFactor, fileName)
+            } else {
+                renderCCAndDownload(canvas, null, scaleFactor, fileName)
             }
-
-            const dataUrl = canvas.toDataURL('image/png')
-            const link = document.createElement('a')
-            link.download = fileName
-            link.href = dataUrl
-            document.body.appendChild(link)
-            link.click()
-            document.body.removeChild(link)
-
-            console.log(`[D2L-DL] Saved: ${fileName}`)
         } catch (e) {
             console.error('[D2L-DL] Capture failed.', e)
         }
@@ -708,6 +838,109 @@
             #d2l-prompt-btn.copied {
                 background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
             }
+
+            /* ── CC Picker Modal ─────────────────────────────────────── */
+            #d2l-cc-backdrop {
+                position: fixed; inset: 0; z-index: 2147483647;
+                background: rgba(0,0,0,0.55); backdrop-filter: blur(4px);
+                display: flex; align-items: center; justify-content: center;
+                opacity: 0; transition: opacity 0.2s ease;
+                pointer-events: none;
+            }
+            #d2l-cc-backdrop.visible { opacity: 1; pointer-events: all; }
+
+            #d2l-cc-modal {
+                background: #1a1a1a; border: 1px solid #333; border-radius: 20px;
+                box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+                font-family: -apple-system, sans-serif; color: #efefef;
+                width: min(520px, 92vw); max-height: 80vh;
+                display: flex; flex-direction: column;
+                transform: scale(0.95) translateY(8px);
+                transition: transform 0.25s cubic-bezier(0.34,1.56,0.64,1);
+            }
+            #d2l-cc-backdrop.visible #d2l-cc-modal {
+                transform: scale(1) translateY(0);
+            }
+            #d2l-cc-modal-header {
+                padding: 18px 20px 12px;
+                border-bottom: 1px solid #2a2a2a;
+                display: flex; align-items: center; justify-content: space-between;
+            }
+            #d2l-cc-modal-header h3 { margin: 0; font-size: 15px; color: #fff; }
+            #d2l-cc-modal-header p  { margin: 2px 0 0; font-size: 11px; color: #666; }
+            #d2l-cc-close {
+                width: 28px; height: 28px; border-radius: 50%;
+                background: rgba(255,255,255,0.08); border: none;
+                color: #888; font-size: 16px; cursor: pointer;
+                display: flex; align-items: center; justify-content: center;
+                transition: background 0.15s, color 0.15s; flex-shrink: 0;
+            }
+            #d2l-cc-close:hover { background: rgba(255,255,255,0.18); color: #fff; }
+
+            #d2l-cc-cue-list {
+                overflow-y: auto; flex: 1;
+                padding: 10px 12px; display: flex; flex-direction: column; gap: 4px;
+                min-height: 0;
+            }
+            .d2l-cc-cue-row {
+                display: flex; align-items: flex-start; gap: 10px;
+                padding: 8px 10px; border-radius: 10px;
+                cursor: pointer; transition: background 0.15s;
+                border: 1px solid transparent;
+            }
+            .d2l-cc-cue-row:hover { background: #252525; }
+            .d2l-cc-cue-row.current { border-color: #2a5298; background: rgba(42,82,152,0.18); }
+            .d2l-cc-cue-row.checked { background: #252525; }
+            .d2l-cc-cue-row input[type=checkbox] {
+                margin-top: 2px; accent-color: #2a5298; flex-shrink: 0;
+                width: 15px; height: 15px; cursor: pointer;
+            }
+            .d2l-cc-cue-text {
+                font-size: 13px; line-height: 1.45; color: #ddd; flex: 1;
+            }
+            .d2l-cc-cue-row.current .d2l-cc-cue-text { color: #fff; font-weight: 600; }
+            .d2l-cc-time-badge {
+                font-size: 10px; color: #555; white-space: nowrap;
+                margin-top: 2px; flex-shrink: 0;
+            }
+
+            #d2l-cc-editor-wrap {
+                padding: 12px 16px; border-top: 1px solid #2a2a2a;
+            }
+            #d2l-cc-editor-label {
+                font-size: 11px; color: #666; margin-bottom: 6px; display: block;
+            }
+            #d2l-cc-editor {
+                width: 100%; box-sizing: border-box;
+                background: #111; border: 1px solid #333; border-radius: 10px;
+                color: #fff; font-size: 13px; font-family: -apple-system, sans-serif;
+                padding: 10px 12px; resize: vertical; min-height: 58px;
+                outline: none; transition: border-color 0.15s;
+                line-height: 1.5;
+            }
+            #d2l-cc-editor:focus { border-color: #2a5298; }
+
+            #d2l-cc-footer {
+                padding: 12px 16px 16px;
+                display: flex; gap: 8px; justify-content: flex-end;
+                border-top: 1px solid #2a2a2a;
+            }
+            .d2l-cc-btn {
+                padding: 8px 18px; border-radius: 10px; border: none;
+                font-size: 13px; font-weight: 600; cursor: pointer;
+                transition: opacity 0.15s, transform 0.1s;
+                font-family: -apple-system, sans-serif;
+            }
+            .d2l-cc-btn:active { transform: scale(0.97); }
+            .d2l-cc-btn.secondary {
+                background: rgba(255,255,255,0.08); color: #aaa;
+            }
+            .d2l-cc-btn.secondary:hover { background: rgba(255,255,255,0.14); color: #fff; }
+            .d2l-cc-btn.primary {
+                background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+                color: #fff;
+            }
+            .d2l-cc-btn.primary:hover { opacity: 0.88; }
         `
 
         const styleEl = document.createElement('style')
