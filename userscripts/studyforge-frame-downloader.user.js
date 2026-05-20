@@ -1,16 +1,56 @@
 // ==UserScript==
-// @name        StudyForge Video Frame + CC Downloader
+// @name        StudyForge Frame + KaTeX Notes + Resume (Tuned)
 // @match       https://*.studyforge.net/*
+// @require     https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js
+// @require     https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js
 // @grant       none
-// @version     1.0
+// @version     2.0
 // @author      Antigravity
-// @description Download the current StudyForge video frame as PNG with editable captions strip.
+// @description Download StudyForge video frame as PNG with KaTeX notes strip, remember last video/time, tuned text + resolution.
 // ==/UserScript==
 
 ;(function () {
     'use strict'
 
+    console.log('[SF-LTX] Userscript initialized in', window.location.href)
+
+    // ── Global knobs ─────────────────────────────────────────────────────
+
+    const FRAME_SCALE = 2.5 // overall PNG scale for frame + notes
+    const NOTES_FONT_PX = 32 // notes text size (canvas-independent)
+    const GAP_PX = 10 // gap between frame and separator line
+
     const downloadCounts = {}
+
+    // ── KaTeX CSS injection (for in-page math if needed) ────────────────
+
+    ;(function injectKatexCss() {
+        const link = document.createElement('link')
+        link.rel = 'stylesheet'
+        link.href =
+            'https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css'
+        document.head.appendChild(link)
+    })()
+    ;(function injectKatexCustomCss() {
+        const styleEl = document.createElement('style')
+        styleEl.textContent = `
+          .katex .mfrac {
+            font-size: 1.1em;
+          }
+          .katex .mfrac .frac-line {
+            border-top-width: 1.2px;
+          }
+          .katex .mfrac .vlist > span:nth-child(1) {
+            margin-bottom: 0.08em;
+          }
+          .katex .mfrac .vlist > span:nth-child(2) {
+            margin-top: 0.08em;
+          }
+        `
+        document.head.appendChild(styleEl)
+    })()
+
+    // ── Title helper (for filenames + counter) ──────────────────────────
 
     function getCurrentTitle() {
         const nav = document.querySelector('nav.relative.mx-auto.my-0.flex')
@@ -108,122 +148,249 @@
         return `${m}:${s}`
     }
 
-    function renderCCAndDownload(canvas, ccText, scaleFactor, fileName) {
-        let outCanvas = canvas
+    // ── Basic utilities ─────────────────────────────────────────────────
 
-        if (ccText && ccText.trim()) {
-            const fontSize = Math.max(14, Math.round(canvas.height * 0.025))
-            const padding = Math.round(fontSize * 0.5)
-            const lineSpacing = Math.round(fontSize * 1.35)
-
-            const measureCtx = canvas.getContext('2d')
-            measureCtx.font = `bold ${fontSize}px Roboto, sans-serif`
-
-            const text = ccText.trim()
-            const lines = []
-            const maxWidth = canvas.width * 0.9
-            const paragraphs = text.split('\n')
-
-            for (const p of paragraphs) {
-                const words = p.split(' ')
-                let currentLine = ''
-                for (const word of words) {
-                    const testLine = currentLine
-                        ? currentLine + word + ' '
-                        : word + ' '
-                    const metrics = measureCtx.measureText(testLine)
-                    if (metrics.width > maxWidth && currentLine) {
-                        lines.push(currentLine.trim())
-                        currentLine = word + ' '
-                    } else {
-                        currentLine = testLine
-                    }
-                }
-                if (currentLine) {
-                    lines.push(currentLine.trim())
-                }
-            }
-
-            const topMargin = Math.round(fontSize * 0.6)
-            const bottomPad = Math.round(fontSize * 1.2)
-            const stripHeight =
-                topMargin +
-                (lines.length - 1) * lineSpacing +
-                fontSize +
-                bottomPad
-
-            outCanvas = document.createElement('canvas')
-            outCanvas.width = canvas.width
-            outCanvas.height = canvas.height + stripHeight
-            const gapHeight = Math.round(fontSize * 0.5)
-
-            const ctx = outCanvas.getContext('2d')
-
-            ctx.drawImage(canvas, 0, 0)
-
-            ctx.fillStyle = '#ffffff'
-            ctx.fillRect(0, canvas.height, canvas.width, gapHeight)
-
-            ctx.fillStyle = '#f0f0f0'
-            ctx.fillRect(
-                0,
-                canvas.height + gapHeight,
-                canvas.width,
-                stripHeight
-            )
-
-            ctx.font = `bold ${fontSize}px Roboto, sans-serif`
-            ctx.textAlign = 'left'
-            ctx.shadowColor = 'transparent'
-            ctx.shadowBlur = 0
-            ctx.fillStyle = '#006FFF'
-
-            const textTop =
-                canvas.height + gapHeight + topMargin + fontSize * 0.85
-            const textLeft = canvas.width * 0.05
-            lines.forEach((line, index) => {
-                ctx.fillText(
-                    line,
-                    textLeft,
-                    textTop + index * lineSpacing,
-                    maxWidth
-                )
-            })
-            ctx.shadowBlur = 0
-        }
-
-        const dataUrl = outCanvas.toDataURL('image/png')
-        const link = document.createElement('a')
-        link.download = fileName
-        link.href = dataUrl
-        document.body.appendChild(link)
-        link.click()
-        document.body.removeChild(link)
-        console.log(`[D2L-DL] Saved: ${fileName}`)
+    function sleep(ms) {
+        return new Promise((resolve) => setTimeout(resolve, ms))
     }
 
-    function showCCPicker(video, currentCueIdx, cues) {
+    function getVisibleVideo() {
+        const videos = Array.from(document.querySelectorAll('video'))
+        return videos.find((v) => {
+            const s = getComputedStyle(v)
+            const p = v.parentElement ? getComputedStyle(v.parentElement) : null
+            return (
+                s.display !== 'none' &&
+                s.visibility !== 'hidden' &&
+                v.offsetWidth > 0 &&
+                (!p || p.visibility !== 'hidden')
+            )
+        })
+    }
+
+    async function ensureVideoFrame(video) {
+        if (video.paused && !video.ended) {
+            try {
+                await video.play()
+                await sleep(100)
+                video.pause()
+            } catch (_) {}
+        }
+    }
+
+    // ── Notes strip renderer: DOM -> html2canvas in iframe (KaTeX) ──────
+
+    async function buildNotesStrip(frameWidthPx, ccOrNotesText) {
+        const text = ccOrNotesText || ''
+        if (!text.replace(/\s/g, '')) return null // still bail if it's all whitespace
+
+        const notesWidth = Math.round(frameWidthPx)
+
+        const iframe = document.createElement('iframe')
+        iframe.style.position = 'fixed'
+        iframe.style.left = '-10000px'
+        iframe.style.top = '0'
+        iframe.style.width = notesWidth + 'px'
+        iframe.style.height = '2000px'
+        iframe.style.border = '0'
+        iframe.style.opacity = '1'
+        iframe.style.pointerEvents = 'none'
+        document.body.appendChild(iframe)
+
+        const doc = iframe.contentDocument
+        const katexCss =
+            'https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css'
+
+        doc.open()
+        doc.write(`<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="${katexCss}">
+<style>
+html, body {
+    margin: 0;
+    padding: 0;
+    background: #ffffff;
+}
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    color: #171717;
+}
+.sheet {
+    width: ${notesWidth}px;
+    margin: 0;
+    padding: 22px 32px 26px;
+    box-sizing: border-box;
+    background: #ffffff;
+    font-size: ${NOTES_FONT_PX}px;
+    line-height: 1.1;
+}
+.line {
+    margin: 0 0 0.42em 0;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+.katex {
+    font-size: 1em;
+}
+.katex-display {
+    margin: 0.2em 0 0.3em 0;
+}
+</style>
+</head>
+<body>
+<div class="sheet" id="sheet"></div>
+</body>
+</html>`)
+        doc.close()
+
+        const sheet = doc.getElementById('sheet')
+
+        const paragraphs = text.split('\n')
+        for (const raw of paragraphs) {
+            // Preserve leading whitespace; only skip truly empty lines
+            if (raw === '') continue
+            const lineText = raw // no .trim()
+
+            const line = doc.createElement('div')
+            line.className = 'line'
+
+            // Simple inline LaTeX detection: $...$
+            let i = 0
+            while (i < lineText.length) {
+                const start = lineText.indexOf('$', i)
+                if (start === -1) {
+                    const span = doc.createElement('span')
+                    span.textContent = lineText.slice(i)
+                    line.appendChild(span)
+                    break
+                }
+                if (start > i) {
+                    const span = doc.createElement('span')
+                    span.textContent = lineText.slice(i, start)
+                    line.appendChild(span)
+                }
+                const end = lineText.indexOf('$', start + 1)
+                if (end === -1) {
+                    const span = doc.createElement('span')
+                    span.textContent = lineText.slice(start)
+                    line.appendChild(span)
+                    break
+                }
+                const mathSrc = lineText.slice(start + 1, end)
+                const span = doc.createElement('span')
+                try {
+                    span.innerHTML = katex.renderToString(mathSrc, {
+                        throwOnError: false,
+                        displayMode: false,
+                        output: 'htmlAndMathml',
+                    })
+                } catch (e) {
+                    span.textContent = mathSrc
+                }
+                line.appendChild(span)
+                i = end + 1
+            }
+
+            sheet.appendChild(line)
+        }
+
+        await sleep(150)
+
+        const rect = sheet.getBoundingClientRect()
+        const stripCanvas = await html2canvas(sheet, {
+            backgroundColor: '#ffffff',
+            scale: FRAME_SCALE,
+            useCORS: true,
+            logging: false,
+            foreignObjectRendering: false,
+            width: Math.ceil(rect.width),
+            height: Math.ceil(rect.height),
+            windowWidth: Math.ceil(rect.width),
+            windowHeight: Math.ceil(rect.height),
+            removeContainer: true,
+        })
+
+        iframe.remove()
+        return stripCanvas
+    }
+
+    async function composeFrameWithNotes(video, ccOrNotesText, fileName) {
+        const frameW = video.videoWidth || video.clientWidth
+        const frameH = video.videoHeight || video.clientHeight
+
+        await ensureVideoFrame(video)
+
+        const stripCanvas = await buildNotesStrip(frameW, ccOrNotesText)
+
+        const outCanvas = document.createElement('canvas')
+        outCanvas.width = frameW * FRAME_SCALE
+        outCanvas.height =
+            frameH * FRAME_SCALE +
+            (stripCanvas
+                ? GAP_PX * FRAME_SCALE + 1 * FRAME_SCALE + stripCanvas.height
+                : 0)
+
+        const ctx = outCanvas.getContext('2d')
+        ctx.imageSmoothingEnabled = true
+        ctx.imageSmoothingQuality = 'high'
+
+        ctx.fillStyle = '#ffffff'
+        ctx.fillRect(0, 0, outCanvas.width, outCanvas.height)
+
+        ctx.drawImage(video, 0, 0, outCanvas.width, frameH * FRAME_SCALE)
+
+        if (stripCanvas) {
+            const sepY = frameH * FRAME_SCALE + GAP_PX * FRAME_SCALE
+            ctx.fillStyle = '#d1d5db'
+            ctx.fillRect(0, sepY, outCanvas.width, FRAME_SCALE)
+
+            const stripY = sepY + FRAME_SCALE
+            ctx.drawImage(stripCanvas, 0, stripY)
+        }
+
+        const a = document.createElement('a')
+        a.href = outCanvas.toDataURL('image/png')
+        a.download = fileName
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+
+        console.log('[SF-LTX] Saved:', fileName, {
+            frameW,
+            frameH,
+            outW: outCanvas.width,
+            outH: outCanvas.height,
+            hasNotes: !!stripCanvas,
+        })
+    }
+
+    // ── CC / Notes modals ───────────────────────────────────────────────
+
+    function showCCPickerWithCues(video, currentCueIdx, cues) {
         return new Promise((resolve) => {
             const backdrop = document.createElement('div')
-            backdrop.id = 'd2l-cc-backdrop'
+            backdrop.id = 'sf-ltx-backdrop'
 
             backdrop.innerHTML = `
-                <div id="d2l-cc-modal">
-                    <div id="d2l-cc-modal-header">
+                <div id="sf-ltx-modal">
+                    <div id="sf-ltx-modal-header">
                         <div>
-                            <h3>Caption Text</h3>
-                            <p>Select lines to burn into the image, then edit if needed.</p>
+                            <h3>Caption / Notes</h3>
+                            <p>Supports LaTeX with $...$, \\( ... \\), and \\[ ... \\].</p>
                         </div>
-                        <button id="d2l-cc-close" title="Cancel">✕</button>
+                        <button id="sf-ltx-close" title="Cancel">✕</button>
                     </div>
-                    <div id="d2l-cc-cue-list"></div>
-                    <div id="d2l-cc-editor-wrap">
-                        <label id="d2l-cc-editor-label" for="d2l-cc-editor">Edit text</label>
-                        <textarea id="d2l-cc-editor" rows="3" spellcheck="false"></textarea>
+                    <div id="sf-ltx-cue-list"></div>
+                    <div id="sf-ltx-editor-wrap">
+                        <label id="sf-ltx-editor-label" for="sf-ltx-editor">Edit text</label>
+                        <textarea id="sf-ltx-editor" rows="3" spellcheck="false"></textarea>
                     </div>
-                    <div id="d2l-cc-footer">
-                        <button class="d2l-cc-btn secondary" id="d2l-cc-skip">No caption</button>
-                        <button class="d2l-cc-btn primary" id="d2l-cc-confirm">Download</button>
+                    <div id="sf-ltx-footer">
+                        <button class="sf-ltx-btn secondary" id="sf-ltx-skip">No caption</button>
+                        <button class="sf-ltx-btn primary" id="sf-ltx-confirm">Download</button>
                     </div>
                 </div>
             `
@@ -231,8 +398,8 @@
             document.body.appendChild(backdrop)
             requestAnimationFrame(() => backdrop.classList.add('visible'))
 
-            const list = backdrop.querySelector('#d2l-cc-cue-list')
-            const editor = backdrop.querySelector('#d2l-cc-editor')
+            const list = backdrop.querySelector('#sf-ltx-cue-list')
+            const editor = backdrop.querySelector('#sf-ltx-editor')
             const checked = new Set()
 
             if (currentCueIdx >= 0) checked.add(currentCueIdx)
@@ -247,7 +414,7 @@
             cues.forEach((cue, i) => {
                 const row = document.createElement('div')
                 row.className =
-                    'd2l-cc-cue-row' +
+                    'sf-ltx-cue-row' +
                     (i === currentCueIdx ? ' current' : '') +
                     (checked.has(i) ? ' checked' : '')
 
@@ -256,11 +423,11 @@
                 cb.checked = checked.has(i)
 
                 const textEl = document.createElement('div')
-                textEl.className = 'd2l-cc-cue-text'
+                textEl.className = 'sf-ltx-cue-text'
                 textEl.textContent = cue.text.replace(/\n/g, ' ')
 
                 const badge = document.createElement('div')
-                badge.className = 'd2l-cc-time-badge'
+                badge.className = 'sf-ltx-time-badge'
                 badge.textContent = fmtTime(cue.startTime)
 
                 row.append(cb, textEl, badge)
@@ -301,13 +468,13 @@
             }
 
             backdrop
-                .querySelector('#d2l-cc-close')
+                .querySelector('#sf-ltx-close')
                 .addEventListener('click', () => dismiss(null))
             backdrop
-                .querySelector('#d2l-cc-skip')
+                .querySelector('#sf-ltx-skip')
                 .addEventListener('click', () => dismiss(''))
             backdrop
-                .querySelector('#d2l-cc-confirm')
+                .querySelector('#sf-ltx-confirm')
                 .addEventListener('click', () => dismiss(editor.value))
 
             backdrop.addEventListener('click', (e) => {
@@ -316,29 +483,163 @@
         })
     }
 
-    async function downloadStudyForgeFrame() {
-        const container = document.querySelector('.video-wrapper')
+    function showManualNotesPicker() {
+        return new Promise((resolve) => {
+            const backdrop = document.createElement('div')
+            backdrop.id = 'sf-ltx-backdrop'
 
-        if (!container) {
-            console.error('[D2L-DL] Video wrapper not found.')
+            backdrop.innerHTML = `
+                <div id="sf-ltx-modal">
+                    <div id="sf-ltx-modal-header">
+                        <div>
+                            <h3>Notes to Insert</h3>
+                            <p>No captions detected. Enter any notes (LaTeX: $...$, \\( ... \\), \\[ ... \\]).</p>
+                        </div>
+                        <button id="sf-ltx-close" title="Cancel">✕</button>
+                    </div>
+                    <div id="sf-ltx-editor-wrap">
+                        <label id="sf-ltx-editor-label" for="sf-ltx-editor">Text / LaTeX</label>
+                        <textarea id="sf-ltx-editor" rows="4" spellcheck="false"></textarea>
+                    </div>
+                    <div id="sf-ltx-footer">
+                        <button class="sf-ltx-btn secondary" id="sf-ltx-skip">No caption</button>
+                        <button class="sf-ltx-btn primary" id="sf-ltx-confirm">Download</button>
+                    </div>
+                </div>
+            `
+
+            document.body.appendChild(backdrop)
+            requestAnimationFrame(() => backdrop.classList.add('visible'))
+
+            const editor = backdrop.querySelector('#sf-ltx-editor')
+
+            function dismiss(result) {
+                backdrop.classList.remove('visible')
+                setTimeout(() => backdrop.remove(), 250)
+                resolve(result)
+            }
+
+            backdrop
+                .querySelector('#sf-ltx-close')
+                .addEventListener('click', () => dismiss(null))
+            backdrop
+                .querySelector('#sf-ltx-skip')
+                .addEventListener('click', () => dismiss(''))
+            backdrop
+                .querySelector('#sf-ltx-confirm')
+                .addEventListener('click', () => dismiss(editor.value))
+
+            backdrop.addEventListener('click', (e) => {
+                if (e.target === backdrop) dismiss(null)
+            })
+        })
+    }
+
+    // ── Video resume (remember last video + time) ───────────────────────
+
+    function getLessonIdForKey() {
+        return window.location.pathname || 'default'
+    }
+
+    function buildStorageKey() {
+        const lessonId = getLessonIdForKey()
+        return `sf_last_video_${lessonId}`
+    }
+
+    function saveVideoPosition(video) {
+        if (!video) return
+        const key = buildStorageKey()
+        const src = video.currentSrc || video.src || 'inline-video'
+        const data = {
+            src,
+            currentTime: video.currentTime || 0,
+        }
+        try {
+            localStorage.setItem(key, JSON.stringify(data))
+        } catch (e) {
+            console.warn('[SF-LTX] Failed to save video state:', e)
+        }
+    }
+
+    function restoreVideoPosition() {
+        const key = buildStorageKey()
+        let data = null
+        try {
+            const raw = localStorage.getItem(key)
+            if (!raw) return
+            data = JSON.parse(raw)
+        } catch (e) {
+            console.warn('[SF-LTX] Failed to parse video state:', e)
             return
         }
 
-        const videos = Array.from(document.querySelectorAll('video'))
-        const video = videos.find((v) => {
-            const style = window.getComputedStyle(v)
-            const parentStyle = window.getComputedStyle(v.parentElement)
-            return (
-                style.visibility !== 'hidden' &&
-                style.display !== 'none' &&
-                parentStyle.visibility !== 'hidden' &&
-                v.offsetWidth > 0
-            )
-        })
+        if (!data || typeof data.currentTime !== 'number') return
 
+        const videos = Array.from(document.querySelectorAll('video'))
+        if (!videos.length) return
+
+        let target = videos.find(
+            (v) => v.currentSrc === data.src || v.src === data.src
+        )
+        if (!target) target = videos[0]
+
+        const applyTime = () => {
+            try {
+                target.currentTime = Math.max(0, data.currentTime)
+                target.pause()
+                console.log(
+                    '[SF-LTX] Restored video to',
+                    target.currentTime.toFixed(1),
+                    'seconds'
+                )
+            } catch (e) {
+                console.warn('[SF-LTX] Failed to restore time:', e)
+            }
+        }
+
+        if (target.readyState >= 2) {
+            applyTime()
+        } else {
+            target.addEventListener(
+                'loadedmetadata',
+                () => {
+                    applyTime()
+                },
+                { once: true }
+            )
+        }
+    }
+
+    function attachVideoListeners() {
+        const videos = Array.from(document.querySelectorAll('video'))
+        if (!videos.length) return
+        const video = videos[0]
+
+        video.addEventListener('pause', () => saveVideoPosition(video))
+        video.addEventListener('timeupdate', () => {
+            if (
+                !video._sf_lastSaved ||
+                video.currentTime - video._sf_lastSaved > 5
+            ) {
+                saveVideoPosition(video)
+                video._sf_lastSaved = video.currentTime
+            }
+        })
+    }
+
+    // ── Frame capture main flow ─────────────────────────────────────────
+
+    async function downloadStudyForgeFrame() {
+        const container = document.querySelector('.video-wrapper')
+        if (!container) {
+            console.error('[SF-LTX] Video wrapper not found.')
+            return
+        }
+
+        const video = getVisibleVideo()
         if (!video) {
             console.error(
-                '[D2L-DL] Active video element not found. Make sure the video is visible on screen.'
+                '[SF-LTX] Active video element not found. Make sure the video is visible.'
             )
             return
         }
@@ -359,31 +660,8 @@
         )
 
         try {
-            const scaleFactor = 2
-            const canvas = document.createElement('canvas')
-            canvas.width = (video.videoWidth || video.clientWidth) * scaleFactor
-            canvas.height =
-                (video.videoHeight || video.clientHeight) * scaleFactor
-
-            const ctx = canvas.getContext('2d')
-
-            if (video.readyState < 2) {
-                console.warn(
-                    '[D2L-DL] Video data not fully loaded yet. Capture might be blank.'
-                )
-            }
-
-            if (video.paused && !video.ended) {
-                video.play()
-                await new Promise((r) => setTimeout(r, 100))
-                video.pause()
-            }
-
-            ctx.imageSmoothingEnabled = true
-            ctx.imageSmoothingQuality = 'high'
-            ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
-
             const cues = getAllCCCues(video)
+
             if (cues.length > 0) {
                 const time = video.currentTime
                 const currentCueIdx = cues.reduce((best, cue, i) => {
@@ -394,28 +672,39 @@
                     return best
                 }, -1)
 
-                const chosenText = await showCCPicker(
+                const chosenText = await showCCPickerWithCues(
                     video,
                     currentCueIdx,
                     cues
                 )
                 if (chosenText === null) {
-                    console.log('[D2L-DL] Download cancelled.')
+                    console.log('[SF-LTX] Download cancelled.')
                     return
                 }
-                renderCCAndDownload(canvas, chosenText, scaleFactor, fileName)
+                await composeFrameWithNotes(video, chosenText, fileName)
             } else {
-                renderCCAndDownload(canvas, null, scaleFactor, fileName)
+                const manualText = await showManualNotesPicker()
+                if (manualText === null) {
+                    console.log(
+                        '[SF-LTX] Download cancelled (no CC, no notes).'
+                    )
+                    return
+                }
+                await composeFrameWithNotes(
+                    video,
+                    manualText.trim().length > 0 ? manualText : null,
+                    fileName
+                )
             }
         } catch (e) {
-            console.error('[D2L-DL] Capture failed.', e)
+            console.error('[SF-LTX] Capture failed.', e)
         }
     }
 
-    // ── Styles + UI ─────────────────────────────────────────────────────
+    // ── Styles + UI (button + modal + counter) ─────────────────────────
 
     const styles = `
-        #d2l-dl-btn {
+        #sf-ltx-btn {
             position: fixed; bottom: 20px; right: 20px; z-index: 2147483647;
             background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
             color: white; border: 1px solid rgba(255,255,255,0.1);
@@ -426,45 +715,21 @@
             backdrop-filter: blur(10px); opacity: 0.9; overflow: hidden;
             white-space: nowrap; font-family: -apple-system, sans-serif; font-weight: 600;
         }
-        #d2l-dl-btn:hover { width: 180px; opacity: 1; border-radius: 12px; }
-        #d2l-dl-btn .icon { min-width: 48px; display: flex; align-items: center; justify-content: center; }
-        #d2l-dl-btn .text { opacity: 0; max-width: 0; transition: all 0.3s ease; font-size: 14px; }
-        #d2l-dl-btn:hover .text { opacity: 1; max-width: 120px; margin-right: 16px; }
+        #sf-ltx-btn:hover { width: 180px; opacity: 1; border-radius: 12px; }
+        #sf-ltx-btn .icon { min-width: 48px; display: flex; align-items: center; justify-content: center; }
+        #sf-ltx-btn .text { opacity: 0; max-width: 0; transition: all 0.3s ease; font-size: 14px; }
+        #sf-ltx-btn:hover .text { opacity: 1; max-width: 120px; margin-right: 16px; }
 
-        #d2l-counter {
-            position: fixed; bottom: 76px; right: 20px; z-index: 2147483647;
-            display: none; align-items: center; gap: 6px;
-            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
-            border: 1px solid rgba(255,255,255,0.15);
-            border-radius: 12px; padding: 4px 8px;
-            font-family: -apple-system, sans-serif; font-size: 12px; color: #ccc;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.4); backdrop-filter: blur(8px);
-            user-select: none;
-        }
-        #d2l-counter .counter-label { color: rgba(255,255,255,0.6); font-size: 11px; }
-        #d2l-counter .counter-value {
-            font-weight: 700; font-size: 14px; color: #fff;
-            min-width: 18px; text-align: center;
-        }
-        #d2l-counter .counter-btn {
-            width: 22px; height: 22px; display: flex; align-items: center; justify-content: center;
-            border-radius: 6px; background: rgba(255,255,255,0.15);
-            color: #fff; cursor: pointer; font-size: 16px; line-height: 1;
-            transition: background 0.15s, color 0.15s; border: none;
-            font-family: -apple-system, sans-serif;
-        }
-        #d2l-counter .counter-btn:hover { background: rgba(255,255,255,0.3); color: #fff; }
-
-        #d2l-cc-backdrop {
+        #sf-ltx-backdrop {
             position: fixed; inset: 0; z-index: 2147483647;
             background: rgba(0,0,0,0.55); backdrop-filter: blur(4px);
             display: flex; align-items: center; justify-content: center;
             opacity: 0; transition: opacity 0.2s ease;
             pointer-events: none;
         }
-        #d2l-cc-backdrop.visible { opacity: 1; pointer-events: all; }
+        #sf-ltx-backdrop.visible { opacity: 1; pointer-events: all; }
 
-        #d2l-cc-modal {
+        #sf-ltx-modal {
             background: #1a1a1a; border: 1px solid #333; border-radius: 20px;
             box-shadow: 0 20px 60px rgba(0,0,0,0.6);
             font-family: -apple-system, sans-serif; color: #efefef;
@@ -473,59 +738,59 @@
             transform: scale(0.95) translateY(8px);
             transition: transform 0.25s cubic-bezier(0.34,1.56,0.64,1);
         }
-        #d2l-cc-backdrop.visible #d2l-cc-modal {
+        #sf-ltx-backdrop.visible #sf-ltx-modal {
             transform: scale(1) translateY(0);
         }
-        #d2l-cc-modal-header {
+        #sf-ltx-modal-header {
             padding: 18px 20px 12px;
             border-bottom: 1px solid #2a2a2a;
             display: flex; align-items: center; justify-content: space-between;
         }
-        #d2l-cc-modal-header h3 { margin: 0; font-size: 15px; color: #fff; }
-        #d2l-cc-modal-header p  { margin: 2px 0 0; font-size: 11px; color: #666; }
-        #d2l-cc-close {
+        #sf-ltx-modal-header h3 { margin: 0; font-size: 15px; color: #fff; }
+        #sf-ltx-modal-header p  { margin: 2px 0 0; font-size: 11px; color: #666; }
+        #sf-ltx-close {
             width: 28px; height: 28px; border-radius: 50%;
             background: rgba(255,255,255,0.08); border: none;
             color: #888; font-size: 16px; cursor: pointer;
             display: flex; align-items: center; justify-content: center;
             transition: background 0.15s, color 0.15s; flex-shrink: 0;
         }
-        #d2l-cc-close:hover { background: rgba(255,255,255,0.18); color: #fff; }
+        #sf-ltx-close:hover { background: rgba(255,255,255,0.18); color: #fff; }
 
-        #d2l-cc-cue-list {
+        #sf-ltx-cue-list {
             overflow-y: auto; flex: 1;
             padding: 10px 12px; display: flex; flex-direction: column; gap: 4px;
             min-height: 0;
         }
-        .d2l-cc-cue-row {
+        .sf-ltx-cue-row {
             display: flex; align-items: flex-start; gap: 10px;
             padding: 8px 10px; border-radius: 10px;
             cursor: pointer; transition: background 0.15s;
             border: 1px solid transparent;
         }
-        .d2l-cc-cue-row:hover { background: #252525; }
-        .d2l-cc-cue-row.current { border-color: #2a5298; background: rgba(42,82,152,0.18); }
-        .d2l-cc-cue-row.checked { background: #252525; }
-        .d2l-cc-cue-row input[type=checkbox] {
+        .sf-ltx-cue-row:hover { background: #252525; }
+        .sf-ltx-cue-row.current { border-color: #2a5298; background: rgba(42,82,152,0.18); }
+        .sf-ltx-cue-row.checked { background: #252525; }
+        .sf-ltx-cue-row input[type=checkbox] {
             margin-top: 2px; accent-color: #2a5298; flex-shrink: 0;
             width: 15px; height: 15px; cursor: pointer;
         }
-        .d2l-cc-cue-text {
+        .sf-ltx-cue-text {
             font-size: 13px; line-height: 1.45; color: #ddd; flex: 1;
         }
-        .d2l-cc-cue-row.current .d2l-cc-cue-text { color: #fff; font-weight: 600; }
-        .d2l-cc-time-badge {
+        .sf-ltx-cue-row.current .sf-ltx-cue-text { color: #fff; font-weight: 600; }
+        .sf-ltx-time-badge {
             font-size: 10px; color: #555; white-space: nowrap;
             margin-top: 2px; flex-shrink: 0;
         }
 
-        #d2l-cc-editor-wrap {
+        #sf-ltx-editor-wrap {
             padding: 12px 16px; border-top: 1px solid #2a2a2a;
         }
-        #d2l-cc-editor-label {
+        #sf-ltx-editor-label {
             font-size: 11px; color: #666; margin-bottom: 6px; display: block;
         }
-        #d2l-cc-editor {
+        #sf-ltx-editor {
             width: 100%; box-sizing: border-box;
             background: #111; border: 1px solid #333; border-radius: 10px;
             color: #fff; font-size: 13px; font-family: -apple-system, sans-serif;
@@ -533,97 +798,122 @@
             outline: none; transition: border-color 0.15s;
             line-height: 1.5;
         }
-        #d2l-cc-editor:focus { border-color: #2a5298; }
+        #sf-ltx-editor:focus { border-color: #2a5298; }
 
-        #d2l-cc-footer {
+        #sf-ltx-footer {
             padding: 12px 16px 16px;
             display: flex; gap: 8px; justify-content: flex-end;
             border-top: 1px solid #2a2a2a;
         }
-        .d2l-cc-btn {
+        .sf-ltx-btn {
             padding: 8px 18px; border-radius: 10px; border: none;
             font-size: 13px; font-weight: 600; cursor: pointer;
             transition: opacity 0.15s, transform 0.1s;
             font-family: -apple-system, sans-serif;
         }
-        .d2l-cc-btn:active { transform: scale(0.97); }
-        .d2l-cc-btn.secondary {
+        .sf-ltx-btn:active { transform: scale(0.97); }
+        .sf-ltx-btn.secondary {
             background: rgba(255,255,255,0.08); color: #aaa;
         }
-        .d2l-cc-btn.secondary:hover { background: rgba(255,255,255,0.14); color: #fff; }
-        .d2l-cc-btn.primary {
+        .sf-ltx-btn.secondary:hover { background: rgba(255,255,255,0.14); color: #fff; }
+        .sf-ltx-btn.primary {
             background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
             color: #fff;
         }
-        .d2l-cc-btn.primary:hover { opacity: 0.88; }
+        .sf-ltx-btn.primary:hover { opacity: 0.88; }
+
+        #sf-ltx-counter {
+            position: fixed; bottom: 76px; right: 20px; z-index: 2147483647;
+            display: none; align-items: center; gap: 6px;
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            border: 1px solid rgba(255,255,255,0.15);
+            border-radius: 12px; padding: 4px 8px;
+            font-family: -apple-system, sans-serif; font-size: 12px;
+            color: #ccc; box-shadow: 0 2px 10px rgba(0,0,0,0.4);
+            backdrop-filter: blur(8px); user-select: none;
+        }
+        #sf-ltx-counter .label { color: rgba(255,255,255,0.7); font-size: 11px; }
+        #sf-ltx-counter .val { font-weight: 700; font-size: 14px; color: #fff; min-width: 18px; text-align: center; }
+        #sf-ltx-counter .btn {
+            width: 22px; height: 22px; display: flex; align-items: center; justify-content: center;
+            border-radius: 6px; background: rgba(255,255,255,0.15); color: #fff;
+            cursor: pointer; font-size: 16px; line-height: 1;
+            transition: background 0.15s, color 0.15s;
+            border: none;
+        }
+        #sf-ltx-counter .btn:hover { background: rgba(255,255,255,0.3); }
     `
 
     const styleEl = document.createElement('style')
     styleEl.innerHTML = styles
     document.head.appendChild(styleEl)
 
+    function refreshCounter() {
+        const isQuestion = /#Q\d+&open$/.test(window.location.href)
+        const btn = document.getElementById('sf-ltx-btn')
+        if (btn) btn.style.display = isQuestion ? 'none' : 'flex'
+
+        const title = getCurrentTitle()
+        const count = downloadCounts[title] || 0
+        const el = document.getElementById('sf-ltx-counter')
+        const valEl = el ? el.querySelector('.val') : null
+        if (valEl) valEl.textContent = count > 0 ? count : '0'
+        if (el) el.style.display = isQuestion ? 'none' : 'flex'
+    }
+
     function createUI() {
         const btn = document.createElement('button')
-        btn.id = 'd2l-dl-btn'
+        btn.id = 'sf-ltx-btn'
         btn.innerHTML =
-            '<div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg></div><div class="text">Download Frame</div>'
+            '<div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg></div><div class="text">Download Frame</div>'
         document.body.appendChild(btn)
-
-        const counterEl = document.createElement('div')
-        counterEl.id = 'd2l-counter'
-        counterEl.innerHTML = `
-            <span class="counter-label">next #</span>
-            <button class="counter-btn" id="d2l-counter-dec" title="Decrement counter">−</button>
-            <span class="counter-value" id="d2l-counter-val">1</span>
-            <button class="counter-btn" id="d2l-counter-inc" title="Increment counter">+</button>
-        `
-        document.body.appendChild(counterEl)
-
-        function refreshCounter() {
-            const title = getCurrentTitle()
-            const count = downloadCounts[title] || 0
-            const valEl = document.getElementById('d2l-counter-val')
-            if (valEl) valEl.textContent = count + 1
-            counterEl.style.display = 'flex'
-        }
-
-        document
-            .getElementById('d2l-counter-dec')
-            .addEventListener('click', () => {
-                const title = getCurrentTitle()
-                if ((downloadCounts[title] || 0) > 0) {
-                    downloadCounts[title] = downloadCounts[title] - 1
-                    refreshCounter()
-                }
-            })
-
-        document
-            .getElementById('d2l-counter-inc')
-            .addEventListener('click', () => {
-                const title = getCurrentTitle()
-                downloadCounts[title] = (downloadCounts[title] || 0) + 1
-                refreshCounter()
-            })
 
         btn.addEventListener('click', async () => {
             await downloadStudyForgeFrame()
             refreshCounter()
         })
 
-        let _counterDebounce = null
+        const counter = document.createElement('div')
+        counter.id = 'sf-ltx-counter'
+        counter.innerHTML = `
+            <span class="label">notes</span>
+            <span class="val">0</span>
+            <button class="btn" data-dir="-1">−</button>
+            <button class="btn" data-dir="+1">+</button>
+        `
+        document.body.appendChild(counter)
+
+        counter.addEventListener('click', (e) => {
+            const btn = e.target.closest('.btn')
+            if (!btn) return
+            const dir = parseInt(btn.getAttribute('data-dir'), 10)
+            const title = getCurrentTitle()
+            const cur = downloadCounts[title] || 0
+            downloadCounts[title] = Math.max(0, cur + dir)
+            refreshCounter()
+        })
+
+        let counterDebounce = null
         new MutationObserver(() => {
-            clearTimeout(_counterDebounce)
-            _counterDebounce = setTimeout(refreshCounter, 300)
+            clearTimeout(counterDebounce)
+            counterDebounce = setTimeout(refreshCounter, 300)
         }).observe(document.documentElement, {
             childList: true,
             subtree: true,
-            attributes: false,
-            characterData: false,
         })
-
         refreshCounter()
     }
 
-    if (document.body) createUI()
-    else window.addEventListener('DOMContentLoaded', createUI)
+    function init() {
+        restoreVideoPosition()
+        attachVideoListeners()
+
+        if (document.body) createUI()
+        else window.addEventListener('DOMContentLoaded', createUI)
+
+        window.addEventListener('hashchange', refreshCounter)
+        window.addEventListener('popstate', refreshCounter)
+    }
+
+    init()
 })()

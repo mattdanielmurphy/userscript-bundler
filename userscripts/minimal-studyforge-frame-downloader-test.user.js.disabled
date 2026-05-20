@@ -1,0 +1,252 @@
+// ==UserScript==
+// @name         SF Minimal KaTeX Notes Test (Tuned)
+// @match        https://*.studyforge.net/*
+// @require      https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js
+// @require      https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js
+// @grant        none
+// @version      0.2
+// ==/UserScript==
+
+;(function () {
+    'use strict'
+
+    // Main knobs
+    const FRAME_SCALE = 2 // was 4 → overall PNG roughly 1/2 res
+    const NOTES_FONT_PX = 32 // was 40 → ~20% smaller text
+    const GAP_PX = 10 // gap between frame and separator line
+
+    const TEST_LINES = [
+        { type: 'text', text: 'Log rules review' },
+        { type: 'math', tex: String.raw`\log_a(xy)=\log_a x+\log_a y` },
+        {
+            type: 'math',
+            tex: String.raw`\log_a\left(\frac{x}{y}\right)=\log_a x-\log_a y`,
+        },
+        { type: 'math', tex: String.raw`\log_a(x^k)=k\log_a x` },
+        { type: 'text', text: 'Change of base:' },
+        { type: 'math', tex: String.raw`\log_x(y)=\frac{\log y}{\log x}` },
+        { type: 'text', text: 'Domain: x > 0, a > 0, a ≠ 1.' },
+        { type: 'math', tex: String.raw`x>0,\ a>0,\ a\ne 1` },
+        {
+            type: 'text',
+            text: 'This line is deliberately long so wrapping can be tested without clipping.',
+        },
+        { type: 'text', text: 'End of test.' },
+    ]
+
+    function getVisibleVideo() {
+        const videos = Array.from(document.querySelectorAll('video'))
+        return videos.find((v) => {
+            const s = getComputedStyle(v)
+            const p = v.parentElement ? getComputedStyle(v.parentElement) : null
+            return (
+                s.display !== 'none' &&
+                s.visibility !== 'hidden' &&
+                v.offsetWidth > 0 &&
+                (!p || p.visibility !== 'hidden')
+            )
+        })
+    }
+
+    function sleep(ms) {
+        return new Promise((resolve) => setTimeout(resolve, ms))
+    }
+
+    async function ensureVideoFrame(video) {
+        if (video.paused && !video.ended) {
+            try {
+                await video.play()
+                await sleep(100)
+                video.pause()
+            } catch (_) {}
+        }
+    }
+
+    async function buildNotesStrip(frameWidthPx) {
+        const notesWidth = Math.round(frameWidthPx) // full width of frame
+
+        const iframe = document.createElement('iframe')
+        iframe.style.position = 'fixed'
+        iframe.style.left = '-10000px'
+        iframe.style.top = '0'
+        iframe.style.width = notesWidth + 'px'
+        iframe.style.height = '2000px'
+        iframe.style.border = '0'
+        iframe.style.opacity = '1'
+        iframe.style.pointerEvents = 'none'
+        document.body.appendChild(iframe)
+
+        const doc = iframe.contentDocument
+        const katexCss =
+            'https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css'
+
+        doc.open()
+        doc.write(`<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="${katexCss}">
+<style>
+html, body {
+    margin: 0;
+    padding: 0;
+    background: #ffffff;
+}
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    color: #171717;
+}
+.sheet {
+    width: ${notesWidth}px;
+    margin: 0;
+    padding: 22px 32px 26px;
+    box-sizing: border-box;
+    background: #ffffff;
+    font-size: ${NOTES_FONT_PX}px;
+    line-height: 1.22;
+}
+.line {
+    margin: 0 0 0.42em 0;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+.katex {
+    font-size: 1em;
+}
+.katex-display {
+    margin: 0.2em 0 0.3em 0;
+}
+</style>
+</head>
+<body>
+<div class="sheet" id="sheet"></div>
+</body>
+</html>`)
+        doc.close()
+
+        const sheet = doc.getElementById('sheet')
+
+        for (const item of TEST_LINES) {
+            const line = doc.createElement('div')
+            line.className = 'line'
+
+            if (item.type === 'math') {
+                line.innerHTML = katex.renderToString(item.tex, {
+                    throwOnError: false,
+                    displayMode: false,
+                    output: 'htmlAndMathml',
+                })
+            } else {
+                line.textContent = item.text
+            }
+
+            sheet.appendChild(line)
+        }
+
+        await sleep(150)
+
+        const rect = sheet.getBoundingClientRect()
+        const stripCanvas = await html2canvas(sheet, {
+            backgroundColor: '#ffffff',
+            scale: FRAME_SCALE,
+            useCORS: true,
+            logging: false,
+            foreignObjectRendering: false,
+            width: Math.ceil(rect.width),
+            height: Math.ceil(rect.height),
+            windowWidth: Math.ceil(rect.width),
+            windowHeight: Math.ceil(rect.height),
+            removeContainer: true,
+        })
+
+        iframe.remove()
+        return stripCanvas
+    }
+
+    async function capture() {
+        const video = getVisibleVideo()
+        if (!video) {
+            console.error('[SF-MIN] No visible video found.')
+            return
+        }
+
+        await ensureVideoFrame(video)
+
+        const frameW = video.videoWidth || video.clientWidth
+        const frameH = video.videoHeight || video.clientHeight
+
+        const stripCanvas = await buildNotesStrip(frameW)
+
+        const outCanvas = document.createElement('canvas')
+        outCanvas.width = frameW * FRAME_SCALE
+        outCanvas.height =
+            frameH * FRAME_SCALE +
+            GAP_PX * FRAME_SCALE +
+            1 * FRAME_SCALE + // separator line
+            stripCanvas.height
+
+        const ctx = outCanvas.getContext('2d')
+        ctx.imageSmoothingEnabled = true
+        ctx.imageSmoothingQuality = 'high'
+
+        ctx.fillStyle = '#ffffff'
+        ctx.fillRect(0, 0, outCanvas.width, outCanvas.height)
+
+        ctx.drawImage(video, 0, 0, outCanvas.width, frameH * FRAME_SCALE)
+
+        const sepY = frameH * FRAME_SCALE + GAP_PX * FRAME_SCALE
+        ctx.fillStyle = '#d1d5db' // light gray separator
+        ctx.fillRect(0, sepY, outCanvas.width, FRAME_SCALE) // 1 CSS px → FRAME_SCALE device px
+
+        const stripY = sepY + FRAME_SCALE
+        const stripX = 0
+        ctx.drawImage(stripCanvas, stripX, stripY)
+
+        const a = document.createElement('a')
+        a.href = outCanvas.toDataURL('image/png')
+        a.download = 'sf-min-katex-tuned.png'
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+
+        console.log('[SF-MIN] saved', {
+            frameW,
+            frameH,
+            outW: outCanvas.width,
+            outH: outCanvas.height,
+            stripW: stripCanvas.width,
+            stripH: stripCanvas.height,
+        })
+    }
+
+    function addButton() {
+        if (document.getElementById('sf-min-katex-btn')) return
+
+        const btn = document.createElement('button')
+        btn.id = 'sf-min-katex-btn'
+        btn.textContent = 'KaTeX Test'
+        btn.style.position = 'fixed'
+        btn.style.right = '20px'
+        btn.style.bottom = '20px'
+        btn.style.zIndex = '2147483647'
+        btn.style.background = '#1f2937'
+        btn.style.color = '#fff'
+        btn.style.border = '0'
+        btn.style.borderRadius = '999px'
+        btn.style.padding = '10px 14px'
+        btn.style.fontFamily =
+            '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
+        btn.style.fontSize = '13px'
+        btn.style.cursor = 'pointer'
+        btn.style.boxShadow = '0 6px 18px rgba(0,0,0,0.25)'
+        btn.addEventListener('click', () => {
+            capture().catch((e) => console.error('[SF-MIN] capture failed', e))
+        })
+
+        document.body.appendChild(btn)
+    }
+
+    if (document.body) addButton()
+    else window.addEventListener('DOMContentLoaded', addButton)
+})()
