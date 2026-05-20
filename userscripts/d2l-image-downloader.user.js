@@ -290,6 +290,19 @@
         return [...navParts, `${videoTitle} (${videoNum})`].join(' - ')
     }
 
+    function getCurrentCCText(video) {
+        const track = Array.from(video.textTracks).find(
+            (t) => t.kind === 'captions' || t.kind === 'subtitles'
+        )
+        if (!track || !track.cues) return null
+        if (track.mode === 'disabled') track.mode = 'hidden'
+        const time = video.currentTime
+        const match = Array.from(track.cues)
+            .filter((c) => c.startTime <= time)
+            .sort((a, b) => b.startTime - a.startTime)[0]
+        return match ? match.text.replace(/\n/g, ' ') : null
+    }
+
     async function downloadStudyForgeFrame() {
         const container = document.querySelector('.video-wrapper')
         const nav = document.querySelector('nav.relative.mx-auto.my-0.flex')
@@ -364,6 +377,27 @@
             }
 
             ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+
+            // Overlay current CC line onto the captured frame
+            const ccText = getCurrentCCText(video)
+            if (ccText) {
+                const fontSize = Math.max(18, Math.round(canvas.height * 0.045))
+                ctx.font = `bold ${fontSize}px Arial, sans-serif`
+                ctx.textAlign = 'center'
+                const padding = Math.round(fontSize * 0.5)
+                const lineY = canvas.height - padding * 2
+                const metrics = ctx.measureText(ccText)
+                const bgHeight = fontSize + padding * 2
+                // Semi-transparent black bar
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.65)'
+                ctx.fillRect(0, canvas.height - bgHeight, canvas.width, bgHeight)
+                // White text with subtle shadow
+                ctx.shadowColor = 'rgba(0,0,0,0.9)'
+                ctx.shadowBlur = 4
+                ctx.fillStyle = '#ffffff'
+                ctx.fillText(ccText, canvas.width / 2, lineY, canvas.width - padding * 2)
+                ctx.shadowBlur = 0
+            }
 
             const dataUrl = canvas.toDataURL('image/png')
             const link = document.createElement('a')
