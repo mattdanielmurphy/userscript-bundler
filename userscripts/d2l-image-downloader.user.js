@@ -253,7 +253,9 @@
             }
         }
 
-        const lessonText = lessonHeaderEl ? lessonHeaderEl.textContent.trim() : ''
+        const lessonText = lessonHeaderEl
+            ? lessonHeaderEl.textContent.trim()
+            : ''
         const lessonNum = (lessonText.match(/\d+/) || ['1'])[0]
 
         let videoNum = '1'
@@ -276,13 +278,17 @@
             if (videoNameEl) {
                 videoTitle = videoNameEl.textContent.trim()
             } else {
-                const lessonHeaderNameEl = document.querySelector('.lesson-header-name')
-                if (lessonHeaderNameEl) videoTitle = lessonHeaderNameEl.textContent.trim()
+                const lessonHeaderNameEl = document.querySelector(
+                    '.lesson-header-name'
+                )
+                if (lessonHeaderNameEl)
+                    videoTitle = lessonHeaderNameEl.textContent.trim()
             }
         }
 
         if (navParts.length > 0) {
-            navParts[navParts.length - 1] = `${navParts[navParts.length - 1]} (${lessonNum})`
+            navParts[navParts.length - 1] =
+                `${navParts[navParts.length - 1]} (${lessonNum})`
         } else {
             navParts.push(`(${lessonNum})`)
         }
@@ -312,8 +318,6 @@
             return
         }
 
-        // FIND THE ACTIVE VIDEO
-        // The page has multiple video tags; we find the one that is actually visible.
         const videos = Array.from(document.querySelectorAll('video'))
         const video = videos.find((v) => {
             const style = window.getComputedStyle(v)
@@ -325,6 +329,7 @@
                 v.offsetWidth > 0
             )
         })
+
         let lessonHeaderEl = document.querySelector('h1.lesson-header-number')
         if (!lessonHeaderEl) {
             const h1s = Array.from(document.querySelectorAll('h1'))
@@ -339,10 +344,8 @@
             return
         }
 
-        // Build the filename using the shared title helper
         const fullTitle = getCurrentTitle()
 
-        // Track download counts per title/video
         let countSuffix = ''
         if (downloadCounts[fullTitle]) {
             downloadCounts[fullTitle] += 1
@@ -356,11 +359,17 @@
             ''
         )
 
-        // 5. Capture the frame
         try {
             const canvas = document.createElement('canvas')
-            canvas.width = video.videoWidth || video.clientWidth
-            canvas.height = video.videoHeight || video.clientHeight
+
+            // ADDED: Define a scale factor. 2x is usually a sweet spot for crispness without bloated file sizes.
+            const scaleFactor = 2
+
+            // ADDED: Multiply base dimensions by the scale factor
+            canvas.width = (video.videoWidth || video.clientWidth) * scaleFactor
+            canvas.height =
+                (video.videoHeight || video.clientHeight) * scaleFactor
+
             const ctx = canvas.getContext('2d')
 
             if (video.readyState < 2) {
@@ -369,33 +378,48 @@
                 )
             }
 
-            // Briefly toggle play/pause if paused to flush the video buffer to the canvas
             if (video.paused && !video.ended) {
                 video.play()
                 await new Promise((r) => setTimeout(r, 100))
                 video.pause()
             }
 
+            // ADDED: Ensure image smoothing is enabled for the video upscale step
+            ctx.imageSmoothingEnabled = true
+            ctx.imageSmoothingQuality = 'high'
+
+            // The canvas width/height are now doubled, so the video stretches to fill it cleanly
             ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
 
-            // Overlay current CC line onto the captured frame
             const ccText = getCurrentCCText(video)
             if (ccText) {
-                const fontSize = Math.max(18, Math.round(canvas.height * 0.045))
-                ctx.font = `bold ${fontSize}px Arial, sans-serif`
+                // Because canvas.height is scaled up, fontSize automatically scales up cleanly here
+                const fontSize = Math.max(14, Math.round(canvas.height * 0.025))
+                ctx.font = `bold ${fontSize}px Roboto, sans-serif`
                 ctx.textAlign = 'center'
+
                 const padding = Math.round(fontSize * 0.5)
-                const lineY = canvas.height - padding * 2
+                const lineY = canvas.height - padding * 1.2
                 const metrics = ctx.measureText(ccText)
-                const bgHeight = fontSize + padding * 2
-                // Semi-transparent black bar
-                ctx.fillStyle = 'rgba(0, 0, 0, 0.65)'
-                ctx.fillRect(0, canvas.height - bgHeight, canvas.width, bgHeight)
-                // White text with subtle shadow
+                const bgHeight = fontSize + padding * 1.5
+
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.40)'
+                ctx.fillRect(
+                    0,
+                    canvas.height - bgHeight,
+                    canvas.width,
+                    bgHeight
+                )
+
                 ctx.shadowColor = 'rgba(0,0,0,0.9)'
-                ctx.shadowBlur = 4
+                ctx.shadowBlur = 4 * scaleFactor // ADDED: Scale the blur radius to match the higher resolution
                 ctx.fillStyle = '#ffffff'
-                ctx.fillText(ccText, canvas.width / 2, lineY, canvas.width - padding * 2)
+                ctx.fillText(
+                    ccText,
+                    canvas.width / 2,
+                    lineY,
+                    canvas.width - padding * 2
+                )
                 ctx.shadowBlur = 0
             }
 
@@ -1009,19 +1033,23 @@ y = 1
                     counterEl.style.display = 'flex'
                 }
 
-                document.getElementById('d2l-counter-dec').addEventListener('click', () => {
-                    const title = getCurrentTitle()
-                    if ((downloadCounts[title] || 0) > 0) {
-                        downloadCounts[title] = downloadCounts[title] - 1
-                        refreshCounter()
-                    }
-                })
+                document
+                    .getElementById('d2l-counter-dec')
+                    .addEventListener('click', () => {
+                        const title = getCurrentTitle()
+                        if ((downloadCounts[title] || 0) > 0) {
+                            downloadCounts[title] = downloadCounts[title] - 1
+                            refreshCounter()
+                        }
+                    })
 
-                document.getElementById('d2l-counter-inc').addEventListener('click', () => {
-                    const title = getCurrentTitle()
-                    downloadCounts[title] = (downloadCounts[title] || 0) + 1
-                    refreshCounter()
-                })
+                document
+                    .getElementById('d2l-counter-inc')
+                    .addEventListener('click', () => {
+                        const title = getCurrentTitle()
+                        downloadCounts[title] = (downloadCounts[title] || 0) + 1
+                        refreshCounter()
+                    })
 
                 // Refresh counter after each download
                 btn.addEventListener('click', async () => {
@@ -1035,7 +1063,10 @@ y = 1
                     clearTimeout(_counterDebounce)
                     _counterDebounce = setTimeout(refreshCounter, 300)
                 }).observe(document.documentElement, {
-                    childList: true, subtree: true, attributes: false, characterData: false
+                    childList: true,
+                    subtree: true,
+                    attributes: false,
+                    characterData: false,
                 })
 
                 refreshCounter()
