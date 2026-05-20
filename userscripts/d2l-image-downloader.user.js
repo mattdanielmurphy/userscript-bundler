@@ -538,13 +538,13 @@
                 backdrop-filter: blur(10px); opacity: 0.9; overflow: hidden;
                 white-space: nowrap; font-family: -apple-system, sans-serif; font-weight: 600;
             }
-            #d2l-dl-btn:hover { width: 180px; opacity: 1; border-radius: 12px; z-index: 2147483648; }
+            #d2l-dl-btn:hover { width: 180px; opacity: 1; border-radius: 12px; }
             #d2l-dl-btn .icon { min-width: 48px; display: flex; align-items: center; justify-content: center; }
             #d2l-dl-btn .text { opacity: 0; max-width: 0; transition: all 0.3s ease; font-size: 14px; }
             #d2l-dl-btn:hover .text { opacity: 1; max-width: 120px; margin-right: 16px; }
 
             #d2l-script-btn {
-                position: fixed; bottom: 20px; right: 80px; z-index: 2147483647;
+                position: fixed; bottom: 20px; right: 80px; z-index: 2147483645;
                 background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
                 color: white; border: 1px solid rgba(255,255,255,0.1);
                 border-radius: 24px; width: 48px; height: 48px;
@@ -610,25 +610,26 @@
             #d2l-counter {
                 position: fixed; bottom: 76px; right: 20px; z-index: 2147483647;
                 display: none; align-items: center; gap: 6px;
-                background: rgba(26,26,26,0.92); border: 1px solid #444;
+                background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+                border: 1px solid rgba(255,255,255,0.15);
                 border-radius: 12px; padding: 4px 8px;
                 font-family: -apple-system, sans-serif; font-size: 12px; color: #ccc;
                 box-shadow: 0 2px 10px rgba(0,0,0,0.4); backdrop-filter: blur(8px);
                 user-select: none;
             }
-            #d2l-counter .counter-label { color: #888; font-size: 11px; }
+            #d2l-counter .counter-label { color: rgba(255,255,255,0.6); font-size: 11px; }
             #d2l-counter .counter-value {
                 font-weight: 700; font-size: 14px; color: #fff;
                 min-width: 18px; text-align: center;
             }
             #d2l-counter .counter-btn {
                 width: 22px; height: 22px; display: flex; align-items: center; justify-content: center;
-                border-radius: 6px; background: rgba(255,255,255,0.08);
-                color: #aaa; cursor: pointer; font-size: 16px; line-height: 1;
+                border-radius: 6px; background: rgba(255,255,255,0.15);
+                color: #fff; cursor: pointer; font-size: 16px; line-height: 1;
                 transition: background 0.15s, color 0.15s; border: none;
                 font-family: -apple-system, sans-serif;
             }
-            #d2l-counter .counter-btn:hover { background: rgba(255,255,255,0.2); color: #fff; }
+            #d2l-counter .counter-btn:hover { background: rgba(255,255,255,0.3); color: #fff; }
 
             #d2l-prompt-btn {
                 position: fixed; bottom: 20px; right: 20px; z-index: 2147483647;
