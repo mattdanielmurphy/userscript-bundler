@@ -337,14 +337,40 @@
             ctx.font = `bold ${fontSize}px Roboto, sans-serif`
             ctx.textAlign = 'center'
             const padding = Math.round(fontSize * 0.5)
-            const lineY = canvas.height - padding * 1.2
-            const bgHeight = fontSize + padding * 1.5
+            const lineSpacing = Math.round(fontSize * 1.35)
+
+            // Split into two lines if text exceeds ~160 chars
+            const text = ccText.trim()
+            let lines
+            if (text.length > 160) {
+                const mid = Math.floor(text.length / 2)
+                // Find nearest word boundary at or before mid
+                let splitIdx = text.lastIndexOf(' ', mid)
+                if (splitIdx < 1) splitIdx = text.indexOf(' ', mid)
+                if (splitIdx < 1) splitIdx = mid
+                lines = [text.slice(0, splitIdx).trim(), text.slice(splitIdx).trim()]
+            } else {
+                lines = [text]
+            }
+
+            const bgHeight = lines.length === 2
+                ? lineSpacing + fontSize + padding * 1.5
+                : fontSize + padding * 1.5
+
             ctx.fillStyle = 'rgba(0, 0, 0, 0.40)'
             ctx.fillRect(0, canvas.height - bgHeight, canvas.width, bgHeight)
             ctx.shadowColor = 'rgba(0,0,0,0.9)'
             ctx.shadowBlur = 4 * scaleFactor
             ctx.fillStyle = '#ffffff'
-            ctx.fillText(ccText.trim(), canvas.width / 2, lineY, canvas.width - padding * 2)
+
+            if (lines.length === 2) {
+                const y1 = canvas.height - bgHeight + padding + fontSize * 0.85
+                const y2 = y1 + lineSpacing
+                ctx.fillText(lines[0], canvas.width / 2, y1, canvas.width - padding * 2)
+                ctx.fillText(lines[1], canvas.width / 2, y2, canvas.width - padding * 2)
+            } else {
+                ctx.fillText(lines[0], canvas.width / 2, canvas.height - padding * 1.2, canvas.width - padding * 2)
+            }
             ctx.shadowBlur = 0
         }
         const dataUrl = canvas.toDataURL('image/png')
