@@ -329,13 +329,14 @@
         return `${m}:${s}`
     }
 
-    // Renders text onto an already-drawn canvas and triggers download
+    // Renders text onto an already-drawn canvas and triggers download.
+    // CC text is placed in a new strip added BELOW the frame so no video
+    // content is obscured ("reverse crop" extension).
     function renderCCAndDownload(canvas, ccText, scaleFactor, fileName) {
-        const ctx = canvas.getContext('2d')
+        let outCanvas = canvas
+
         if (ccText && ccText.trim()) {
             const fontSize = Math.max(14, Math.round(canvas.height * 0.025))
-            ctx.font = `bold ${fontSize}px Roboto, sans-serif`
-            ctx.textAlign = 'center'
             const padding = Math.round(fontSize * 0.5)
             const lineSpacing = Math.round(fontSize * 1.35)
 
@@ -344,7 +345,6 @@
             let lines
             if (text.length > 160) {
                 const mid = Math.floor(text.length / 2)
-                // Find nearest word boundary at or before mid
                 let splitIdx = text.lastIndexOf(' ', mid)
                 if (splitIdx < 1) splitIdx = text.indexOf(' ', mid)
                 if (splitIdx < 1) splitIdx = mid
@@ -353,27 +353,49 @@
                 lines = [text]
             }
 
-            const bgHeight = lines.length === 2
-                ? lineSpacing + fontSize + padding * 1.5
-                : fontSize + padding * 1.5
+            const topMargin = Math.round(fontSize * 0.6)
+            const bottomPad = Math.round(fontSize * 1.2)
+            const stripHeight = lines.length === 2
+                ? topMargin + lineSpacing + fontSize + bottomPad
+                : topMargin + fontSize + bottomPad
 
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.40)'
-            ctx.fillRect(0, canvas.height - bgHeight, canvas.width, bgHeight)
-            ctx.shadowColor = 'rgba(0,0,0,0.9)'
-            ctx.shadowBlur = 4 * scaleFactor
+            // Build a taller canvas: original frame on top, CC strip below
+            outCanvas = document.createElement('canvas')
+            outCanvas.width = canvas.width
+            outCanvas.height = canvas.height + stripHeight
+            const gapHeight = Math.round(fontSize * 0.5)
+
+            const ctx = outCanvas.getContext('2d')
+
+            // Blit original frame into the top portion
+            ctx.drawImage(canvas, 0, 0)
+
+            // White gap between frame and CC strip
             ctx.fillStyle = '#ffffff'
+            ctx.fillRect(0, canvas.height, canvas.width, gapHeight)
 
+            // Fill CC strip background (very light grey)
+            ctx.fillStyle = '#f0f0f0'
+            ctx.fillRect(0, canvas.height + gapHeight, canvas.width, stripHeight)
+
+            // Draw text
+            ctx.font = `bold ${fontSize}px Roboto, sans-serif`
+            ctx.textAlign = 'center'
+            ctx.shadowColor = 'transparent'
+            ctx.shadowBlur = 0
+            ctx.fillStyle = '#006FFF'
+
+            const textTop = canvas.height + gapHeight + topMargin + fontSize * 0.85
             if (lines.length === 2) {
-                const y1 = canvas.height - bgHeight + padding + fontSize * 0.85
-                const y2 = y1 + lineSpacing
-                ctx.fillText(lines[0], canvas.width / 2, y1, canvas.width - padding * 2)
-                ctx.fillText(lines[1], canvas.width / 2, y2, canvas.width - padding * 2)
+                ctx.fillText(lines[0], outCanvas.width / 2, textTop, outCanvas.width - padding * 2)
+                ctx.fillText(lines[1], outCanvas.width / 2, textTop + lineSpacing, outCanvas.width - padding * 2)
             } else {
-                ctx.fillText(lines[0], canvas.width / 2, canvas.height - padding * 1.2, canvas.width - padding * 2)
+                ctx.fillText(lines[0], outCanvas.width / 2, textTop, outCanvas.width - padding * 2)
             }
             ctx.shadowBlur = 0
         }
-        const dataUrl = canvas.toDataURL('image/png')
+
+        const dataUrl = outCanvas.toDataURL('image/png')
         const link = document.createElement('a')
         link.download = fileName
         link.href = dataUrl
