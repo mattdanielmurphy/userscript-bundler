@@ -538,7 +538,7 @@
                 backdrop-filter: blur(10px); opacity: 0.9; overflow: hidden;
                 white-space: nowrap; font-family: -apple-system, sans-serif; font-weight: 600;
             }
-            #d2l-dl-btn:hover { width: 180px; opacity: 1; border-radius: 12px; }
+            #d2l-dl-btn:hover { width: 180px; opacity: 1; border-radius: 12px; z-index: 2147483648; }
             #d2l-dl-btn .icon { min-width: 48px; display: flex; align-items: center; justify-content: center; }
             #d2l-dl-btn .text { opacity: 0; max-width: 0; transition: all 0.3s ease; font-size: 14px; }
             #d2l-dl-btn:hover .text { opacity: 1; max-width: 120px; margin-right: 16px; }
