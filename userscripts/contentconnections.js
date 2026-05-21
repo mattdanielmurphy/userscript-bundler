@@ -397,8 +397,15 @@
     }
 
     const addCustomButtons = () => {
-        const { el: buttonGroup, doc } = findInIframes(window, '.questionSlide__buttonGroup--correctness')
-        if (!buttonGroup || buttonGroup.querySelector('.custom-button-added-marker')) return
+        const { el: buttonGroup, doc } = findInIframes(
+            window,
+            '.questionSlide__buttonGroup--correctness'
+        )
+        if (
+            !buttonGroup ||
+            buttonGroup.querySelector('.custom-button-added-marker')
+        )
+            return
 
         // Mark as processed to avoid double addition
         const marker = doc.createElement('span')
@@ -406,20 +413,28 @@
         marker.style.display = 'none'
         buttonGroup.appendChild(marker)
 
-        const yesBtn = buttonGroup.querySelector('.questionSlide__button--correct')
-        const noBtn = buttonGroup.querySelector('.questionSlide__button--notCorrect')
+        const yesBtn = buttonGroup.querySelector(
+            '.questionSlide__button--correct'
+        )
+        const noBtn = buttonGroup.querySelector(
+            '.questionSlide__button--notCorrect'
+        )
 
         if (!yesBtn || !noBtn) return
 
         // Create "Yes (Show Solution)"
         const yesShowSolBtn = doc.createElement('button')
-        yesShowSolBtn.className = 'questionSlide__button questionSlide__button--correct custom-yes-show'
-        yesShowSolBtn.innerHTML = '<i class="fas fa-check-circle"></i> Yes (Show Sol.)'
+        yesShowSolBtn.className =
+            'questionSlide__button questionSlide__button--correct custom-yes-show'
+        yesShowSolBtn.innerHTML =
+            '<i class="fas fa-check-circle"></i> Yes (Show Sol.)'
 
         // Create "No (Skip Solution)"
         const noSkipSolBtn = doc.createElement('button')
-        noSkipSolBtn.className = 'questionSlide__button questionSlide__button--notCorrect custom-no-skip'
-        noSkipSolBtn.innerHTML = '<i class="fas fa-times-circle"></i> No (Skip Sol.)'
+        noSkipSolBtn.className =
+            'questionSlide__button questionSlide__button--notCorrect custom-no-skip'
+        noSkipSolBtn.innerHTML =
+            '<i class="fas fa-times-circle"></i> No (Skip Sol.)'
 
         // Insert order: Yes, Yes (Show Sol.), No, No (Skip Sol.)
         yesBtn.after(yesShowSolBtn)
@@ -490,7 +505,10 @@
         let attempts = 0
         // Poll for the video for ~2 seconds (Show Solution click reaction time)
         const interval = setInterval(() => {
-            const { el: video } = findInIframes(window, '.questionSlide__container--solution video')
+            const { el: video } = findInIframes(
+                window,
+                '.questionSlide__container--solution video'
+            )
             if (video) {
                 if (video.paused) {
                     // Attempt play
@@ -526,7 +544,10 @@
 
     // Chain the corner menu print click to the form's final print action
     const setupPrintChaining = () => {
-        const { el: cornerPrintBtn, doc } = findInIframes(window, 'a[onclick*="showPrint"], ul.cornerMenu a[title="Print"]')
+        const { el: cornerPrintBtn, doc } = findInIframes(
+            window,
+            'a[onclick*="showPrint"], ul.cornerMenu a[title="Print"]'
+        )
         if (cornerPrintBtn && !cornerPrintBtn.dataset.chained) {
             cornerPrintBtn.dataset.chained = 'true'
             cornerPrintBtn.addEventListener('click', (e) => {
@@ -536,7 +557,10 @@
 
                 // Give the site a moment to show the form
                 setTimeout(() => {
-                    const { el: finalPrintBtn } = findInIframes(window, '#PrintQuestions button[onclick*="PrintPractice"]')
+                    const { el: finalPrintBtn } = findInIframes(
+                        window,
+                        '#PrintQuestions button[onclick*="PrintPractice"]'
+                    )
                     if (finalPrintBtn) {
                         console.log(
                             '[Userscript] Triggering final Print button'
@@ -556,7 +580,10 @@
 
     // 6. "Automatically show next answer" Checkbox
     const addAutoShowCheckbox = () => {
-        const { el: buttonGroup, doc } = findInIframes(window, '.questionSlide__buttonGroup--correctness')
+        const { el: buttonGroup, doc } = findInIframes(
+            window,
+            '.questionSlide__buttonGroup--correctness'
+        )
         if (!buttonGroup) return // Not visible yet
 
         // Check if parent already has it (we append to parent to be "below" the group)
@@ -626,16 +653,26 @@
         }
 
         // Try class selector first
-        let { el: showAnswerBtn, doc: btnDoc } = findInIframes(window, '.questionSlide__button--showAnswer')
+        let { el: showAnswerBtn, doc: btnDoc } = findInIframes(
+            window,
+            '.questionSlide__button--showAnswer'
+        )
 
         if (!showAnswerBtn) {
             // If not found, try text-based search (case-insensitive) for ANY button/input containing "Show Answer" in all iframes
             const searchAllDocs = (win) => {
                 try {
-                    const allButtons = win.document.querySelectorAll('button, .questionSlide__button, input[type="button"]')
+                    const allButtons = win.document.querySelectorAll(
+                        'button, .questionSlide__button, input[type="button"]'
+                    )
                     for (const btn of allButtons) {
-                        const text = (btn.textContent || btn.value || '').toLowerCase()
-                        if (text.includes('show answer')) return { el: btn, doc: win.document }
+                        const text = (
+                            btn.textContent ||
+                            btn.value ||
+                            ''
+                        ).toLowerCase()
+                        if (text.includes('show answer'))
+                            return { el: btn, doc: win.document }
                     }
                     const iframes = win.document.querySelectorAll('iframe')
                     for (const f of iframes) {
@@ -972,7 +1009,10 @@
                 window.history.replaceState({}, '', url.toString())
             }
         } catch (e) {
-            console.error('[Userscript] Failed to update URL slide parameter:', e)
+            console.error(
+                '[Userscript] Failed to update URL slide parameter:',
+                e
+            )
         }
     }
 
@@ -1374,7 +1414,12 @@
         }
 
         // 'y' key for "Yes" button
-        if (e.code === 'KeyY' && !e.altKey && !e.metaKey && !e.ctrlKey) {
+        if (
+            (e.code === 'KeyY' || e.key === 'Enter') &&
+            !e.altKey &&
+            !e.metaKey &&
+            !e.ctrlKey
+        ) {
             let yesBtnRes = findInIframes(
                 window,
                 '.questionSlide__button--correctNoSolution'
@@ -1676,17 +1721,25 @@
                         if (!audio._pauseSyncInjected) {
                             audio._pauseSyncInjected = true
                             audio.addEventListener('pause', () => {
-                                if (isAutomationRunning && !isAutomationPaused && !isSkipRequested) {
-                                    // We no longer pause the skipper automatically when the video pauses, 
+                                if (
+                                    isAutomationRunning &&
+                                    !isAutomationPaused &&
+                                    !isSkipRequested
+                                ) {
+                                    // We no longer pause the skipper automatically when the video pauses,
                                     // as requested by the user to ensure autoplay and continuous skipping.
                                     // Instead, we just try to resume playback if we're not supposed to be paused.
-                                    console.log('[Userscript] Audio PAUSED - automation will attempt to resume playback.')
+                                    console.log(
+                                        '[Userscript] Audio PAUSED - automation will attempt to resume playback.'
+                                    )
                                 }
                             })
                             audio.addEventListener('play', () => {
                                 if (isAutomationRunning && isAutomationPaused) {
                                     // Only auto-resume if we were actually paused (e.g. user clicked play on video)
-                                    console.log('[Userscript] Audio PLAY detected - syncing automation state.')
+                                    console.log(
+                                        '[Userscript] Audio PLAY detected - syncing automation state.'
+                                    )
                                     setAutomationPaused(false)
                                 }
                             })
@@ -1836,7 +1889,7 @@
                 canvas.dispatchEvent(new MouseEvent('mousedown', clickOpts))
                 canvas.dispatchEvent(new MouseEvent('mouseup', clickOpts))
                 canvas.dispatchEvent(new MouseEvent('click', clickOpts))
-                
+
                 // Explicitly call play() to ensure autoplay even if canvas click didn't trigger it
                 audio.play().catch(() => {})
 
@@ -1998,7 +2051,10 @@
                         ? audioDuration * (1000 / automationSpeed)
                         : 0
                     // Also sync playback rate if it changed
-                    if (useDwellTime && audio.playbackRate !== automationSpeed) {
+                    if (
+                        useDwellTime &&
+                        audio.playbackRate !== automationSpeed
+                    ) {
                         audio.playbackRate = automationSpeed
                     }
 
@@ -2050,26 +2106,39 @@
                 // 5. Check if we're done (Process up to second-to-last slide, skipping the "completed" slide)
                 if (currentSlide >= totalSlides - 1 || !nextBtn) {
                     updateControlBarStatus('Lesson Complete!')
-                    
+
                     // Specific sequence: Print (Notes) then Practice
-                    const printBtn = findInIframes(window, 'ul.cornerMenu a[title="Print"]').el
-                    const practiceBtn = findInIframes(window, 'ul.cornerMenu a[title="Practice"]').el
+                    const printBtn = findInIframes(
+                        window,
+                        'ul.cornerMenu a[title="Print"]'
+                    ).el
+                    const practiceBtn = findInIframes(
+                        window,
+                        'ul.cornerMenu a[title="Practice"]'
+                    ).el
 
                     if (printBtn) {
                         updateControlBarStatus('Downloading Notes...')
-                        console.log('[Userscript] Lesson complete. Triggering Notes download.')
+                        console.log(
+                            '[Userscript] Lesson complete. Triggering Notes download.'
+                        )
                         printBtn.click()
                         // Small delay to ensure download triggers before navigation
-                        await new Promise(r => setTimeout(r, 1500))
+                        await new Promise((r) => setTimeout(r, 1500))
                     }
 
                     if (practiceBtn) {
                         updateControlBarStatus('Going to Practice...')
-                        console.log('%cLesson complete. Clicking Practice link.', 'color: #ff3385; font-weight: bold;')
+                        console.log(
+                            '%cLesson complete. Clicking Practice link.',
+                            'color: #ff3385; font-weight: bold;'
+                        )
                         practiceBtn.click()
                     } else {
                         updateControlBarStatus('Practice link not found.')
-                        console.warn('[Userscript] Could not find Practice link to click.')
+                        console.warn(
+                            '[Userscript] Could not find Practice link to click.'
+                        )
                     }
 
                     updateControlBarStatus('Finished!')
