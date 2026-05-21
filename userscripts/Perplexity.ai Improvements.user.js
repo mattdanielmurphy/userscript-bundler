@@ -222,174 +222,228 @@
     // Add CSS rule for immediate hiding
     const style = document.createElement('style')
     style.textContent = `
-        /* Hide Upsell Banners */
+        /* Hide Upsell Banners via CSS selector engine */
         .rounded-2xl:has(use[href*="computer"]),
         .rounded-2xl:has(use[*|href*="computer"]),
         .rounded-2xl:has(button[aria-label="Try Computer"]),
         .rounded-2xl:has(img[src*="computer"]),
         .bg-raised:has(use[href*="computer"]),
         .bg-raised:has(use[*|href*="computer"]),
+        
         /* Hide the wrappers too if possible */
         div:has(> div > .rounded-2xl:has(use[href*="computer"])),
-        div:has(> div > .bg-raised:has(use[href*="computer"])) {
+        div:has(> div > .bg-raised:has(use[href*="computer"])),
+        
+        /* General hidden class applied dynamically by JS scanner */
+        .pplx-hidden-banner {
             display: none !important;
             visibility: hidden !important;
             height: 0 !important;
+            min-height: 0 !important;
+            max-height: 0 !important;
             margin: 0 !important;
             padding: 0 !important;
+            border: none !important;
+            opacity: 0 !important;
             pointer-events: none !important;
+            overflow: hidden !important;
         }
     `
     document.head.appendChild(style)
 
-    const removeBanners = () => {
-        removeUpgradeToMaxBanner()
-        removeUpgradeNowBanner()
-        removeTryThisAnswerBanner()
-        removeTryComputerBanner()
-    }
+    const BANNER_KEYWORDS = [
+        'try computer',
+        'perplexity computer',
+        'computer writes sql',
+        'turn your data questions',
+        'put computer to work',
+        'ship faster with computer',
+        'computer connects to',
+        'upgrade to max',
+        'upgrade now',
+        'try this answer with'
+    ];
 
-    const removeUpgradeToMaxBanner = () => {
-        const upgradeBtn = Array.from(
-            document.querySelectorAll('div, button')
-        ).find((el) => el.textContent.trim() === 'Upgrade to Max')
-        if (!upgradeBtn) return
+    const BANNER_ICON_ATTRS = [
+        'computer',
+        'custom-computer',
+        'perplexity_computer_upsell'
+    ];
 
-        const banner =
-            upgradeBtn.closest('.shadow-xl') || upgradeBtn.closest('.shadow-md')
-        if (banner) {
-            banner.remove()
+    function findBannerContainer(el) {
+        // Find the closest card container first
+        let card = el.closest('.rounded-2xl, .bg-raised, .shadow-xl, .shadow-md, [role="dialog"], .modal, .border-subtlest');
+        if (!card) {
+            card = el.parentElement;
+            if (!card) return null;
         }
-    }
 
-    const removeUpgradeNowBanner = () => {
-        const upgradeBtn = Array.from(
-            document.querySelectorAll('div, button')
-        ).find((el) => el.textContent.trim() === 'Upgrade now')
-        if (!upgradeBtn) return
+        // Walk up to hide simple outer wrappers (opacity: 1, transitions, etc.)
+        let current = card;
+        while (current.parentElement) {
+            const parent = current.parentElement;
+            if (parent === document.body || parent === document.documentElement || parent.tagName === 'MAIN') {
+                break;
+            }
+            
+            // Count visible/active children in the parent
+            const siblingCount = Array.from(parent.children).filter(c => {
+                if (c === current) return true;
+                // If a sibling is already hidden, don't count it
+                if (c.classList.contains('pplx-hidden-banner') || c.style.display === 'none') return false;
+                return true;
+            }).length;
 
-        const banner =
-            upgradeBtn.closest('.shadow-md') || upgradeBtn.closest('.shadow-xl')
-        if (banner) {
-            banner.remove()
+            const isWrapper = siblingCount === 1 && (
+                parent.style.opacity === '1' ||
+                parent.style.transform !== '' ||
+                parent.className === '' ||
+                parent.tagName === 'DIV'
+            );
+
+            if (isWrapper) {
+                current = parent;
+            } else {
+                break;
+            }
         }
+        return current;
     }
 
-    const getOwnText = (el) => {
-        return Array.from(el.childNodes)
-            .filter((n) => n.nodeType === Node.TEXT_NODE)
-            .map((n) => n.textContent)
-            .join('')
-            .trim()
-    }
-
-    const removeTryThisAnswerBanner = () => {
-        const target = Array.from(document.querySelectorAll('*')).find((el) => {
-            const own = getOwnText(el)
-            if (!own.startsWith('Try this answer with')) return false
-            return !Array.from(el.querySelectorAll('*')).some((child) =>
-                getOwnText(child).startsWith('Try this answer with')
-            )
-        })
-
-        if (
-            target &&
-            target.parentElement &&
-            target.parentElement.parentElement
-        ) {
-            target.parentElement.parentElement.remove()
+    function isMatch(el) {
+        // Skip already hidden elements or their children to avoid double-processing
+        if (el.classList.contains('pplx-hidden-banner') || el.closest('.pplx-hidden-banner')) {
+            return false;
         }
-    }
 
-    const removeTryComputerBanner = () => {
-        // 1. Check for specific triggers (labels, images, or specific icons)
-        const trigger =
-            document.querySelector('[aria-label="Try Computer"]') ||
-            document.querySelector(
-                'img[src*="perplexity_computer_upsell.png"]'
-            ) ||
-            Array.from(document.querySelectorAll('use')).find(
-                (use) =>
-                    use.getAttribute('xlink:href') ===
-                        '#pplx-icon-custom-computer' ||
-                    use.getAttribute('href') === '#pplx-icon-custom-computer' ||
-                    (use.href &&
-                        use.href.baseVal === '#pplx-icon-custom-computer')
-            )
+        // Avoid matching elements inside user chat messages or query inputs
+        if (el.closest('[data-testid="user-message"], .message-container, #ask-input')) {
+            return false;
+        }
 
-        if (trigger) {
-            const banner =
-                trigger.closest('.shadow-xl') ||
-                trigger.closest('.bottom-md') ||
-                trigger.closest('.rounded-2xl') ||
-                trigger.closest('.bg-raised')
-            if (banner) {
-                // Try to remove the wrapper divs with opacity: 1 if they exist
-                let toRemove = banner
-                if (
-                    toRemove.parentElement &&
-                    toRemove.parentElement.style.opacity === '1'
-                ) {
-                    toRemove = toRemove.parentElement
-                    if (
-                        toRemove.parentElement &&
-                        toRemove.parentElement.style.opacity === '1'
-                    ) {
-                        toRemove = toRemove.parentElement
+        // 1. Check text content
+        const text = (el.textContent || '').toLowerCase().trim();
+        if (text) {
+            for (const kw of BANNER_KEYWORDS) {
+                if (text.includes(kw)) {
+                    if (el.tagName === 'BUTTON' || el.tagName === 'A' || el.tagName === 'H1' || el.tagName === 'H2' || el.tagName === 'H3' || text.length < 150) {
+                        return true;
+                    }
+                    if (el.tagName === 'DIV') {
+                        const children = Array.from(el.children);
+                        const hasMatchingChild = children.some(child => {
+                            const childText = (child.textContent || '').toLowerCase();
+                            return BANNER_KEYWORDS.some(k => childText.includes(k));
+                        });
+                        if (!hasMatchingChild) {
+                            return true;
+                        }
                     }
                 }
-                toRemove.remove()
-                console.log(
-                    "[Perplexity Improvements] Removed 'Try Computer' banner via trigger"
-                )
-                return
             }
         }
 
-        // 2. Scan for specific banners by content patterns
-        document
-            .querySelectorAll(
-                '.shadow-xl, .shadow-md, .rounded-2xl, .bg-raised'
-            )
-            .forEach((el) => {
-                const text = el.textContent || ''
-                const hasComputerUpsell =
-                    text.includes('Computer connects to 400+ apps') ||
-                    text.includes('Put Computer to work') ||
-                    text.includes('Put Perplexity Computer to work') ||
-                    text.includes('Ship faster with Computer') ||
-                    text.includes('Computer handles competitive analysis') ||
-                    (text.includes('Try Computer') &&
-                        (text.includes('Computer can') ||
-                            text.includes('autonomously') ||
-                            text.includes('connected tools')))
+        // 2. Check SVG / Use elements
+        if (el.tagName === 'use' || el.tagName === 'USE') {
+            const href = el.getAttribute('href') || el.getAttribute('xlink:href') || (el.href && el.href.baseVal) || '';
+            if (BANNER_ICON_ATTRS.some(attr => href.toLowerCase().includes(attr))) {
+                return true;
+            }
+        }
 
-                if (hasComputerUpsell) {
-                    // Try to remove the wrapper divs with opacity: 1 if they exist
-                    let toRemove = el
-                    if (
-                        toRemove.parentElement &&
-                        toRemove.parentElement.style.opacity === '1'
-                    ) {
-                        toRemove = toRemove.parentElement
-                        if (
-                            toRemove.parentElement &&
-                            toRemove.parentElement.style.opacity === '1'
-                        ) {
-                            toRemove = toRemove.parentElement
-                        }
+        // 3. Check Image elements
+        if (el.tagName === 'IMG') {
+            const src = el.getAttribute('src') || '';
+            if (BANNER_ICON_ATTRS.some(attr => src.toLowerCase().includes(attr))) {
+                return true;
+            }
+        }
+
+        // 4. Check button attributes
+        if (el.tagName === 'BUTTON') {
+            const ariaLabel = (el.getAttribute('aria-label') || '').toLowerCase();
+            if (BANNER_KEYWORDS.some(kw => ariaLabel.includes(kw))) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    const removeBanners = () => {
+        // Fast path: scan card-like containers
+        const containers = document.querySelectorAll(
+            '.rounded-2xl, .bg-raised, .shadow-xl, .shadow-md, [role="dialog"], .modal, .border-subtlest'
+        );
+        containers.forEach(container => {
+            if (container.classList.contains('pplx-hidden-banner')) return;
+            if (container.closest('[data-testid="user-message"], .message-container')) return;
+
+            const text = (container.textContent || '').toLowerCase();
+            const hasKeyword = BANNER_KEYWORDS.some(kw => text.includes(kw));
+
+            if (hasKeyword) {
+                // Ensure it's a promotional banner and not real content by confirming UI markers
+                const isUpsell = 
+                    container.querySelector('button') ||
+                    container.querySelector('use') ||
+                    container.querySelector('img') ||
+                    container.querySelector('[aria-label="Dismiss"]');
+                    
+                if (isUpsell) {
+                    const target = findBannerContainer(container);
+                    if (target && !target.classList.contains('pplx-hidden-banner')) {
+                        target.classList.add('pplx-hidden-banner');
+                        console.log('[Perplexity Improvements] Hidden container via fast path:', target);
                     }
-                    toRemove.remove()
-                    console.log(
-                        '[Perplexity Improvements] Removed Computer upsell banner via text scan'
-                    )
+                    return;
                 }
-            })
+            }
+
+            // Check icons/images inside the container
+            const uses = container.querySelectorAll('use');
+            for (const use of uses) {
+                const href = use.getAttribute('href') || use.getAttribute('xlink:href') || (use.href && use.href.baseVal) || '';
+                if (BANNER_ICON_ATTRS.some(attr => href.toLowerCase().includes(attr))) {
+                    const target = findBannerContainer(container);
+                    if (target && !target.classList.contains('pplx-hidden-banner')) {
+                        target.classList.add('pplx-hidden-banner');
+                        console.log('[Perplexity Improvements] Hidden container via SVG path:', target);
+                    }
+                    return;
+                }
+            }
+
+            const imgs = container.querySelectorAll('img');
+            for (const img of imgs) {
+                const src = img.getAttribute('src') || '';
+                if (BANNER_ICON_ATTRS.some(attr => src.toLowerCase().includes(attr))) {
+                    const target = findBannerContainer(container);
+                    if (target && !target.classList.contains('pplx-hidden-banner')) {
+                        target.classList.add('pplx-hidden-banner');
+                        console.log('[Perplexity Improvements] Hidden container via Image path:', target);
+                    }
+                    return;
+                }
+            }
+        });
+
+        // Fallback/Standalone path
+        const candidates = document.querySelectorAll('button, use, img');
+        candidates.forEach(el => {
+            if (isMatch(el)) {
+                const target = findBannerContainer(el);
+                if (target && !target.classList.contains('pplx-hidden-banner')) {
+                    target.classList.add('pplx-hidden-banner');
+                    console.log('[Perplexity Improvements] Hidden standalone element:', target);
+                }
+            }
+        });
     }
 
     // Use MutationObserver for instant removal
     const observer = new MutationObserver(removeBanners)
-    observer.observe(document.body, { childList: true, subtree: true })
+    observer.observe(document.body || document.documentElement, { childList: true, subtree: true })
 
     // Fallback interval for SPA navigation or items that don't trigger subtree mutations correctly
     setInterval(removeBanners, 1000)
