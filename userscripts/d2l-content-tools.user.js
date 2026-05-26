@@ -804,203 +804,150 @@
                 if (el) el.textContent = text
             }
 
-            const SIM_CONFIG = {
-                slideSelector: '.question-fullscreen',
-                questionSelector: '.qf-question, [id^="question-display-"]',
-                subquestionSelector: '.qf-answer',
-                nextButtonSelector: '.qf-title-button.next',
-                baseMs: 60_000,
-                extraPerSubquestionMs: 30_000,
-                jitterMs: 10_000,
-                minDelayMs: 5_000,
+            // --- EXACT MINIMAL SCRIPT LOGIC ---
+            const CONFIG = {
                 canvasSelector: '.qf-canvas-wrapper canvas',
-                canvasClickHoldMs: 50,
-                canvasEntryDelayMs: 5000,
-                beforeNextDelayMs: 5000,
-                debug: false,
-            }
+                questionSelector: '.qf-question, #question-display-',
+                slideSelector: '.question-fullscreen',
+                delayMs: 30 * 1000,
+                holdMs: 50,
+                debug: true,
+            };
 
-            const simState = {
+            const state = {
+                running: false,
                 timerId: null,
+                observerDisconnectors: [],
                 activeKey: null,
-                observer: null,
                 countdownId: null,
                 scheduledAt: 0,
                 scheduledDelayMs: 0,
-                running: false,
+            };
+
+            const log = (...args) => {
+                if (CONFIG.debug) console.log('[time-metric-sim]', ...args);
+            };
+
+            function setStatus(text) {
+                const el = document.getElementById('d2l-automation-status');
+                if (el) el.textContent = text;
+                log(text);
             }
 
-            const randInt = (min, max) =>
-                Math.floor(Math.random() * (max - min + 1)) + min
-
-            const getVisible = (el) => {
-                if (!el) return false
-                const r = el.getBoundingClientRect()
-                return r.width > 0 && r.height > 0
-            }
-
-            const getActiveSlide = () => {
-                const root = getActiveQuestionRoot()
-                if (root && root.closest) {
-                    const slide = root.closest(SIM_CONFIG.slideSelector)
-                    if (slide) return slide
+            function clearTimer() {
+                if (state.timerId !== null) {
+                    clearTimeout(state.timerId);
+                    state.timerId = null;
                 }
-
-                const slides = findAllInDocumentOrIframes(SIM_CONFIG.slideSelector)
-                const visible = slides.filter(getVisible)
-                return (
-                    visible[visible.length - 1] ||
-                    slides[slides.length - 1] ||
-                    null
-                )
-            }
-
-            const getQuestionKey = (slide) => {
-                if (!slide) return null
-                const q =
-                    slide.querySelector('.qf-question') ||
-                    slide.querySelector('[id^="question-display-"]')
-                return (
-                    q?.id ||
-                    slide.querySelector('.qf-reference')?.textContent?.trim() ||
-                    slide.querySelector('.qf-number')?.textContent?.trim() ||
-                    (q && q.textContent && q.textContent.trim().slice(0, 64)) ||
-                    'unknown-question'
-                )
-            }
-
-            const countSubquestions = (slide) => {
-                const question = slide?.querySelector('.qf-question') || slide
-                if (!question) return 1
-                const count = question.querySelectorAll(
-                    SIM_CONFIG.subquestionSelector
-                ).length
-                return Math.max(1, count)
-            }
-
-            const getDelayMs = (subquestions) => {
-                const base =
-                    SIM_CONFIG.baseMs +
-                    Math.max(0, subquestions - 1) *
-                        SIM_CONFIG.extraPerSubquestionMs
-                const jitter = randInt(-SIM_CONFIG.jitterMs, SIM_CONFIG.jitterMs)
-                return Math.max(SIM_CONFIG.minDelayMs, base + jitter)
-            }
-
-            const clearExistingTimer = () => {
-                if (simState.timerId !== null) {
-                    clearTimeout(simState.timerId)
-                    simState.timerId = null
+                if (state.countdownId !== null) {
+                    clearInterval(state.countdownId);
+                    state.countdownId = null;
                 }
+                state.scheduledAt = 0;
+                state.scheduledDelayMs = 0;
             }
 
-            const clearCountdown = () => {
-                if (simState.countdownId !== null) {
-                    clearInterval(simState.countdownId)
-                    simState.countdownId = null
-                }
+            function isVisible(el) {
+                if (!el || !el.isConnected) return false;
+                const rect = el.getBoundingClientRect();
+                return rect.width > 0 && rect.height > 0;
             }
 
-            const findNextButton = (slide) => {
-                const btn = slide?.querySelector(SIM_CONFIG.nextButtonSelector)
-                if (btn) return btn
-                const all = findAllInDocumentOrIframes(SIM_CONFIG.nextButtonSelector)
-                const visible = all.filter(getVisible)
-                return visible[visible.length - 1] || all[all.length - 1] || null
+            function uniquePush(list, item) {
+                if (item && !list.includes(item)) list.push(item);
             }
 
-            const isVisible = (el) => {
-                if (!el || !el.isConnected) return false
-                const rect = el.getBoundingClientRect()
-                return rect.width > 0 && rect.height > 0
-            }
-
-            const uniquePush = (list, item) => {
-                if (item && !list.includes(item)) list.push(item)
-            }
-
-            const findInShadow = (selector, root, out = []) => {
-                if (!root) return out
+            function findInShadow(selector, root, out = []) {
+                if (!root) return out;
                 if (root.querySelectorAll) {
-                    root.querySelectorAll(selector).forEach(el => uniquePush(out, el))
+                    root.querySelectorAll(selector).forEach(el => uniquePush(out, el));
                 }
                 const walker = (root.ownerDocument || document).createTreeWalker(
                     root,
                     NodeFilter.SHOW_ELEMENT,
                     {
                         acceptNode(node) {
-                            return node.shadowRoot ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP
+                            return node.shadowRoot ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP;
                         }
                     }
-                )
-                let node
+                );
+                let node;
                 while ((node = walker.nextNode())) {
-                    findInShadow(selector, node.shadowRoot, out)
+                    findInShadow(selector, node.shadowRoot, out);
                 }
-                return out
+                return out;
             }
 
-            const collectSameOriginDocuments = () => {
-                const docs = []
-                const seen = new Set()
+            function collectSameOriginDocuments() {
+                const docs = [];
+                const seen = new Set();
 
                 function walk(doc) {
-                    if (!doc || seen.has(doc)) return
-                    seen.add(doc)
-                    docs.push(doc)
+                    if (!doc || seen.has(doc)) return;
+                    seen.add(doc);
+                    docs.push(doc);
 
                     const iframes = [
                         ...doc.querySelectorAll('iframe'),
                         ...findInShadow('iframe', doc)
-                    ]
+                    ];
 
                     for (const iframe of iframes) {
                         try {
-                            if (iframe.contentDocument) walk(iframe.contentDocument)
+                            if (iframe.contentDocument) walk(iframe.contentDocument);
                         } catch (_) {}
                     }
                 }
 
-                walk(document)
-                return docs
+                walk(document);
+                return docs;
             }
 
-            const getQuestionCandidates = () => {
-                const results = []
+            function getQuestionCandidates() {
+                const results = [];
                 for (const doc of collectSameOriginDocuments()) {
-                    for (const selector of SIM_CONFIG.questionSelector.split(',').map(s => s.trim())) {
-                        findInShadow(selector, doc, results)
+                    for (const selector of CONFIG.questionSelector.split(',').map(s => s.trim())) {
+                        findInShadow(selector, doc, results);
                     }
                 }
-                return results
+                return results;
             }
 
-            const getActiveQuestionRootMinimal = () => {
-                const candidates = getQuestionCandidates().filter(isVisible)
-                if (!candidates.length) return null
-                return candidates[candidates.length - 1]
+            function getActiveQuestionRootMinimal() {
+                const candidates = getQuestionCandidates().filter(isVisible);
+                if (!candidates.length) return null;
+                return candidates[candidates.length - 1];
             }
 
-            const getTargetCanvas = () => {
-                const root = getActiveQuestionRootMinimal()
-                if (!root) return null
-
-                const doc = root.ownerDocument || document
-                const slide = root.closest?.(SIM_CONFIG.slideSelector) || root
-
-                let canvas = slide.querySelector(SIM_CONFIG.canvasSelector)
-                if (!canvas && doc) canvas = doc.querySelector(SIM_CONFIG.canvasSelector)
-                if (!canvas) return null
-                if (!isVisible(canvas)) return null
-
-                return canvas
+            function getQuestionKeyMinimal(root) {
+                if (!root) return null;
+                const doc = root.ownerDocument || document;
+                const slide = root.closest?.(CONFIG.slideSelector) || root;
+                const ref = slide.querySelector?.('.qf-reference')?.textContent?.trim();
+                const num = slide.querySelector?.('.qf-number')?.textContent?.trim();
+                return root.id || ref || num || root.textContent?.trim()?.slice(0, 80) || null;
             }
 
-            const dispatchWorkingPattern = (canvas, done) => {
-                const win = canvas.ownerDocument?.defaultView || window
-                const rect = canvas.getBoundingClientRect()
-                const x = rect.left + rect.width / 2
-                const y = rect.top + rect.height / 2
+            function getTargetCanvas() {
+                const root = getActiveQuestionRootMinimal();
+                if (!root) return null;
+
+                const doc = root.ownerDocument || document;
+                const slide = root.closest?.(CONFIG.slideSelector) || root;
+
+                let canvas = slide.querySelector(CONFIG.canvasSelector);
+                if (!canvas && doc) canvas = doc.querySelector(CONFIG.canvasSelector);
+                if (!canvas) return null;
+                if (!isVisible(canvas)) return null;
+
+                return canvas;
+            }
+
+            function dispatchWorkingPattern(canvas) {
+                const win = canvas.ownerDocument?.defaultView || window;
+                const rect = canvas.getBoundingClientRect();
+                const x = rect.left + rect.width / 2;
+                const y = rect.top + rect.height / 2;
 
                 const mousedownEvent = new win.MouseEvent('mousedown', {
                     view: win,
@@ -1009,7 +956,7 @@
                     clientX: x,
                     clientY: y,
                     buttons: 1
-                })
+                });
 
                 const mouseupEvent = new win.MouseEvent('mouseup', {
                     view: win,
@@ -1018,7 +965,7 @@
                     clientX: x,
                     clientY: y,
                     buttons: 0
-                })
+                });
 
                 const clickEvent = new win.MouseEvent('click', {
                     view: win,
@@ -1026,242 +973,161 @@
                     cancelable: true,
                     clientX: x,
                     clientY: y
-                })
+                });
 
-                canvas.dispatchEvent(mousedownEvent)
+                canvas.dispatchEvent(mousedownEvent);
                 setTimeout(() => {
-                    if (!simState.running) return
-                    canvas.dispatchEvent(mouseupEvent)
-                    canvas.dispatchEvent(clickEvent)
-                    console.log('[sim-time] clicked canvas', {
+                    if (!state.running) return;
+                    canvas.dispatchEvent(mouseupEvent);
+                    canvas.dispatchEvent(clickEvent);
+                    log('clicked canvas', {
                         x: Math.round(x),
                         y: Math.round(y),
-                        sameAsDirectQuery: canvas === (canvas.ownerDocument || document).querySelector(SIM_CONFIG.canvasSelector)
-                    })
-                    if (typeof done === 'function') done()
-                }, SIM_CONFIG.canvasClickHoldMs)
+                        sameAsDirectQuery: canvas === (canvas.ownerDocument || document).querySelector(CONFIG.canvasSelector)
+                    });
+                    setStatus('Click fired; waiting for question change or rescan');
+                }, CONFIG.holdMs);
             }
 
-            const simulateCanvasClick = (slide, done, reason) => {
-                const canvas = getTargetCanvas()
+            function startCountdown() {
+                if (state.countdownId !== null) clearInterval(state.countdownId);
+                state.countdownId = setInterval(() => {
+                    if (!state.running || !state.scheduledAt || !state.scheduledDelayMs) return;
+                    const elapsed = Date.now() - state.scheduledAt;
+                    const remaining = Math.max(0, state.scheduledDelayMs - elapsed);
+                    setStatus(`Click in ${Math.ceil(remaining / 1000)}s`);
+                }, 500);
+            }
+
+            function scheduleForCurrentQuestion() {
+                if (!state.running) return;
+
+                const root = getActiveQuestionRootMinimal();
+                if (!root) {
+                    clearTimer();
+                    setStatus('No visible question found');
+                    return;
+                }
+
+                const key = getQuestionKeyMinimal(root);
+                if (!key) {
+                    clearTimer();
+                    setStatus('Question found but key unavailable');
+                    return;
+                }
+
+                if (key === state.activeKey && state.timerId !== null) return;
+
+                state.activeKey = key;
+                clearTimer();
+
+                const canvas = getTargetCanvas();
                 if (!canvas) {
-                    console.warn('[sim-time] canvas click skipped (no canvas)', {
-                        reason,
-                    })
-                    return false
-                }
-                dispatchWorkingPattern(canvas, done)
-                return true
-            }
-
-            const stopSimTime = (reason = 'Stopped') => {
-                simState.running = false
-                clearExistingTimer()
-                clearCountdown()
-                if (simState.observer) simState.observer.disconnect()
-                simState.observer = null
-                simState.activeKey = null
-                simState.scheduledAt = 0
-                simState.scheduledDelayMs = 0
-
-                const btn = document.getElementById('d2l-sim-time-btn')
-                if (btn) btn.classList.remove('on')
-
-                const advanceBtn = document.getElementById('d2l-sim-advance-btn')
-                if (advanceBtn) advanceBtn.disabled = true
-                setAutomationStatus(reason)
-            }
-
-            const clickNextIfStillOnSameQuestion = (expectedKey) => {
-                const slide = getActiveSlide()
-                if (!slide) return
-
-                const currentKey = getQuestionKey(slide)
-                if (currentKey !== expectedKey) return
-
-                const nextBtn = findNextButton(slide)
-                if (!nextBtn) return
-                if (nextBtn.classList.contains('disabled')) {
-                    stopSimTime('Done (no more questions)')
-                    return
+                    setStatus('No visible .qf-canvas-wrapper canvas found');
+                    return;
                 }
 
-                if (SIM_CONFIG.debug) {
-                    console.log('[sim-time] advancing:', expectedKey)
-                }
+                state.scheduledAt = Date.now();
+                state.scheduledDelayMs = CONFIG.delayMs;
+                setStatus(`Scheduled 30s click for ${key}`);
+                startCountdown();
 
-                // Click canvas again before leaving this slide; helps "time spent" counters.
-                const doNext = () => {
-                    if (!simState.running) return
-                    const slideNow = getActiveSlide()
-                    if (!slideNow) return
-                    const keyNow = getQuestionKey(slideNow)
-                    if (keyNow !== expectedKey) return
-
-                    const nextBtnNow = findNextButton(slideNow)
-                    if (!nextBtnNow) return
-                    if (nextBtnNow.classList.contains('disabled')) {
-                        stopSimTime('Done (no more questions)')
-                        return
+                state.timerId = setTimeout(() => {
+                    if (!state.running) return;
+                    const latestRoot = getActiveQuestionRootMinimal();
+                    const latestKey = getQuestionKeyMinimal(latestRoot);
+                    if (latestKey !== key) {
+                        setStatus('Question changed before click; rescheduling');
+                        scheduleForCurrentQuestion();
+                        return;
                     }
+                    const latestCanvas = getTargetCanvas();
+                    if (!latestCanvas) {
+                        setStatus('Canvas missing at fire time');
+                        return;
+                    }
+                    dispatchWorkingPattern(latestCanvas);
+                }, CONFIG.delayMs);
+            }
 
-                console.log('[sim-time] clicking Next soon', {
-                        fromKey: expectedKey,
-                        delayMs: SIM_CONFIG.beforeNextDelayMs,
-                    })
-                    setTimeout(() => {
-                        if (!simState.running) return
-                        const slideFinal = getActiveSlide()
-                        if (!slideFinal) return
-                        const keyFinal = getQuestionKey(slideFinal)
-                        if (keyFinal !== expectedKey) return
-                        const nextBtnFinal = findNextButton(slideFinal)
-                        if (!nextBtnFinal) return
-                        if (nextBtnFinal.classList.contains('disabled')) {
-                            stopSimTime('Done (no more questions)')
-                            return
-                        }
-                        console.log('[sim-time] clicking Next now', {
-                            fromKey: expectedKey,
-                        })
-                        nextBtnFinal.click()
-                    }, SIM_CONFIG.beforeNextDelayMs)
+            function disconnectObservers() {
+                for (const fn of state.observerDisconnectors) {
+                    try { fn(); } catch (_) {}
                 }
-
-                if (!simulateCanvasClick(slide, doNext, 'before-next')) doNext()
+                state.observerDisconnectors = [];
             }
 
-            const startCountdown = () => {
-                clearCountdown()
-                simState.countdownId = setInterval(() => {
-                    if (!simState.running) return
-                    if (!simState.scheduledAt || !simState.scheduledDelayMs) return
-                    const elapsed = Date.now() - simState.scheduledAt
-                    const remaining = Math.max(
-                        0,
-                        simState.scheduledDelayMs - elapsed
-                    )
-                    const s = Math.ceil(remaining / 1000)
-                    setAutomationStatus(`Sim time: next in ${s}s`)
-                }, 500)
-            }
-
-            const scheduleCurrentQuestion = () => {
-                if (!simState.running) return
-
-                const slide = getActiveSlide()
-                if (!slide) {
-                    stopSimTime('Stopped (no question found)')
-                    return
+            function startObservers() {
+                disconnectObservers();
+                for (const doc of collectSameOriginDocuments()) {
+                    const observer = new MutationObserver(() => {
+                        scheduleForCurrentQuestion();
+                    });
+                    observer.observe(doc.documentElement || doc.body, {
+                        childList: true,
+                        subtree: true,
+                        attributes: true,
+                        attributeFilter: ['class', 'style', 'aria-hidden']
+                    });
+                    state.observerDisconnectors.push(() => observer.disconnect());
                 }
-
-                const nextBtn = findNextButton(slide)
-                if (nextBtn && nextBtn.classList.contains('disabled')) {
-                    stopSimTime('Done (no more questions)')
-                    return
-                }
-
-                const key = getQuestionKey(slide)
-                if (!key) return
-                if (key === simState.activeKey) return
-
-                simState.activeKey = key
-                clearExistingTimer()
-
-                const subquestions = countSubquestions(slide)
-                const delayMs = getDelayMs(subquestions)
-
-                // Click canvas on slide entry (delayed) so time tracking starts counting.
-                console.log('[sim-time] scheduling entry canvas click', {
-                    key,
-                    delayMs: SIM_CONFIG.canvasEntryDelayMs,
-                })
-                setTimeout(() => {
-                    if (!simState.running) return
-                    if (simState.activeKey !== key) return
-                    const slideNow = getActiveSlide()
-                    if (!slideNow) return
-                    const keyNow = getQuestionKey(slideNow)
-                    if (keyNow !== key) return
-                    simulateCanvasClick(slideNow, null, 'on-slide-entry')
-                }, SIM_CONFIG.canvasEntryDelayMs)
-
-                simState.scheduledAt = Date.now()
-                simState.scheduledDelayMs =
-                    SIM_CONFIG.canvasEntryDelayMs +
-                    delayMs +
-                    SIM_CONFIG.beforeNextDelayMs
-                setAutomationStatus(
-                    `Sim time: scheduled ${(
-                        (SIM_CONFIG.canvasEntryDelayMs + delayMs) /
-                        1000
-                    ).toFixed(0)}s + wait`
-                )
-                startCountdown()
-
-                simState.timerId = setTimeout(() => {
-                    clickNextIfStillOnSameQuestion(key)
-                }, SIM_CONFIG.canvasEntryDelayMs + delayMs)
             }
 
-            const startObserver = () => {
-                if (simState.observer) simState.observer.disconnect()
-                simState.observer = new MutationObserver(() => {
-                    scheduleCurrentQuestion()
-                })
-                simState.observer.observe(document.body, {
-                    childList: true,
-                    subtree: true,
-                    attributes: true,
-                    attributeFilter: ['class', 'style'],
-                })
+            function startSimTime() {
+                if (state.running) return;
+                state.running = true;
+                const btn = document.getElementById('d2l-sim-time-btn');
+                if (btn) btn.classList.add('on');
+                const advanceBtn = document.getElementById('d2l-sim-advance-btn');
+                if (advanceBtn) advanceBtn.disabled = false;
+                startObservers();
+                scheduleForCurrentQuestion();
             }
 
-            const startSimTime = () => {
-                stopSimTime('Idle')
-                simState.running = true
-
-                const btn = document.getElementById('d2l-sim-time-btn')
-                if (btn) btn.classList.add('on')
-                const advanceBtn = document.getElementById('d2l-sim-advance-btn')
-                if (advanceBtn) advanceBtn.disabled = false
-
-                startObserver()
-                scheduleCurrentQuestion()
+            function stopSimTime(reason = 'Stopped') {
+                state.running = false;
+                state.activeKey = null;
+                clearTimer();
+                disconnectObservers();
+                const btn = document.getElementById('d2l-sim-time-btn');
+                if (btn) btn.classList.remove('on');
+                const advanceBtn = document.getElementById('d2l-sim-advance-btn');
+                if (advanceBtn) advanceBtn.disabled = true;
+                setStatus(reason);
             }
 
-            const simBtn = document.getElementById('d2l-sim-time-btn')
+            const simBtn = document.getElementById('d2l-sim-time-btn');
             if (simBtn) {
                 simBtn.addEventListener('click', () => {
-                    if (simState.running) stopSimTime('Stopped')
-                    else startSimTime()
-                })
+                    if (state.running) stopSimTime('Stopped');
+                    else startSimTime();
+                });
             }
 
-            const advanceBtn = document.getElementById('d2l-sim-advance-btn')
+            const advanceBtn = document.getElementById('d2l-sim-advance-btn');
             if (advanceBtn) {
+                // Modified to act like "Fire Now" from the minimal script since auto-advance is disabled
+                advanceBtn.textContent = 'Fire now';
                 advanceBtn.addEventListener('click', () => {
-                    if (!simState.running) return
-                    clearExistingTimer()
-                    clearCountdown()
-                    setAutomationStatus('Advancing now...')
-
-                    const slide = getActiveSlide()
-                    if (!slide) return
-                    const key = getQuestionKey(slide)
-                    if (!key) return
-                    clickNextIfStillOnSameQuestion(key)
-                })
+                    if (!state.running) return;
+                    const canvas = getTargetCanvas();
+                    if (!canvas) {
+                        setStatus('No canvas available for fireNow()');
+                        return;
+                    }
+                    dispatchWorkingPattern(canvas);
+                    setStatus('Fired click manually.');
+                });
             }
 
             window.questionTimeSimulator = {
                 start: startSimTime,
                 stop: stopSimTime,
-                rescan: scheduleCurrentQuestion,
-                countSubquestions,
-                getDelayMs,
-                config: SIM_CONFIG,
+                rescan: scheduleForCurrentQuestion,
+                config: CONFIG,
+                state,
             }
+            // --- END EXACT MINIMAL SCRIPT LOGIC ---
 
             answersBtn.onclick = async () => {
                 answersBtn.disabled = true
@@ -1687,10 +1553,7 @@ y = 1
                                 'Copy All Answers'
                         }, 2000)
                     } catch (err) {
-                        console.error(
-                            '[D2L-DL] Copy all answers failed:',
-                            err
-                        )
+                        console.error('[D2L-DL] Copy all answers failed:', err)
                         alert(
                             'Could not copy answers. See console for details.'
                         )
@@ -1705,10 +1568,7 @@ y = 1
 
         if (document.body) syncIframeAnswersButton()
         else
-            window.addEventListener(
-                'DOMContentLoaded',
-                syncIframeAnswersButton
-            )
+            window.addEventListener('DOMContentLoaded', syncIframeAnswersButton)
 
         new MutationObserver(syncIframeAnswersButton).observe(
             document.documentElement,
@@ -1737,9 +1597,7 @@ y = 1
 
         if (
             checkQMode() &&
-            (e.key === 'y' ||
-                e.key === 'Y' ||
-                e.key === 'Enter')
+            (e.key === 'y' || e.key === 'Y' || e.key === 'Enter')
         ) {
             const yesBtn = getCurrentQuestionYesButton()
             if (yesBtn) {
