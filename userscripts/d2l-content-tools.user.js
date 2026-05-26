@@ -809,7 +809,13 @@
                 canvasSelector: '.qf-canvas-wrapper canvas',
                 questionSelector: '.qf-question, #question-display-',
                 slideSelector: '.question-fullscreen',
-                delayMs: 30 * 1000,
+                subquestionSelector: '.qf-answer',
+                nextButtonSelector: '.qf-title-button.next',
+                baseMs: 60_000,
+                extraPerSubquestionMs: 30_000,
+                jitterMs: 10_000,
+                minDelayMs: 5_000,
+                beforeNextDelayMs: 2000,
                 holdMs: 50,
                 debug: true,
             };
@@ -817,6 +823,7 @@
             const state = {
                 running: false,
                 timerId: null,
+                clickIntervalId: null,
                 observerDisconnectors: [],
                 activeKey: null,
                 countdownId: null,
@@ -838,6 +845,10 @@
                 if (state.timerId !== null) {
                     clearTimeout(state.timerId);
                     state.timerId = null;
+                }
+                if (state.clickIntervalId !== null) {
+                    clearInterval(state.clickIntervalId);
+                    state.clickIntervalId = null;
                 }
                 if (state.countdownId !== null) {
                     clearInterval(state.countdownId);
@@ -946,10 +957,58 @@
                 if (!canvas) return null;
                 if (!isVisible(canvas)) return null;
 
-                return canvas;
-            }
+             function countSubquestions(root) {
+                 try {
+                     if (!root) return 1;
+                     const slide = root.closest?.(CONFIG.slideSelector) || root;
+                     const question = slide?.querySelector('.qf-question') || slide;
+                     if (!question) return 1;
+                     const count = question.querySelectorAll(CONFIG.subquestionSelector).length;
+                     return Math.max(1, count);
+                 } catch (_) {
+                     return 1;
+                 }
+             }
 
-            function dispatchWorkingPattern(canvas) {
+             function randInt(min, max) {
+                 return Math.floor(Math.random() * (max - min + 1)) + min;
+             }
+
+             function getDelayMs(subquestions) {
+                 const base = CONFIG.baseMs + Math.max(0, subquestions - 1) * CONFIG.extraPerSubquestionMs;
+                 const jitter = randInt(-CONFIG.jitterMs, CONFIG.jitterMs);
+                 return Math.max(CONFIG.minDelayMs, base + jitter);
+             }
+
+             function getVisible(el) {
+                 try {
+                     if (!el) return false;
+                     const r = el.getBoundingClientRect();
+                     return r.width > 0 && r.height > 0;
+                 } catch (_) {
+                     return false;
+                 }
+             }
+
+             function findNextButton(root) {
+                 try {
+                     if (root) {
+                         const slide = root.closest?.(CONFIG.slideSelector) || root;
+                         const btn = slide?.querySelector(CONFIG.nextButtonSelector);
+                         if (btn) return btn;
+                     }
+                     const results = [];
+                     for (const doc of collectSameOriginDocuments()) {
+                         findInShadow(CONFIG.nextButtonSelector, doc, results);
+                     }
+                     const visible = results.filter(getVisible);
+                     return visible[visible.length - 1] || results[results.length - 1] || null;
+                 } catch (_) {
+                     return null;
+                 }
+             }
+
+             function dispatchWorkingPattern(canvas) {
                 const win = canvas.ownerDocument?.defaultView || window;
                 const rect = canvas.getBoundingClientRect();
                 const x = rect.left + rect.width / 2;
@@ -1006,55 +1065,89 @@
             }
 
             function scheduleForCurrentQuestion() {
-                if (!state.running) return;
+                 if (!state.running) return;
+ 
+                 const root = getActiveQuestionRootMinimal();
+                 if (!root) {
+                     clearTimer();
+                     setStatus('No visible question found');
+                     return;
+                 }
+ 
+                 const key = getQuestionKeyMinimal(root);
+                 if (!key) {
+                     clearTimer();
+                     setStatus('Question found but key unavailable');
+                     return;
+                 }
+ 
+                 if (key === state.activeKey && state.timerId !== null) return;
+ 
+                 state.activeKey = key;
+                 clearTimer();
+ 
+                 const canvas = getTargetCanvas();
+                 if (!canvas) {
+                     setStatus('No visible .qf-canvas-wrapper canvas found');
+                     return;
+                 }
+ 
+                 const subquestions = countSubquestions(root);
+                 const advanceDelayMs = getDelayMs(subquestions);
 
-                const root = getActiveQuestionRootMinimal();
-                if (!root) {
-                    clearTimer();
-                    setStatus('No visible question found');
-                    return;
-                }
+                 state.scheduledAt = Date.now();
+                 state.scheduledDelayMs = advanceDelayMs;
+                 setStatus(`Scheduled advance in ${Math.ceil(advanceDelayMs / 1000)}s for ${key}`);
+                 startCountdown();
+ 
+                 // Click immediately on entering to record initial activity
+                 dispatchWorkingPattern(canvas);
 
-                const key = getQuestionKeyMinimal(root);
-                if (!key) {
-                    clearTimer();
-                    setStatus('Question found but key unavailable');
-                    return;
-                }
+                 // Set 30s repeating interval to click the canvas to maintain active status
+                 state.clickIntervalId = setInterval(() => {
+                     if (!state.running) return;
+                     const latestRoot = getActiveQuestionRootMinimal();
+                     const latestKey = getQuestionKeyMinimal(latestRoot);
+                     if (latestKey !== key) {
+                         clearInterval(state.clickIntervalId);
+                         state.clickIntervalId = null;
+                         return;
+                     }
+                     const latestCanvas = getTargetCanvas();
+                     if (latestCanvas) {
+                         dispatchWorkingPattern(latestCanvas);
+                     }
+                 }, 30 * 1000);
 
-                if (key === state.activeKey && state.timerId !== null) return;
-
-                state.activeKey = key;
-                clearTimer();
-
-                const canvas = getTargetCanvas();
-                if (!canvas) {
-                    setStatus('No visible .qf-canvas-wrapper canvas found');
-                    return;
-                }
-
-                state.scheduledAt = Date.now();
-                state.scheduledDelayMs = CONFIG.delayMs;
-                setStatus(`Scheduled 30s click for ${key}`);
-                startCountdown();
-
-                state.timerId = setTimeout(() => {
-                    if (!state.running) return;
-                    const latestRoot = getActiveQuestionRootMinimal();
-                    const latestKey = getQuestionKeyMinimal(latestRoot);
-                    if (latestKey !== key) {
-                        setStatus('Question changed before click; rescheduling');
-                        scheduleForCurrentQuestion();
-                        return;
-                    }
-                    const latestCanvas = getTargetCanvas();
-                    if (!latestCanvas) {
-                        setStatus('Canvas missing at fire time');
-                        return;
-                    }
-                    dispatchWorkingPattern(latestCanvas);
-                }, CONFIG.delayMs);
-            }
+                 // Set timeout to auto-advance to next question
+                 state.timerId = setTimeout(() => {
+                     if (!state.running) return;
+                     const latestRoot = getActiveQuestionRootMinimal();
+                     const latestKey = getQuestionKeyMinimal(latestRoot);
+                     if (latestKey !== key) {
+                         setStatus('Question changed before auto-advance; rescheduling');
+                         scheduleForCurrentQuestion();
+                         return;
+                     }
+                     
+                     const latestCanvas = getTargetCanvas();
+                     if (latestCanvas) {
+                         dispatchWorkingPattern(latestCanvas);
+                     }
+ 
+                     const nextBtn = findNextButton(latestRoot);
+                     if (!nextBtn || nextBtn.classList.contains('disabled')) {
+                         stopSimTime('Done (no more questions)');
+                         return;
+                     }
+ 
+                     setStatus('Advancing to next question...');
+                     setTimeout(() => {
+                         if (!state.running) return;
+                         nextBtn.click();
+                     }, CONFIG.beforeNextDelayMs);
+                 }, advanceDelayMs);
+             }
 
             function disconnectObservers() {
                 for (const fn of state.observerDisconnectors) {
@@ -1120,17 +1213,31 @@
 
             const advanceBtn = document.getElementById('d2l-sim-advance-btn');
             if (advanceBtn) {
-                // Modified to act like "Fire Now" from the minimal script since auto-advance is disabled
-                advanceBtn.textContent = 'Fire now';
+                advanceBtn.textContent = 'Advance now';
                 advanceBtn.addEventListener('click', () => {
                     if (!state.running) return;
+                    clearTimer();
+                    setStatus('Advancing now...');
+
+                    const root = getActiveQuestionRootMinimal();
+                    if (!root) return;
+                    
                     const canvas = getTargetCanvas();
-                    if (!canvas) {
-                        setStatus('No canvas available for fireNow()');
+                    if (canvas) {
+                        dispatchWorkingPattern(canvas);
+                    }
+
+                    const nextBtn = findNextButton(root);
+                    if (!nextBtn || nextBtn.classList.contains('disabled')) {
+                        stopSimTime('Done (no more questions)');
                         return;
                     }
-                    dispatchWorkingPattern(canvas);
-                    setStatus('Fired click manually.');
+
+                    setStatus('Advancing to next question...');
+                    setTimeout(() => {
+                        if (!state.running) return;
+                        nextBtn.click();
+                    }, CONFIG.beforeNextDelayMs);
                 });
             }
 
