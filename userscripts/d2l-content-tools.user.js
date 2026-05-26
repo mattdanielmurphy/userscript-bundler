@@ -956,6 +956,8 @@
                 if (!canvas && doc) canvas = doc.querySelector(CONFIG.canvasSelector);
                 if (!canvas) return null;
                 if (!isVisible(canvas)) return null;
+                return canvas;
+            }
 
              function countSubquestions(root) {
                  try {
