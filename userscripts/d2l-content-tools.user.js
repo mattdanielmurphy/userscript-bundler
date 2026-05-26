@@ -22,6 +22,52 @@
 
     const IS_TOP = window === window.top
 
+    // Custom checkbox feature for lesson titles
+    if (window.location.href.includes('/d2l/le/lessons/')) {
+        (function() {
+            const processItems = () => {
+                const titles = document.querySelectorAll('.title-text, .topic-box span[id*="label"]');
+                
+                titles.forEach((el) => {
+                    // 1. Remove disruptive .text-wrapper divs
+                    el.querySelectorAll('.text-wrapper').forEach(wrapper => wrapper.remove());
+
+                    // 2. Add checkbox if missing
+                    if (el.querySelector('.custom-check')) return;
+
+                    const text = el.innerText.trim();
+                    if (!text) return;
+                    const key = `check_state_${text.replace(/\s+/g, '_')}`;
+
+                    const cb = document.createElement('input');
+                    cb.type = 'checkbox';
+                    cb.className = 'custom-check';
+                    cb.style.cssText = 'margin-right: 10px; width: 18px; height: 18px; cursor: pointer; flex-shrink: 0;';
+                    
+                    cb.checked = localStorage.getItem(key) === 'true';
+                    if (cb.checked) el.style.opacity = '0.5';
+
+                    cb.onclick = (e) => e.stopPropagation();
+                    cb.onchange = () => {
+                        localStorage.setItem(key, cb.checked);
+                        el.style.opacity = cb.checked ? '0.5' : '1';
+                    };
+
+                    el.style.display = 'flex';
+                    el.style.maxWidth='100%';
+                    el.style.alignItems = 'center';
+                    el.prepend(cb);
+                });
+            };
+
+            // Initial run
+            processItems();
+
+            // Watch for collapsible chapter expansions
+            new MutationObserver(processItems).observe(document.body, { childList: true, subtree: true });
+        })();
+    }
+
     function findInShadow(selector, root = document) {
         const el = root.querySelector(selector)
         if (el) return el
