@@ -349,6 +349,13 @@
 		removeShortsSearchGrid()
 	}
 
+	// --- 4b. REMOVE FULLSCREEN "MORE VIDEOS" GRID (inside ytd-player) ---
+	function removeFullscreenGridOverlay() {
+		const player = document.querySelector("ytd-player")
+		if (!player) return
+		player.querySelectorAll(".ytp-fullscreen-grid").forEach((el) => el.remove())
+	}
+
 	// --- 5. YOUTUBE HIDE LOW VIEW VIDEOS ---
 	function parseViews(viewText) {
 		if (!viewText) return Infinity // Don't hide if we can't find text
@@ -1406,6 +1413,9 @@ min-height: " +
 
 		// 3. Hide Shorts
 		runShortsRemovers()
+
+		// 3a. Remove fullscreen player "More videos" grid
+		removeFullscreenGridOverlay()
 
 		// 3b. Hide Low View Videos
 		hideLowViewVideos()

@@ -9,7 +9,7 @@
 // @require     https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js
 // @require     https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js
 // @grant       none
-// @version     1.6
+// @version     1.7
 // @author      Antigravity
 // @description Download images as ZIP, take snapshots, extract scripts, and copy prompts for D2L/StudyForge/contentconnections.
 // ==/UserScript==
@@ -119,6 +119,233 @@
             }
         }
         return null
+    }
+
+    function findAllInShadow(selector, root = document, list = []) {
+        list.push(...Array.from(root.querySelectorAll(selector)))
+
+        const walkers = document.createTreeWalker(
+            root,
+            NodeFilter.SHOW_ELEMENT,
+            {
+                acceptNode: (node) =>
+                    node.shadowRoot
+                        ? NodeFilter.FILTER_ACCEPT
+                        : NodeFilter.FILTER_SKIP,
+            }
+        )
+
+        let node
+        while ((node = walkers.nextNode())) {
+            findAllInShadow(selector, node.shadowRoot, list)
+        }
+        return list
+    }
+
+    function findAllInDocumentOrIframes(selector, doc = document) {
+        let list = findAllInShadow(selector, doc)
+
+        const iframes = findIframes(doc)
+        for (const iframe of iframes) {
+            try {
+                if (iframe.contentDocument) {
+                    list = list.concat(
+                        findAllInDocumentOrIframes(
+                            selector,
+                            iframe.contentDocument
+                        )
+                    )
+                }
+            } catch (e) {
+                // Cross-origin iframe, ignore
+            }
+        }
+        return list
+    }
+
+    function getCurrentQuestionYesButton() {
+        const answers = findAllInDocumentOrIframes(
+            'div.qf-answer.qf-answer-text'
+        )
+        const visible = answers.filter(
+            (el) => el.getAttribute('aria-hidden') === 'false'
+        )
+        if (!visible.length) return null
+        const current = visible[visible.length - 1]
+        return (
+            current.querySelector(
+                '.qf-cell.qf-answer-option.yes[role="button"]'
+            ) || current.querySelector('.qf-cell.qf-answer-option.yes')
+        )
+    }
+
+    function sleep(ms) {
+        return new Promise((resolve) => setTimeout(resolve, ms))
+    }
+
+    function getActiveQuestionRoot() {
+        const all = findAllInDocumentOrIframes('.qf-question')
+        if (all.length) {
+            const visible = all.filter((el) => {
+                const r = el.getBoundingClientRect()
+                return r.width > 0 && r.height > 0
+            })
+            return visible[visible.length - 1] || all[all.length - 1]
+        }
+        return findInDocumentOrIframes('[id^="question-display-"]')
+    }
+
+    function letterFromPart(partEl) {
+        const li = partEl.querySelector('ol[type="a"] > li, ol[type="A"] > li')
+        if (li) {
+            const v = parseInt(li.getAttribute('value'), 10)
+            if (!Number.isNaN(v) && v >= 1) {
+                return String.fromCharCode(96 + v)
+            }
+        }
+        const label = partEl.querySelector('.qf-paragraph span span')
+        const text = (label && label.textContent) || partEl.textContent || ''
+        const m = text.match(/^\s*([a-z])\)/i) || text.match(/\b([a-z])\)/i)
+        return m ? m[1].toLowerCase() : '?'
+    }
+
+    function getShowAnswerControl(partEl) {
+        return (
+            partEl.querySelector('.qf-answer[role="button"]') ||
+            partEl.querySelector('.qf-answer[tabindex="0"]') ||
+            partEl.querySelector('.qf-answer')
+        )
+    }
+
+    function extractAnswerFromPart(partEl) {
+        const answer = partEl.querySelector('.qf-answer')
+        if (!answer) return ''
+
+        const tex = answer.querySelector('script[type="math/tex"]')
+        if (tex && tex.textContent.trim()) {
+            return tex.textContent.trim()
+        }
+
+        const img = answer.querySelector('.qf-answer-content img')
+        if (img && img.alt && img.alt.trim()) {
+            return img.alt.trim()
+        }
+
+        const content = answer.querySelector('.qf-answer-content')
+        if (content) {
+            const text = content.innerText.replace(/\s+/g, ' ').trim()
+            if (text) return text
+        }
+
+        const aria = answer.getAttribute('aria-label') || ''
+        if (/show/i.test(aria)) return ''
+        return aria.trim()
+    }
+
+    async function revealPartsAndCopyAnswers() {
+        console.log('[D2L-DL] Auto-processing all questions...')
+
+        const lines = []
+
+        while (true) {
+            const targetQuestion = Array.from(
+                document.querySelectorAll('.qf-answer')
+            ).find((q) => !q.classList.contains('show'))
+
+            if (!targetQuestion) {
+                console.log(
+                    '[D2L-DL] Finished. No more unclicked questions found.'
+                )
+                break
+            }
+
+            targetQuestion.scrollIntoView({
+                behavior: 'smooth',
+                block: 'center',
+            })
+
+            // Expand solution UI (if present) before clicking answer reveal controls.
+            const questionRoot =
+                targetQuestion.closest('.qf-question') ||
+                targetQuestion.closest('.qf-part') ||
+                document.body
+            const solutionHandle = questionRoot.querySelector(
+                '.qf-solution-handle'
+            )
+            if (solutionHandle) {
+                solutionHandle.click()
+                await sleep(100)
+            }
+
+            targetQuestion.click()
+            console.log(
+                `[D2L-DL] Processing answer container: ${targetQuestion.id}`
+            )
+
+            const part =
+                targetQuestion.closest('.qf-part') ||
+                targetQuestion.closest('.qf-question') ||
+                document.body
+            const letter = letterFromPart(part)
+
+            await new Promise((resolve) => {
+                const startTime = Date.now()
+                const checkInterval = setInterval(() => {
+                    const yesButton = targetQuestion.querySelector(
+                        '.qf-cell.qf-answer-option.yes'
+                    )
+
+                    if (yesButton && yesButton.offsetParent !== null) {
+                        clearInterval(checkInterval)
+                        yesButton.click()
+                        resolve()
+                    }
+
+                    if (Date.now() - startTime > 3000) {
+                        clearInterval(checkInterval)
+                        console.warn(
+                            `[D2L-DL] Timed out waiting for "Yes" button in ${targetQuestion.id}`
+                        )
+                        resolve()
+                    }
+                }, 100)
+            })
+
+            await sleep(400)
+
+            let answer = extractAnswerFromPart(part)
+            if (!answer) {
+                await sleep(250)
+                answer = extractAnswerFromPart(part)
+            }
+            if (!answer) answer = '(no answer text)'
+
+            if (letter === '?') {
+                lines.push(answer)
+            } else {
+                lines.push(`${letter}. ${answer}`)
+            }
+        }
+
+        if (!lines.length) {
+            alert('No unanswered questions found.')
+            return null
+        }
+
+        const text = lines.join('\n')
+        await navigator.clipboard.writeText(text)
+        console.log('[D2L-DL] Copied answers:\n' + text)
+        return text
+    }
+
+    function isTypingTarget() {
+        const active = document.activeElement
+        return (
+            active &&
+            (active.tagName === 'INPUT' ||
+                active.tagName === 'TEXTAREA' ||
+                active.isContentEditable)
+        )
     }
 
     async function getTargetImages() {
@@ -457,6 +684,80 @@
             #d2l-prompt-btn.copied {
                 background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
             }
+
+            #d2l-answers-btn {
+                position: fixed; bottom: 20px; right: 80px; z-index: 2147483647;
+                background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+                color: white; border: 1px solid rgba(255,255,255,0.1);
+                border-radius: 24px; width: 48px; height: 48px;
+                display: none; align-items: center; justify-content: center;
+                cursor: pointer; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+                transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+                backdrop-filter: blur(10px); opacity: 0.9; overflow: hidden;
+                white-space: nowrap; font-family: -apple-system, sans-serif; font-weight: 600;
+            }
+            #d2l-answers-btn:hover { width: 200px; opacity: 1; border-radius: 12px; }
+            #d2l-answers-btn .icon { min-width: 48px; display: flex; align-items: center; justify-content: center; }
+            #d2l-answers-btn .text { opacity: 0; max-width: 0; transition: all 0.3s ease; font-size: 14px; }
+            #d2l-answers-btn:hover .text { opacity: 1; max-width: 140px; margin-right: 16px; }
+            #d2l-answers-btn.copied {
+                background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+            }
+
+            #d2l-automation-bar {
+                position: fixed;
+                bottom: 20px;
+                left: 20px;
+                z-index: 2147483647;
+                display: none;
+                align-items: center;
+                gap: 10px;
+                padding: 10px 12px;
+                border-radius: 14px;
+                background: rgba(20, 20, 20, 0.88);
+                border: 1px solid rgba(255, 255, 255, 0.12);
+                backdrop-filter: blur(10px);
+                box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35);
+                font-family: -apple-system, sans-serif;
+                color: #efefef;
+            }
+            #d2l-automation-bar .title {
+                font-size: 12px;
+                font-weight: 700;
+                letter-spacing: 0.2px;
+                color: #fff;
+                margin-right: 4px;
+                opacity: 0.95;
+            }
+            #d2l-automation-bar .status {
+                font-size: 12px;
+                color: #cfcfcf;
+                max-width: 46vw;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                opacity: 0.95;
+            }
+            #d2l-automation-bar .btn {
+                border: 1px solid rgba(255,255,255,0.14);
+                background: rgba(255,255,255,0.06);
+                color: #fff;
+                padding: 7px 10px;
+                border-radius: 10px;
+                cursor: pointer;
+                font-size: 12px;
+                font-weight: 650;
+                transition: background 0.15s ease, border-color 0.15s ease, transform 0.05s ease;
+            }
+            #d2l-automation-bar .btn:hover {
+                background: rgba(255,255,255,0.12);
+                border-color: rgba(255,255,255,0.22);
+            }
+            #d2l-automation-bar .btn:active { transform: translateY(1px); }
+            #d2l-automation-bar .btn.on {
+                background: rgba(17, 153, 142, 0.22);
+                border-color: rgba(56, 239, 125, 0.35);
+            }
         `
 
         const styleEl = document.createElement('style')
@@ -481,6 +782,449 @@
             promptBtn.innerHTML =
                 '<div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect></svg></div><div class="text">Copy Prompt</div>'
             document.body.appendChild(promptBtn)
+
+            const answersBtn = document.createElement('button')
+            answersBtn.id = 'd2l-answers-btn'
+            answersBtn.innerHTML =
+                '<div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"></path><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg></div><div class="text">Copy All Answers</div>'
+            document.body.appendChild(answersBtn)
+
+            const automationBar = document.createElement('div')
+            automationBar.id = 'd2l-automation-bar'
+            automationBar.innerHTML = `
+                <span class="title">Automation</span>
+                <button class="btn" id="d2l-sim-time-btn" type="button">Sim time</button>
+                <button class="btn" id="d2l-sim-advance-btn" type="button" disabled>Advance now</button>
+                <span class="status" id="d2l-automation-status">Idle</span>
+            `
+            document.body.appendChild(automationBar)
+
+            const setAutomationStatus = (text) => {
+                const el = document.getElementById('d2l-automation-status')
+                if (el) el.textContent = text
+            }
+
+            const SIM_CONFIG = {
+                slideSelector: '.question-fullscreen',
+                questionSelector: '.qf-question, [id^="question-display-"]',
+                subquestionSelector: '.qf-answer',
+                nextButtonSelector: '.qf-title-button.next',
+                baseMs: 60_000,
+                extraPerSubquestionMs: 30_000,
+                jitterMs: 10_000,
+                minDelayMs: 5_000,
+                canvasSelector: '.qf-canvas-wrapper canvas',
+                canvasClickHoldMs: 50,
+                canvasEntryDelayMs: 5000,
+                beforeNextDelayMs: 5000,
+                debug: false,
+            }
+
+            const simState = {
+                timerId: null,
+                activeKey: null,
+                observer: null,
+                countdownId: null,
+                scheduledAt: 0,
+                scheduledDelayMs: 0,
+                running: false,
+            }
+
+            const randInt = (min, max) =>
+                Math.floor(Math.random() * (max - min + 1)) + min
+
+            const getVisible = (el) => {
+                if (!el) return false
+                const r = el.getBoundingClientRect()
+                return r.width > 0 && r.height > 0
+            }
+
+            const getActiveSlide = () => {
+                const root = getActiveQuestionRoot()
+                if (root && root.closest) {
+                    const slide = root.closest(SIM_CONFIG.slideSelector)
+                    if (slide) return slide
+                }
+
+                const slides = findAllInDocumentOrIframes(SIM_CONFIG.slideSelector)
+                const visible = slides.filter(getVisible)
+                return (
+                    visible[visible.length - 1] ||
+                    slides[slides.length - 1] ||
+                    null
+                )
+            }
+
+            const getQuestionKey = (slide) => {
+                if (!slide) return null
+                const q =
+                    slide.querySelector('.qf-question') ||
+                    slide.querySelector('[id^="question-display-"]')
+                return (
+                    q?.id ||
+                    slide.querySelector('.qf-reference')?.textContent?.trim() ||
+                    slide.querySelector('.qf-number')?.textContent?.trim() ||
+                    (q && q.textContent && q.textContent.trim().slice(0, 64)) ||
+                    'unknown-question'
+                )
+            }
+
+            const countSubquestions = (slide) => {
+                const question = slide?.querySelector('.qf-question') || slide
+                if (!question) return 1
+                const count = question.querySelectorAll(
+                    SIM_CONFIG.subquestionSelector
+                ).length
+                return Math.max(1, count)
+            }
+
+            const getDelayMs = (subquestions) => {
+                const base =
+                    SIM_CONFIG.baseMs +
+                    Math.max(0, subquestions - 1) *
+                        SIM_CONFIG.extraPerSubquestionMs
+                const jitter = randInt(-SIM_CONFIG.jitterMs, SIM_CONFIG.jitterMs)
+                return Math.max(SIM_CONFIG.minDelayMs, base + jitter)
+            }
+
+            const clearExistingTimer = () => {
+                if (simState.timerId !== null) {
+                    clearTimeout(simState.timerId)
+                    simState.timerId = null
+                }
+            }
+
+            const clearCountdown = () => {
+                if (simState.countdownId !== null) {
+                    clearInterval(simState.countdownId)
+                    simState.countdownId = null
+                }
+            }
+
+            const findNextButton = (slide) => {
+                const btn = slide?.querySelector(SIM_CONFIG.nextButtonSelector)
+                if (btn) return btn
+                const all = findAllInDocumentOrIframes(SIM_CONFIG.nextButtonSelector)
+                const visible = all.filter(getVisible)
+                return visible[visible.length - 1] || all[all.length - 1] || null
+            }
+
+            const getCanvasInSlide = (slide) => {
+                const root = getActiveQuestionRoot()
+                if (!root) return null
+                const doc = root.ownerDocument || document
+                const container = (root.closest && root.closest(SIM_CONFIG.slideSelector)) || root
+
+                let canvas = container.querySelector(SIM_CONFIG.canvasSelector)
+                if (!canvas && doc) canvas = doc.querySelector(SIM_CONFIG.canvasSelector)
+                if (!canvas) return null
+
+                const r = canvas.getBoundingClientRect()
+                if (r.width === 0 || r.height === 0) return null
+                return canvas
+            }
+
+            const simulateCanvasClick = (slide, done, reason) => {
+                const canvas = getCanvasInSlide(slide)
+                if (!canvas) {
+                    console.warn('[sim-time] canvas click skipped (no canvas)', {
+                        reason,
+                    })
+                    return false
+                }
+
+                const win = canvas.ownerDocument && canvas.ownerDocument.defaultView
+                if (!win) {
+                    console.warn('[sim-time] canvas click skipped (no window)', {
+                        reason,
+                    })
+                    return false
+                }
+
+                const rect = canvas.getBoundingClientRect()
+                const x = rect.left + rect.width / 2
+                const y = rect.top + rect.height / 2
+
+                if (!rect.width || !rect.height) {
+                    console.warn('[sim-time] canvas click skipped (not visible)', {
+                        reason,
+                        w: rect.width,
+                        h: rect.height,
+                    })
+                    return false
+                }
+
+                console.log('[sim-time] canvas click', {
+                    reason,
+                    x: Math.round(x),
+                    y: Math.round(y),
+                })
+
+                const mousedownEvent = new win.MouseEvent('mousedown', {
+                    view: win,
+                    bubbles: true,
+                    cancelable: true,
+                    clientX: x,
+                    clientY: y,
+                    buttons: 1,
+                })
+
+                canvas.dispatchEvent(mousedownEvent)
+
+                setTimeout(() => {
+                    if (!simState.running) return
+                    const mouseupEvent = new win.MouseEvent('mouseup', {
+                        view: win,
+                        bubbles: true,
+                        cancelable: true,
+                        clientX: x,
+                        clientY: y,
+                        buttons: 0,
+                    })
+
+                    const clickEvent = new win.MouseEvent('click', {
+                        view: win,
+                        bubbles: true,
+                        cancelable: true,
+                        clientX: x,
+                        clientY: y,
+                    })
+
+                    canvas.dispatchEvent(mouseupEvent)
+                    canvas.dispatchEvent(clickEvent)
+                    if (typeof done === 'function') done()
+                }, SIM_CONFIG.canvasClickHoldMs)
+
+                return true
+            }
+
+            const stopSimTime = (reason = 'Stopped') => {
+                simState.running = false
+                clearExistingTimer()
+                clearCountdown()
+                if (simState.observer) simState.observer.disconnect()
+                simState.observer = null
+                simState.activeKey = null
+                simState.scheduledAt = 0
+                simState.scheduledDelayMs = 0
+
+                const btn = document.getElementById('d2l-sim-time-btn')
+                if (btn) btn.classList.remove('on')
+
+                const advanceBtn = document.getElementById('d2l-sim-advance-btn')
+                if (advanceBtn) advanceBtn.disabled = true
+                setAutomationStatus(reason)
+            }
+
+            const clickNextIfStillOnSameQuestion = (expectedKey) => {
+                const slide = getActiveSlide()
+                if (!slide) return
+
+                const currentKey = getQuestionKey(slide)
+                if (currentKey !== expectedKey) return
+
+                const nextBtn = findNextButton(slide)
+                if (!nextBtn) return
+                if (nextBtn.classList.contains('disabled')) {
+                    stopSimTime('Done (no more questions)')
+                    return
+                }
+
+                if (SIM_CONFIG.debug) {
+                    console.log('[sim-time] advancing:', expectedKey)
+                }
+
+                // Click canvas again before leaving this slide; helps "time spent" counters.
+                const doNext = () => {
+                    if (!simState.running) return
+                    const slideNow = getActiveSlide()
+                    if (!slideNow) return
+                    const keyNow = getQuestionKey(slideNow)
+                    if (keyNow !== expectedKey) return
+
+                    const nextBtnNow = findNextButton(slideNow)
+                    if (!nextBtnNow) return
+                    if (nextBtnNow.classList.contains('disabled')) {
+                        stopSimTime('Done (no more questions)')
+                        return
+                    }
+
+                console.log('[sim-time] clicking Next soon', {
+                        fromKey: expectedKey,
+                        delayMs: SIM_CONFIG.beforeNextDelayMs,
+                    })
+                    setTimeout(() => {
+                        if (!simState.running) return
+                        const slideFinal = getActiveSlide()
+                        if (!slideFinal) return
+                        const keyFinal = getQuestionKey(slideFinal)
+                        if (keyFinal !== expectedKey) return
+                        const nextBtnFinal = findNextButton(slideFinal)
+                        if (!nextBtnFinal) return
+                        if (nextBtnFinal.classList.contains('disabled')) {
+                            stopSimTime('Done (no more questions)')
+                            return
+                        }
+                        console.log('[sim-time] clicking Next now', {
+                            fromKey: expectedKey,
+                        })
+                        nextBtnFinal.click()
+                    }, SIM_CONFIG.beforeNextDelayMs)
+                }
+
+                if (!simulateCanvasClick(slide, doNext, 'before-next')) doNext()
+            }
+
+            const startCountdown = () => {
+                clearCountdown()
+                simState.countdownId = setInterval(() => {
+                    if (!simState.running) return
+                    if (!simState.scheduledAt || !simState.scheduledDelayMs) return
+                    const elapsed = Date.now() - simState.scheduledAt
+                    const remaining = Math.max(
+                        0,
+                        simState.scheduledDelayMs - elapsed
+                    )
+                    const s = Math.ceil(remaining / 1000)
+                    setAutomationStatus(`Sim time: next in ${s}s`)
+                }, 500)
+            }
+
+            const scheduleCurrentQuestion = () => {
+                if (!simState.running) return
+
+                const slide = getActiveSlide()
+                if (!slide) {
+                    stopSimTime('Stopped (no question found)')
+                    return
+                }
+
+                const nextBtn = findNextButton(slide)
+                if (nextBtn && nextBtn.classList.contains('disabled')) {
+                    stopSimTime('Done (no more questions)')
+                    return
+                }
+
+                const key = getQuestionKey(slide)
+                if (!key) return
+                if (key === simState.activeKey) return
+
+                simState.activeKey = key
+                clearExistingTimer()
+
+                const subquestions = countSubquestions(slide)
+                const delayMs = getDelayMs(subquestions)
+
+                // Click canvas on slide entry (delayed) so time tracking starts counting.
+                console.log('[sim-time] scheduling entry canvas click', {
+                    key,
+                    delayMs: SIM_CONFIG.canvasEntryDelayMs,
+                })
+                setTimeout(() => {
+                    if (!simState.running) return
+                    if (simState.activeKey !== key) return
+                    const slideNow = getActiveSlide()
+                    if (!slideNow) return
+                    const keyNow = getQuestionKey(slideNow)
+                    if (keyNow !== key) return
+                    simulateCanvasClick(slideNow, null, 'on-slide-entry')
+                }, SIM_CONFIG.canvasEntryDelayMs)
+
+                simState.scheduledAt = Date.now()
+                simState.scheduledDelayMs =
+                    SIM_CONFIG.canvasEntryDelayMs +
+                    delayMs +
+                    SIM_CONFIG.beforeNextDelayMs
+                setAutomationStatus(
+                    `Sim time: scheduled ${(
+                        (SIM_CONFIG.canvasEntryDelayMs + delayMs) /
+                        1000
+                    ).toFixed(0)}s + wait`
+                )
+                startCountdown()
+
+                simState.timerId = setTimeout(() => {
+                    clickNextIfStillOnSameQuestion(key)
+                }, SIM_CONFIG.canvasEntryDelayMs + delayMs)
+            }
+
+            const startObserver = () => {
+                if (simState.observer) simState.observer.disconnect()
+                simState.observer = new MutationObserver(() => {
+                    scheduleCurrentQuestion()
+                })
+                simState.observer.observe(document.body, {
+                    childList: true,
+                    subtree: true,
+                    attributes: true,
+                    attributeFilter: ['class', 'style'],
+                })
+            }
+
+            const startSimTime = () => {
+                stopSimTime('Idle')
+                simState.running = true
+
+                const btn = document.getElementById('d2l-sim-time-btn')
+                if (btn) btn.classList.add('on')
+                const advanceBtn = document.getElementById('d2l-sim-advance-btn')
+                if (advanceBtn) advanceBtn.disabled = false
+
+                startObserver()
+                scheduleCurrentQuestion()
+            }
+
+            const simBtn = document.getElementById('d2l-sim-time-btn')
+            if (simBtn) {
+                simBtn.addEventListener('click', () => {
+                    if (simState.running) stopSimTime('Stopped')
+                    else startSimTime()
+                })
+            }
+
+            const advanceBtn = document.getElementById('d2l-sim-advance-btn')
+            if (advanceBtn) {
+                advanceBtn.addEventListener('click', () => {
+                    if (!simState.running) return
+                    clearExistingTimer()
+                    clearCountdown()
+                    setAutomationStatus('Advancing now...')
+
+                    const slide = getActiveSlide()
+                    if (!slide) return
+                    const key = getQuestionKey(slide)
+                    if (!key) return
+                    clickNextIfStillOnSameQuestion(key)
+                })
+            }
+
+            window.questionTimeSimulator = {
+                start: startSimTime,
+                stop: stopSimTime,
+                rescan: scheduleCurrentQuestion,
+                countSubquestions,
+                getDelayMs,
+                config: SIM_CONFIG,
+            }
+
+            answersBtn.onclick = async () => {
+                answersBtn.disabled = true
+                try {
+                    await revealPartsAndCopyAnswers()
+                    answersBtn.classList.add('copied')
+                    answersBtn.querySelector('.text').textContent = 'Copied!'
+                    setTimeout(() => {
+                        answersBtn.classList.remove('copied')
+                        answersBtn.querySelector('.text').textContent =
+                            'Copy All Answers'
+                    }, 2000)
+                } catch (err) {
+                    console.error('[D2L-DL] Copy all answers failed:', err)
+                    alert('Could not copy answers. See console for details.')
+                } finally {
+                    answersBtn.disabled = false
+                }
+            }
 
             promptBtn.onclick = () => {
                 const promptText = `Provide algebraic solutions in individual code blocks using these formatting rules:
@@ -775,17 +1519,28 @@ y = 1
             if (c) c.remove()
 
             const isQMode = checkQMode()
+            const hasQuizQuestion = !!findInDocumentOrIframes(
+                '.qf-question, [id^="question-display-"]'
+            )
+            const showQuestionTools = isQMode || hasQuizQuestion
+
             const dlBtn = document.getElementById('d2l-dl-btn')
             const sbtn = document.getElementById('d2l-script-btn')
             const promptBtn = document.getElementById('d2l-prompt-btn')
+            const answersBtn = document.getElementById('d2l-answers-btn')
+            const automationBar = document.getElementById('d2l-automation-bar')
 
-            if (isQMode) {
+            if (showQuestionTools) {
                 if (dlBtn) dlBtn.style.display = 'none'
                 if (sbtn) sbtn.style.display = 'none'
                 if (promptBtn) promptBtn.style.display = 'flex'
+                if (answersBtn) answersBtn.style.display = 'flex'
+                if (automationBar) automationBar.style.display = 'flex'
             } else {
                 if (dlBtn) dlBtn.style.display = 'flex'
                 if (promptBtn) promptBtn.style.display = 'none'
+                if (answersBtn) answersBtn.style.display = 'none'
+                if (automationBar) automationBar.style.display = 'none'
                 if (sbtn) {
                     if (document.querySelector('.video-script')) {
                         sbtn.style.display = 'flex'
@@ -818,19 +1573,97 @@ y = 1
             childList: true,
             subtree: true,
         })
+
+        const IFRAME_ANSWERS_STYLES = `
+            #d2l-answers-btn {
+                position: fixed; bottom: 20px; right: 20px; z-index: 2147483647;
+                background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+                color: white; border: 1px solid rgba(255,255,255,0.1);
+                border-radius: 24px; width: 48px; height: 48px;
+                display: none; align-items: center; justify-content: center;
+                cursor: pointer; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+                transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+                backdrop-filter: blur(10px); opacity: 0.9; overflow: hidden;
+                white-space: nowrap; font-family: -apple-system, sans-serif; font-weight: 600;
+            }
+            #d2l-answers-btn:hover { width: 200px; opacity: 1; border-radius: 12px; }
+            #d2l-answers-btn .icon { min-width: 48px; display: flex; align-items: center; justify-content: center; }
+            #d2l-answers-btn .text { opacity: 0; max-width: 0; transition: all 0.3s ease; font-size: 14px; }
+            #d2l-answers-btn:hover .text { opacity: 1; max-width: 140px; margin-right: 16px; }
+            #d2l-answers-btn.copied {
+                background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+            }
+        `
+
+        const syncIframeAnswersButton = () => {
+            const hasQuestion = !!document.querySelector(
+                '.qf-question, [id^="question-display-"]'
+            )
+            let answersBtn = document.getElementById('d2l-answers-btn')
+
+            if (!hasQuestion) {
+                if (answersBtn) answersBtn.style.display = 'none'
+                return
+            }
+
+            if (!document.getElementById('d2l-answers-btn-styles')) {
+                const styleEl = document.createElement('style')
+                styleEl.id = 'd2l-answers-btn-styles'
+                styleEl.textContent = IFRAME_ANSWERS_STYLES
+                document.head.appendChild(styleEl)
+            }
+
+            if (!answersBtn) {
+                answersBtn = document.createElement('button')
+                answersBtn.id = 'd2l-answers-btn'
+                answersBtn.innerHTML =
+                    '<div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"></path><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg></div><div class="text">Copy All Answers</div>'
+                answersBtn.onclick = async () => {
+                    answersBtn.disabled = true
+                    try {
+                        await revealPartsAndCopyAnswers()
+                        answersBtn.classList.add('copied')
+                        answersBtn.querySelector('.text').textContent =
+                            'Copied!'
+                        setTimeout(() => {
+                            answersBtn.classList.remove('copied')
+                            answersBtn.querySelector('.text').textContent =
+                                'Copy All Answers'
+                        }, 2000)
+                    } catch (err) {
+                        console.error(
+                            '[D2L-DL] Copy all answers failed:',
+                            err
+                        )
+                        alert(
+                            'Could not copy answers. See console for details.'
+                        )
+                    } finally {
+                        answersBtn.disabled = false
+                    }
+                }
+                document.body.appendChild(answersBtn)
+            }
+            answersBtn.style.display = 'flex'
+        }
+
+        if (document.body) syncIframeAnswersButton()
+        else
+            window.addEventListener(
+                'DOMContentLoaded',
+                syncIframeAnswersButton
+            )
+
+        new MutationObserver(syncIframeAnswersButton).observe(
+            document.documentElement,
+            { childList: true, subtree: true }
+        )
     }
 
     window.addEventListener('keydown', (e) => {
+        if (isTypingTarget()) return
+
         if (e.key === 't' || e.key === 'T') {
-            const active = document.activeElement
-            if (
-                active &&
-                (active.tagName === 'INPUT' ||
-                    active.tagName === 'TEXTAREA' ||
-                    active.isContentEditable)
-            ) {
-                return
-            }
             if (checkQMode()) {
                 const btn = findInDocumentOrIframes(
                     'button.qf-button.text-tool'
@@ -842,6 +1675,23 @@ y = 1
                     btn.click()
                     e.preventDefault()
                 }
+            }
+            return
+        }
+
+        if (
+            checkQMode() &&
+            (e.key === 'y' ||
+                e.key === 'Y' ||
+                e.key === 'Enter')
+        ) {
+            const yesBtn = getCurrentQuestionYesButton()
+            if (yesBtn) {
+                console.log(
+                    `[D2L-DL] '${e.key}' in Q-mode, clicking current Yes.`
+                )
+                yesBtn.click()
+                e.preventDefault()
             }
         }
     })

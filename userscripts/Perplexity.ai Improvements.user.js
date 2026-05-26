@@ -10,232 +10,722 @@
 // @run-at       document-start
 // ==/UserScript==
 
-//!    7. Text Selection Popup: Search with Google
 ;(() => {
-    // =============================================================================
-    // DEBUG: Check execution context FIRST
-    // =============================================================================
-    console.log(`[Perplexity Debug] Script running in: ${window.location.href}`)
-    console.log(`[Perplexity Debug] Is iframe? ${window.self !== window.top}`)
+    const win = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window
 
-    // Skip if we're inside an iframe (like GTM)
-    if (window.self !== window.top) {
-        console.log('[Perplexity] Skipping - inside iframe')
-        return
+    function isHomepage() {
+        const path = location.pathname.replace(/\/+$/, '')
+        return path === '' || path === '/'
     }
 
-    const PREFIX = '[Perplexity - Google Search Button]'
-    console.log(`${PREFIX} Initializing in main window...`)
+    /** Run off `/` only; teardown when user returns home (SPA + new tab). */
+    function whenNotHomepage(run) {
+        if (typeof run !== 'function') return
+        let active = false
+        let stop = null
 
-    // =============================================================================
-    // CORE FUNCTION: Add Google Search Button
-    // =============================================================================
-    function addGoogleSearchButton(triggerType) {
-        triggerType = triggerType || 'interval'
-        const buttons = document.querySelectorAll('button')
-        const verbose = triggerType !== 'interval'
-
-        if (verbose) {
-            console.log(`${PREFIX} Scan triggered by: ${triggerType}`)
-            console.log(`${PREFIX} Found ${buttons.length} buttons`)
-            console.log(
-                `${PREFIX} Current selection: "${window.getSelection().toString().slice(0, 50)}"`
-            )
+        const sync = () => {
+            if (!isHomepage()) {
+                if (!active) {
+                    active = true
+                    stop = run() || null
+                }
+            } else if (active) {
+                active = false
+                if (typeof stop === 'function') stop()
+                stop = null
+            }
         }
 
-        for (let i = 0; i < buttons.length; i++) {
-            const button = buttons[i]
+        sync()
+        const onRoute = () => sync()
+        window.addEventListener('popstate', onRoute)
+        for (const method of ['pushState', 'replaceState']) {
+            const original = history[method]
+            if (typeof original !== 'function') continue
+            history[method] = function (...args) {
+                const out = original.apply(this, args)
+                onRoute()
+                return out
+            }
+        }
+        setInterval(sync, 500)
+    }
 
-            // Look for the "Check sources" button
-            if (
-                button.textContent &&
-                button.textContent.includes('Check sources')
-            ) {
-                const container = button.parentElement
-                if (!container) continue
+    /** Run on `/` only; optional teardown when user navigates away (SPA). */
+    function whenHomepage(run) {
+        if (typeof run !== 'function') return
+        let active = false
+        let stop = null
 
-                // Don't add duplicate buttons
-                if (container.querySelector('.google-search-btn')) {
-                    if (verbose)
-                        console.log(`${PREFIX} Google button already exists`)
+        const sync = () => {
+            if (isHomepage()) {
+                if (!active) {
+                    active = true
+                    stop = run() || null
+                }
+            } else if (active) {
+                active = false
+                if (typeof stop === 'function') stop()
+                stop = null
+            }
+        }
+
+        sync()
+        const onRoute = () => sync()
+        window.addEventListener('popstate', onRoute)
+        for (const method of ['pushState', 'replaceState']) {
+            const original = history[method]
+            if (typeof original !== 'function') continue
+            history[method] = function (...args) {
+                const out = original.apply(this, args)
+                onRoute()
+                return out
+            }
+        }
+        setInterval(sync, 500)
+    }
+
+    const HIDDEN_CLASS = 'pplx-userscript-hidden'
+    const HIDDEN_STYLE_ID = 'pplx-userscript-hidden-style'
+
+    function ensureHiddenStyles() {
+        if (document.getElementById(HIDDEN_STYLE_ID)) return
+        const style = document.createElement('style')
+        style.id = HIDDEN_STYLE_ID
+        style.textContent = `
+        .${HIDDEN_CLASS} {
+            display: none !important;
+            visibility: hidden !important;
+            height: 0 !important;
+            min-height: 0 !important;
+            max-height: 0 !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            overflow: hidden !important;
+            pointer-events: none !important;
+        }
+        `
+        const root = document.head || document.documentElement
+        if (root) root.appendChild(style)
+    }
+
+    function hideElement(el) {
+        if (!el || el.classList.contains(HIDDEN_CLASS)) return
+        ensureHiddenStyles()
+        el.classList.add(HIDDEN_CLASS)
+        el.setAttribute('aria-hidden', 'true')
+        el.style.setProperty('display', 'none', 'important')
+        el.style.setProperty('visibility', 'hidden', 'important')
+        el.style.setProperty('pointer-events', 'none', 'important')
+    }
+
+    win.__pplxIsHomepage = isHomepage
+    win.__pplxWhenNotHomepage = whenNotHomepage
+    win.__pplxWhenHomepage = whenHomepage
+    win.__pplxHideElement = hideElement
+
+    /** Set to empty to enable all features; or add ids to limit (bisect). */
+    win.__PPLX_BISECT = null
+})()
+
+//!    7b. Homepage — hide Computer setup / starter promos
+;(() => {
+    const win = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window
+    if (win.__PPLX_BISECT && !win.__PPLX_BISECT.has('7b')) return
+    const whenHome = win.__pplxWhenHomepage
+    const hideElement = win.__pplxHideElement
+    if (!whenHome || !hideElement) return
+
+    whenHome(() => {
+        const norm = (s) => (s || '').toLowerCase().replace(/\s+/g, ' ').trim()
+
+        function hideSetupComputerDock() {
+            const docks = document.querySelectorAll(
+                'div.fixed.bottom-0.right-0, div.fixed[class*="bottom-0"][class*="right-0"]'
+            )
+            for (const dock of docks) {
+                const text = norm(dock.textContent)
+                if (
+                    !text.includes('set up computer') ||
+                    !text.includes('connect your apps')
+                ) {
                     continue
                 }
-
-                console.log(
-                    `${PREFIX} ✅ FOUND "Check sources" button! Adding Google Search...`
-                )
-
-                // Clone the button and modify it
-                const googleButton = button.cloneNode(true)
-                googleButton.classList.add('google-search-btn')
-
-                // Adjust styling to make it part of a button group
-                button.classList.remove('rounded-r-lg', 'dark:rounded-r-lg')
-                button.classList.add('rounded-r-none')
-
-                // Update button text
-                const textNode = googleButton.querySelector('.truncate')
-                if (textNode) {
-                    textNode.textContent = 'Search with Google'
-                } else {
-                    googleButton.textContent = 'Search with Google'
-                }
-
-                // Add click handler
-                googleButton.addEventListener('click', function (e) {
-                    e.stopPropagation()
-                    e.preventDefault()
-                    const selection = window.getSelection().toString().trim()
-                    if (selection) {
-                        console.log(
-                            `${PREFIX} Opening Google search for: "${selection}"`
-                        )
-                        window.open(
-                            'https://www.google.com/search?q=' +
-                                encodeURIComponent(selection),
-                            '_blank'
-                        )
-                    } else {
-                        console.log(`${PREFIX} No text selected`)
-                    }
-                })
-
-                // Add to DOM
-                container.appendChild(googleButton)
-                console.log(
-                    `${PREFIX} ✅ Google Search button added successfully!`
-                )
+                const card = dock.querySelector('.bg-raised.rounded-xl, .rounded-xl.bg-raised')
+                if (!card && !dock.querySelector('.ring-1')) continue
+                hideElement(dock)
             }
         }
-    }
 
-    // =============================================================================
-    // EVENT LISTENERS & OBSERVERS
-    // =============================================================================
-    function setupListeners() {
-        console.log(`${PREFIX} Setting up event listeners...`)
-        console.log(`${PREFIX} - document.readyState: ${document.readyState}`)
-        console.log(
-            `${PREFIX} - document.body: ${document.body ? 'exists' : 'null'}`
-        )
-
-        if (!document.body) {
-            console.warn(
-                `${PREFIX} document.body not ready yet, retrying in 100ms...`
+        function hideComputerStarterGrid() {
+            const shuffle = document.querySelector(
+                'button[aria-label="Shuffle starter cards"]'
             )
-            setTimeout(setupListeners, 100)
-            return
+            if (!shuffle) return
+
+            const block =
+                shuffle.closest('div.mt-lg.absolute') ||
+                shuffle.closest('div.mt-lg') ||
+                shuffle.closest('div.absolute.w-full')
+            if (!block) return
+
+            const text = norm(block.textContent)
+            if (!text.includes('try out perplexity computer')) return
+            if (!block.querySelector('button[aria-label="Shuffle starter cards"]')) return
+
+            hideElement(block)
         }
 
-        // Listen for text selection events (capture phase)
-        document.addEventListener(
-            'mouseup',
-            function (e) {
-                console.log(
-                    `${PREFIX} mouseup event - target: ${e.target.tagName}`
-                )
-                setTimeout(() => addGoogleSearchButton('mouseup'), 200)
-            },
-            true
-        )
+        const purge = () => {
+            if (!win.__pplxIsHomepage?.()) return
+            hideSetupComputerDock()
+            hideComputerStarterGrid()
+        }
 
-        document.addEventListener(
-            'keyup',
-            function (e) {
-                setTimeout(() => addGoogleSearchButton('keyup'), 200)
-            },
-            true
-        )
+        let scheduled = false
+        const schedulePurge = () => {
+            if (scheduled) return
+            scheduled = true
+            requestAnimationFrame(() => {
+                scheduled = false
+                purge()
+            })
+        }
 
-        console.log(`${PREFIX} ✅ Event listeners attached`)
+        purge()
 
-        // MutationObserver for dynamically added elements
-        const observer = new MutationObserver(function (mutations) {
-            for (let mutation of mutations) {
-                for (let node of mutation.addedNodes) {
-                    if (
-                        node.nodeType === Node.ELEMENT_NODE &&
-                        node.textContent &&
-                        node.textContent.includes('Check sources')
-                    ) {
-                        console.log(
-                            `${PREFIX} MutationObserver detected "Check sources" button`
-                        )
-                        setTimeout(() => addGoogleSearchButton('mutation'), 100)
-                        return
-                    }
-                }
+        let observer = null
+        const attachObserver = () => {
+            const root = document.body || document.documentElement
+            if (!root) return
+            observer = new MutationObserver(schedulePurge)
+            observer.observe(root, { childList: true, subtree: true })
+        }
+
+        if (document.body) attachObserver()
+        else document.addEventListener('DOMContentLoaded', attachObserver, { once: true })
+
+        const intervalId = setInterval(purge, 250)
+
+        return () => {
+            observer?.disconnect()
+            clearInterval(intervalId)
+        }
+    })
+})()
+
+//!    7c. Sidebar — hide Computer section (pinned tasks)
+;(() => {
+    const win = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window
+    if (win.__PPLX_BISECT && !win.__PPLX_BISECT.has('7c')) return
+    if (window.self !== window.top) return
+
+    const hideElement =
+        (typeof unsafeWindow !== 'undefined' ? unsafeWindow : window).__pplxHideElement
+    if (!hideElement) return
+
+    function useHref(useEl) {
+        return (
+            useEl.getAttribute('href') ||
+            useEl.getAttribute('xlink:href') ||
+            (useEl.href && useEl.href.baseVal) ||
+            ''
+        ).toLowerCase()
+    }
+
+    function hasSidebarComputerIcon(root) {
+        if (!root) return false
+        return Array.from(root.querySelectorAll('use')).some(u => {
+            const href = useHref(u)
+            return (
+                href.includes('pplx-icon-custom-computer') ||
+                href.includes('custom-computer')
+            )
+        })
+    }
+
+    function isSidebarComputerNavLink(a) {
+        if (a.tagName !== 'A') return false
+        const href = (a.getAttribute('href') || '').toLowerCase()
+        if (!/\/computer\/tasks/.test(href)) return false
+
+        const label = (a.getAttribute('aria-label') || '').trim().toLowerCase()
+        if (label === 'computer') return true
+
+        const subMenu = a.closest('[class*="sidebar-sub-menu"]')
+        return hasSidebarComputerIcon(subMenu)
+    }
+
+    function findCollapsibleSidebarSection(el) {
+        let node = el
+        while (node && node !== document.documentElement) {
+            const cls = node.className
+            if (typeof cls === 'string' && cls.includes('collapsible-sidebar-section')) {
+                return node
             }
-        })
-
-        observer.observe(document.body, {
-            childList: true,
-            subtree: true,
-        })
-        console.log(`${PREFIX} ✅ MutationObserver active`)
-
-        // Backup polling (runs every 2 seconds as fallback)
-        setInterval(() => addGoogleSearchButton('interval'), 2000)
-        console.log(`${PREFIX} ✅ Polling interval started`)
-
-        // Self-test: trigger a scan immediately
-        console.log(`${PREFIX} Running initial scan...`)
-        addGoogleSearchButton('initial')
-
-        // Expose test function globally
-        window._testGoogleSearch = function () {
-            console.log(`${PREFIX} 🧪 Manual test triggered!`)
-            addGoogleSearchButton('manual')
+            node = node.parentElement
         }
-        console.log(
-            `${PREFIX} ✅ Setup complete! Try window._testGoogleSearch() to test manually`
-        )
+        return null
     }
 
-    // =============================================================================
-    // INITIALIZATION
-    // =============================================================================
-    if (document.readyState === 'complete') {
-        console.log(`${PREFIX} Document already loaded, setting up now...`)
-        setupListeners()
-    } else if (document.readyState === 'interactive') {
-        console.log(`${PREFIX} Document interactive, waiting for full load...`)
-        window.addEventListener('load', function () {
-            console.log(`${PREFIX} window.load fired, waiting 1s for React...`)
-            setTimeout(setupListeners, 1000)
-        })
-    } else {
-        console.log(
-            `${PREFIX} Document still loading, waiting for DOMContentLoaded...`
-        )
-        document.addEventListener('DOMContentLoaded', function () {
-            console.log(`${PREFIX} DOMContentLoaded fired, waiting 500ms...`)
-            setTimeout(setupListeners, 500)
+    function hideSidebarComputerSection() {
+        const seen = new Set()
+        document.querySelectorAll('a[href*="/computer/tasks"]').forEach(link => {
+            if (!isSidebarComputerNavLink(link)) return
+            const section = findCollapsibleSidebarSection(link)
+            if (!section || seen.has(section)) return
+            seen.add(section)
+            hideElement(section)
         })
     }
 
-    console.log(`${PREFIX} Initialization complete`)
+    let scheduled = false
+    const schedule = () => {
+        if (scheduled) return
+        scheduled = true
+        requestAnimationFrame(() => {
+            scheduled = false
+            hideSidebarComputerSection()
+        })
+    }
+
+    hideSidebarComputerSection()
+
+    let observer = null
+    const attachObserver = () => {
+        const root = document.body || document.documentElement
+        if (!root) return
+        observer = new MutationObserver(schedule)
+        observer.observe(root, { childList: true, subtree: true })
+    }
+
+    if (document.body) attachObserver()
+    else document.addEventListener('DOMContentLoaded', attachObserver, { once: true })
+
+    const intervalId = setInterval(hideSidebarComputerSection, 250)
+
+    window.addEventListener('popstate', schedule)
+    for (const method of ['pushState', 'replaceState']) {
+        const original = history[method]
+        if (typeof original !== 'function') continue
+        history[method] = function (...args) {
+            const out = original.apply(this, args)
+            schedule()
+            return out
+        }
+    }
+
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') hideSidebarComputerSection()
+    })
+})()
+
+//!    7d. Homepage — hide composer Computer chip & topic shortcut nav
+;(() => {
+    const win = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window
+    if (win.__PPLX_BISECT && !win.__PPLX_BISECT.has('7d')) return
+    if (window.self !== window.top) return
+
+    const whenHome = win.__pplxWhenHomepage
+    const hideElement = win.__pplxHideElement
+    if (!whenHome || !hideElement) return
+
+    const STYLE_ID = 'pplx-chrome-hidden-style'
+    const COUNCIL_SUPPRESS_CLASS = 'pplx-suppress-model-council'
+    const COMPUTER_MODE_SUPPRESS_CLASS = 'pplx-suppress-computer-mode'
+    const MAX_MODEL_SUPPRESS_CLASS = 'pplx-suppress-max-model'
+    const TOPIC_NAV_PATHS = ['/discover', '/finance', '/health', '/academic', '/patents']
+    const TOPIC_NAV_LABELS = ['discover', 'finance', 'health', 'academic', 'patents']
+
+    function useHref(useEl) {
+        return (
+            useEl.getAttribute('href') ||
+            useEl.getAttribute('xlink:href') ||
+            (useEl.href && useEl.href.baseVal) ||
+            ''
+        ).toLowerCase()
+    }
+
+    function pathnameFromAnchor(a) {
+        const raw = (a.getAttribute('href') || '').trim()
+        if (!raw) return ''
+        try {
+            return new URL(raw, location.origin).pathname.replace(/\/+$/, '') || '/'
+        } catch {
+            return raw.split('?')[0].replace(/\/+$/, '') || '/'
+        }
+    }
+
+    function norm(s) {
+        return (s || '').toLowerCase().replace(/\s+/g, ' ').trim()
+    }
+
+    /** Never hide a subtree that contains the main ask / prompt UI. */
+    function containsComposer(node) {
+        if (!node?.querySelector) return false
+        return !!(
+            node.querySelector('#ask-input') ||
+            node.querySelector('[data-testid="ask-input"]') ||
+            node.querySelector('textarea') ||
+            node.querySelector('[contenteditable="true"]')
+        )
+    }
+
+    /** Query including open shadow roots (Perplexity mounts UI in shadow trees). */
+    function queryAllDeep(selector) {
+        const out = []
+        const visit = (node) => {
+            if (!node?.querySelectorAll) return
+            try {
+                node.querySelectorAll(selector).forEach(el => out.push(el))
+            } catch {
+                /* invalid selector in some roots */
+            }
+            node.querySelectorAll('*').forEach(el => {
+                if (el.shadowRoot) visit(el.shadowRoot)
+            })
+        }
+        if (document.body) visit(document.body)
+        else visit(document.documentElement)
+        return out
+    }
+
+    function injectStyles() {
+        if (document.getElementById(STYLE_ID)) return
+        const style = document.createElement('style')
+        style.id = STYLE_ID
+        style.textContent = `
+        button[aria-label="Computer"]:has(use[*|href*="custom-computer"]),
+        span:has(> span > span > button[aria-label="Computer"]:has(use[*|href*="custom-computer"])),
+        span:has(> span > button[aria-label="Computer"]:has(use[*|href*="custom-computer"])),
+        div:has(> a[href*="/discover"]):has(> a[href*="/finance"]):has(> a[href*="/patents"]),
+        [data-testid="ask-input-mode-toggle-indicator"],
+        .${COUNCIL_SUPPRESS_CLASS},
+        .${COMPUTER_MODE_SUPPRESS_CLASS},
+        .${MAX_MODEL_SUPPRESS_CLASS} {
+            display: none !important;
+            visibility: hidden !important;
+            height: 0 !important;
+            min-height: 0 !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            overflow: hidden !important;
+            pointer-events: none !important;
+        }
+        `
+        ;(document.head || document.documentElement).appendChild(style)
+    }
+
+    function hideAskInputModeToggleIndicator() {
+        for (const el of queryAllDeep('[data-testid="ask-input-mode-toggle-indicator"]')) {
+            hideElement(el)
+        }
+    }
+
+    function modeMenuItemRow(item) {
+        return (
+            item.closest('[class*="group/search-mode"]') ||
+            item.closest('[class*="group/item"]') ||
+            item
+        )
+    }
+
+    function isModelCouncilMenuItem(el) {
+        if (!el || el.getAttribute('role') !== 'menuitem') return false
+        if (!norm(el.textContent).includes('model council')) return false
+        return Array.from(el.querySelectorAll('use')).some(u => useHref(u).includes('gavel'))
+    }
+
+    function isComputerModeMenuItem(el) {
+        if (!el || el.getAttribute('role') !== 'menuitem') return false
+        if (!Array.from(el.querySelectorAll('use')).some(u => useHref(u).includes('custom-computer')))
+            return false
+        const text = norm(el.textContent)
+        return text === 'computer' || text.endsWith(' computer')
+    }
+
+    function spanIsMaxPlanBadge(span) {
+        if (!span || span.tagName !== 'SPAN') return false
+        if (norm(span.textContent) !== 'max') return false
+        const only = [...span.childNodes].every(
+            n => n.nodeType === Node.TEXT_NODE || (n.nodeType === Node.ELEMENT_NODE && n.tagName === 'SPAN')
+        )
+        if (!only) return false
+        const inner = span.querySelector(':scope > span')
+        return inner ? norm(inner.textContent) === 'max' : true
+    }
+
+    /** Locked Max-tier models use menuitem (not menuitemradio) + lock icon + Max badge. */
+    function isMaxOnlyModelMenuItem(el) {
+        if (!el || el.getAttribute('role') !== 'menuitem') return false
+        if (!el.closest('[role="menu"]')) return false
+        const hasLock = Array.from(el.querySelectorAll('use')).some(u => useHref(u).includes('lock'))
+        if (!hasLock) return false
+        return Array.from(el.querySelectorAll('span')).some(spanIsMaxPlanBadge)
+    }
+
+    function modelMenuItemRow(item) {
+        let node = item
+        while (node && node !== document.documentElement) {
+            const parent = node.parentElement
+            if (parent?.getAttribute('role') === 'group') return node
+            node = parent
+        }
+        return item
+    }
+
+    /** Hide only — do not remove DOM (Radix/React menu breaks on remove). */
+    function suppressModelCouncilMenuItem() {
+        for (const item of queryAllDeep('[role="menuitem"]')) {
+            if (!isModelCouncilMenuItem(item)) continue
+            const row = modeMenuItemRow(item)
+            if (row.classList.contains(COUNCIL_SUPPRESS_CLASS)) continue
+            row.classList.add(COUNCIL_SUPPRESS_CLASS)
+            row.setAttribute('aria-hidden', 'true')
+            row.style.setProperty('display', 'none', 'important')
+            row.style.setProperty('pointer-events', 'none', 'important')
+        }
+    }
+
+    function suppressComputerModeMenuItem() {
+        for (const item of queryAllDeep('[role="menuitem"]')) {
+            if (!isComputerModeMenuItem(item)) continue
+            const row = modeMenuItemRow(item)
+            if (row.classList.contains(COMPUTER_MODE_SUPPRESS_CLASS)) continue
+            row.classList.add(COMPUTER_MODE_SUPPRESS_CLASS)
+            row.setAttribute('aria-hidden', 'true')
+            row.style.setProperty('display', 'none', 'important')
+            row.style.setProperty('pointer-events', 'none', 'important')
+        }
+    }
+
+    function suppressMaxOnlyModelMenuItems() {
+        for (const item of queryAllDeep('[role="menuitem"]')) {
+            if (!isMaxOnlyModelMenuItem(item)) continue
+            const row = modelMenuItemRow(item)
+            if (row.classList.contains(MAX_MODEL_SUPPRESS_CLASS)) continue
+            row.classList.add(MAX_MODEL_SUPPRESS_CLASS)
+            row.setAttribute('aria-hidden', 'true')
+            row.style.setProperty('display', 'none', 'important')
+            row.style.setProperty('pointer-events', 'none', 'important')
+        }
+    }
+
+    function blockHiddenModeMenuClicks(isMatch) {
+        const handler = (e) => {
+            const item = e.target.closest?.('[role="menuitem"]')
+            if (!item || !isMatch(item)) return
+            e.preventDefault()
+            e.stopPropagation()
+            e.stopImmediatePropagation()
+        }
+        document.addEventListener('click', handler, true)
+        document.addEventListener('pointerdown', handler, true)
+    }
+
+    function blockModelCouncilClicks() {
+        blockHiddenModeMenuClicks(isModelCouncilMenuItem)
+    }
+
+    function blockComputerModeClicks() {
+        blockHiddenModeMenuClicks(isComputerModeMenuItem)
+    }
+
+    function blockMaxOnlyModelClicks() {
+        blockHiddenModeMenuClicks(isMaxOnlyModelMenuItem)
+    }
+
+    function hasComposerComputerIcon(root) {
+        if (!root) return false
+        return Array.from(root.querySelectorAll('use')).some(u =>
+            useHref(u).includes('custom-computer')
+        )
+    }
+
+    function isComposerComputerToggle(btn) {
+        if (!btn || btn.tagName !== 'BUTTON') return false
+        if (!hasComposerComputerIcon(btn)) return false
+        const label = (btn.getAttribute('aria-label') || '').trim().toLowerCase()
+        return label === 'computer'
+    }
+
+    function hideComputerChip() {
+        const seen = new Set()
+        const buttons = new Set()
+        for (const btn of queryAllDeep('button[aria-label="Computer"]')) buttons.add(btn)
+        for (const use of queryAllDeep('use')) {
+            if (!useHref(use).includes('custom-computer')) continue
+            const btn = use.closest('button')
+            if (btn) buttons.add(btn)
+        }
+        for (const btn of buttons) {
+            if (!isComposerComputerToggle(btn)) continue
+            const wrap =
+                btn.closest('span.relative') ||
+                btn.closest('span.inline-flex.rounded-full') ||
+                btn.closest('span[style*="width: 36px"]') ||
+                btn.parentElement?.parentElement?.parentElement
+            if (!wrap || seen.has(wrap) || containsComposer(wrap)) continue
+            seen.add(wrap)
+            hideElement(wrap)
+        }
+    }
+
+    function isTopicShortcutNav(container) {
+        if (!container || container.tagName !== 'DIV') return false
+        const anchors = container.querySelectorAll(':scope > a[href]')
+        if (anchors.length < TOPIC_NAV_PATHS.length) return false
+        const paths = new Set()
+        for (const a of anchors) {
+            const p = pathnameFromAnchor(a)
+            if (p) paths.add(p)
+        }
+        if (!TOPIC_NAV_PATHS.every(p => paths.has(p))) return false
+        const labels = new Set()
+        for (const a of anchors) {
+            const t = norm(a.textContent)
+            if (t) labels.add(t)
+        }
+        return TOPIC_NAV_LABELS.every(l => labels.has(l))
+    }
+
+    function findTopicNavFromAnchor(a) {
+        let node = a.parentElement
+        let best = null
+        while (node && node !== document.documentElement) {
+            if (isTopicShortcutNav(node)) best = node
+            node = node.parentElement
+        }
+        return best
+    }
+
+    function hideTopicNav() {
+        const seen = new Set()
+        for (const a of queryAllDeep('a[href]')) {
+            const path = pathnameFromAnchor(a)
+            if (path !== '/discover') continue
+            const nav = findTopicNavFromAnchor(a)
+            if (!nav || seen.has(nav) || containsComposer(nav)) continue
+            seen.add(nav)
+            hideElement(nav)
+        }
+    }
+
+    let scheduledGlobal = false
+    const scheduleGlobal = () => {
+        if (scheduledGlobal) return
+        scheduledGlobal = true
+        requestAnimationFrame(() => {
+            scheduledGlobal = false
+            suppressModelCouncilMenuItem()
+            suppressComputerModeMenuItem()
+            suppressMaxOnlyModelMenuItems()
+            hideAskInputModeToggleIndicator()
+        })
+    }
+
+    const attachGlobalObserver = () => {
+        const root = document.body || document.documentElement
+        if (!root) return
+        new MutationObserver(scheduleGlobal).observe(root, { childList: true, subtree: true })
+    }
+
+    injectStyles()
+    blockModelCouncilClicks()
+    blockComputerModeClicks()
+    blockMaxOnlyModelClicks()
+    scheduleGlobal()
+    if (document.body) attachGlobalObserver()
+    else document.addEventListener('DOMContentLoaded', attachGlobalObserver, { once: true })
+    setInterval(() => {
+        suppressModelCouncilMenuItem()
+        suppressComputerModeMenuItem()
+        suppressMaxOnlyModelMenuItems()
+        hideAskInputModeToggleIndicator()
+    }, 250)
+
+    whenHome(() => {
+        const purge = () => {
+            if (!win.__pplxIsHomepage?.()) return
+            hideComputerChip()
+            hideAskInputModeToggleIndicator()
+            hideTopicNav()
+        }
+
+        let scheduled = false
+        const schedule = () => {
+            if (scheduled) return
+            scheduled = true
+            requestAnimationFrame(() => {
+                scheduled = false
+                purge()
+            })
+        }
+
+        purge()
+
+        let observer = null
+        const attachObserver = () => {
+            const root = document.body || document.documentElement
+            if (!root) return
+            observer = new MutationObserver(schedule)
+            observer.observe(root, { childList: true, subtree: true })
+        }
+
+        if (document.body) attachObserver()
+        else document.addEventListener('DOMContentLoaded', attachObserver, { once: true })
+
+        const intervalId = setInterval(purge, 250)
+
+        return () => {
+            observer?.disconnect()
+            clearInterval(intervalId)
+        }
+    })
 })()
 
 //!		 8. Hide Upsell Banners (Upgrade, Try Computer, etc.)
 ;(() => {
-    // Add CSS rule for immediate hiding
-    const style = document.createElement('style')
-    style.textContent = `
-        /* Hide Upsell Banners via CSS selector engine */
-        .rounded-2xl:has(use[href*="computer"]),
-        .rounded-2xl:has(use[*|href*="computer"]),
-        .rounded-2xl:has(button[aria-label="Try Computer"]),
-        .rounded-2xl:has(img[src*="computer"]),
-        .bg-raised:has(use[href*="computer"]),
-        .bg-raised:has(use[*|href*="computer"]),
-        
-        /* Hide the wrappers too if possible */
-        div:has(> div > .rounded-2xl:has(use[href*="computer"])),
-        div:has(> div > .bg-raised:has(use[href*="computer"])),
-        
-        /* General hidden class applied dynamically by JS scanner */
-        .pplx-hidden-banner {
+    const win = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window
+    if (win.__PPLX_BISECT && !win.__PPLX_BISECT.has('8')) return
+    const run = win.__pplxWhenNotHomepage
+    if (!run) return
+    run(() => {
+    const isHome = () => win.__pplxIsHomepage?.() === true
+
+    // Perplexity labels live upsell wrappers with class "pplx-hidden-banner" — do NOT reuse that name.
+    const SUPPRESS_CLASS = 'pplx-upsell-suppressed'
+    const STYLE_ID = 'pplx-upsell-suppress-style'
+
+    function containsComposer(node) {
+        if (!node?.querySelector) return false
+        return !!(
+            node.querySelector('#ask-input') ||
+            node.querySelector('[data-testid="ask-input"]') ||
+            node.querySelector('textarea') ||
+            node.querySelector('[contenteditable="true"]')
+        )
+    }
+
+    const injectStyles = () => {
+        if (isHome()) return
+        if (document.getElementById(STYLE_ID)) return
+        const style = document.createElement('style')
+        style.id = STYLE_ID
+        style.textContent = `
+        /* Upsell cards only — avoid href*="computer" (matches unrelated sprites) */
+        .rounded-2xl:has(use[*|href*="custom-computer"]),
+        .rounded-2xl:has(use[*|href*="pplx-icon-custom-computer"]),
+        .bg-raised:has(use[*|href*="custom-computer"]),
+        .bg-raised:has(use[*|href*="pplx-icon-custom-computer"]),
+        div.pplx-hidden-banner:has(use[*|href*="custom-computer"]),
+        div.pplx-hidden-banner:has(use[*|href*="pplx-icon-custom-computer"]),
+        div:has(> div > .rounded-2xl:has(use[*|href*="custom-computer"])),
+        div:has(> div > .bg-raised:has(use[*|href*="custom-computer"])),
+
+        .${SUPPRESS_CLASS},
+        .${SUPPRESS_CLASS} * {
             display: none !important;
             visibility: hidden !important;
             height: 0 !important;
@@ -249,10 +739,14 @@
             overflow: hidden !important;
         }
     `
-    document.head.appendChild(style)
+        ;(document.head || document.documentElement).appendChild(style)
+    }
+    injectStyles()
 
     const BANNER_KEYWORDS = [
         'try computer',
+        'let computer build',
+        'computer generates full',
         'perplexity computer',
         'computer writes sql',
         'turn your data questions',
@@ -262,209 +756,272 @@
         'upgrade to max',
         'upgrade now',
         'try this answer with'
-    ];
+    ]
 
     const BANNER_ICON_ATTRS = [
-        'computer',
         'custom-computer',
-        'perplexity_computer_upsell'
-    ];
+        'perplexity_computer',
+        'perplexity_computer_upsell',
+        'pplx-icon-custom-computer'
+    ]
+
+    const COMPUTER_CTA_RE = /^\s*try\s+computer\s*$/i
+
+    function useHref(useEl) {
+        return (
+            useEl.getAttribute('href') ||
+            useEl.getAttribute('xlink:href') ||
+            (useEl.href && useEl.href.baseVal) ||
+            ''
+        ).toLowerCase()
+    }
+
+    function isComputerUpsellIcon(href) {
+        return BANNER_ICON_ATTRS.some(attr => href.includes(attr))
+    }
+
+    function isSuppressed(el) {
+        return el && (el.classList.contains(SUPPRESS_CLASS) || el.closest(`.${SUPPRESS_CLASS}`))
+    }
+
+    function isProtectedContent(el) {
+        return el.closest(
+            '[data-testid="user-message"], .message-container, #ask-input, textarea, [contenteditable="true"]'
+        )
+    }
+
+    function suppressNode(node) {
+        if (!node || isSuppressed(node) || containsComposer(node)) return
+        node.classList.add(SUPPRESS_CLASS)
+        node.style.setProperty('display', 'none', 'important')
+        node.style.setProperty('visibility', 'hidden', 'important')
+        node.style.setProperty('pointer-events', 'none', 'important')
+    }
 
     function findBannerContainer(el) {
-        // Find the closest card container first
-        let card = el.closest('.rounded-2xl, .bg-raised, .shadow-xl, .shadow-md, [role="dialog"], .modal, .border-subtlest');
+        let card = el.closest(
+            '.rounded-2xl, .bg-raised, .shadow-xl, .shadow-md, [role="dialog"], .modal, .border-subtlest, div.pplx-hidden-banner'
+        )
         if (!card) {
-            card = el.parentElement;
-            if (!card) return null;
+            card = el.parentElement
+            if (!card) return null
         }
 
-        // Walk up to hide simple outer wrappers (opacity: 1, transitions, etc.)
-        let current = card;
+        let current = card
         while (current.parentElement) {
-            const parent = current.parentElement;
-            if (parent === document.body || parent === document.documentElement || parent.tagName === 'MAIN') {
-                break;
+            if (containsComposer(current)) return null
+            const parent = current.parentElement
+            if (
+                parent === document.body ||
+                parent === document.documentElement ||
+                parent.tagName === 'MAIN'
+            ) {
+                break
             }
-            
-            // Count visible/active children in the parent
+
             const siblingCount = Array.from(parent.children).filter(c => {
-                if (c === current) return true;
-                // If a sibling is already hidden, don't count it
-                if (c.classList.contains('pplx-hidden-banner') || c.style.display === 'none') return false;
-                return true;
-            }).length;
+                if (c === current) return true
+                if (c.classList.contains(SUPPRESS_CLASS) || c.style.display === 'none')
+                    return false
+                return true
+            }).length
 
-            const isWrapper = siblingCount === 1 && (
-                parent.style.opacity === '1' ||
-                parent.style.transform !== '' ||
-                parent.className === '' ||
-                parent.tagName === 'DIV'
-            );
+            const isWrapper =
+                siblingCount === 1 &&
+                (parent.classList.contains('pplx-hidden-banner') ||
+                    parent.style.opacity === '1' ||
+                    parent.style.transform !== '' ||
+                    parent.tagName === 'DIV')
 
-            if (isWrapper) {
-                current = parent;
-            } else {
-                break;
-            }
+            if (isWrapper) current = parent
+            else break
         }
-        return current;
+        return current
+    }
+
+    function isTryComputerButton(el) {
+        if (el.tagName !== 'BUTTON') return false
+        const label = (el.getAttribute('aria-label') || '').toLowerCase()
+        if (label.includes('try computer')) return true
+        const truncate = el.querySelector('.truncate')
+        const text = (truncate ? truncate.textContent : el.textContent) || ''
+        return COMPUTER_CTA_RE.test(text)
     }
 
     function isMatch(el) {
-        // Skip already hidden elements or their children to avoid double-processing
-        if (el.classList.contains('pplx-hidden-banner') || el.closest('.pplx-hidden-banner')) {
-            return false;
-        }
+        if (isSuppressed(el) || isProtectedContent(el)) return false
 
-        // Avoid matching elements inside user chat messages or query inputs
-        if (el.closest('[data-testid="user-message"], .message-container, #ask-input')) {
-            return false;
-        }
+        if (isTryComputerButton(el)) return true
 
-        // 1. Check text content
-        const text = (el.textContent || '').toLowerCase().trim();
-        if (text) {
-            for (const kw of BANNER_KEYWORDS) {
-                if (text.includes(kw)) {
-                    if (el.tagName === 'BUTTON' || el.tagName === 'A' || el.tagName === 'H1' || el.tagName === 'H2' || el.tagName === 'H3' || text.length < 150) {
-                        return true;
-                    }
-                    if (el.tagName === 'DIV') {
-                        const children = Array.from(el.children);
-                        const hasMatchingChild = children.some(child => {
-                            const childText = (child.textContent || '').toLowerCase();
-                            return BANNER_KEYWORDS.some(k => childText.includes(k));
-                        });
-                        if (!hasMatchingChild) {
-                            return true;
-                        }
-                    }
-                }
-            }
-        }
-
-        // 2. Check SVG / Use elements
         if (el.tagName === 'use' || el.tagName === 'USE') {
-            const href = el.getAttribute('href') || el.getAttribute('xlink:href') || (el.href && el.href.baseVal) || '';
-            if (BANNER_ICON_ATTRS.some(attr => href.toLowerCase().includes(attr))) {
-                return true;
-            }
+            if (isComputerUpsellIcon(useHref(el))) return true
         }
 
-        // 3. Check Image elements
         if (el.tagName === 'IMG') {
-            const src = el.getAttribute('src') || '';
-            if (BANNER_ICON_ATTRS.some(attr => src.toLowerCase().includes(attr))) {
-                return true;
-            }
+            const src = (el.getAttribute('src') || '').toLowerCase()
+            if (BANNER_ICON_ATTRS.some(attr => src.includes(attr))) return true
         }
 
-        // 4. Check button attributes
         if (el.tagName === 'BUTTON') {
-            const ariaLabel = (el.getAttribute('aria-label') || '').toLowerCase();
-            if (BANNER_KEYWORDS.some(kw => ariaLabel.includes(kw))) {
-                return true;
-            }
+            const ariaLabel = (el.getAttribute('aria-label') || '').toLowerCase()
+            if (BANNER_KEYWORDS.some(kw => ariaLabel.includes(kw))) return true
         }
 
-        return false;
+        const text = (el.textContent || '').toLowerCase().trim()
+        if (!text) return false
+        for (const kw of BANNER_KEYWORDS) {
+            if (!text.includes(kw)) continue
+            if (
+                el.tagName === 'BUTTON' ||
+                el.tagName === 'A' ||
+                el.tagName === 'H1' ||
+                el.tagName === 'H2' ||
+                el.tagName === 'H3' ||
+                text.length < 200
+            ) {
+                return true
+            }
+        }
+        return false
     }
 
     const removeBanners = () => {
-        // Fast path: scan card-like containers
+        if (isHome()) return
+        injectStyles()
+
+        document.querySelectorAll('use').forEach(use => {
+            if (isProtectedContent(use) || isSuppressed(use)) return
+            if (!isComputerUpsellIcon(useHref(use))) return
+            const target = findBannerContainer(use)
+            if (target) suppressNode(target)
+        })
+
+        document.querySelectorAll('button').forEach(btn => {
+            if (isProtectedContent(btn) || isSuppressed(btn)) return
+            if (!isTryComputerButton(btn) && !isMatch(btn)) return
+            const target = findBannerContainer(btn)
+            if (target) suppressNode(target)
+        })
+
         const containers = document.querySelectorAll(
-            '.rounded-2xl, .bg-raised, .shadow-xl, .shadow-md, [role="dialog"], .modal, .border-subtlest'
-        );
+            '.rounded-2xl, .bg-raised, .shadow-xl, div.pplx-hidden-banner'
+        )
         containers.forEach(container => {
-            if (container.classList.contains('pplx-hidden-banner')) return;
-            if (container.closest('[data-testid="user-message"], .message-container')) return;
+            if (isSuppressed(container) || isProtectedContent(container)) return
 
-            const text = (container.textContent || '').toLowerCase();
-            const hasKeyword = BANNER_KEYWORDS.some(kw => text.includes(kw));
+            const text = (container.textContent || '').toLowerCase()
+            const hasKeyword = BANNER_KEYWORDS.some(kw => text.includes(kw))
+            const hasComputerIcon = Array.from(container.querySelectorAll('use')).some(u =>
+                isComputerUpsellIcon(useHref(u))
+            )
+            const hasTryCta = Array.from(container.querySelectorAll('button')).some(isTryComputerButton)
 
-            if (hasKeyword) {
-                // Ensure it's a promotional banner and not real content by confirming UI markers
-                const isUpsell = 
-                    container.querySelector('button') ||
-                    container.querySelector('use') ||
-                    container.querySelector('img') ||
-                    container.querySelector('[aria-label="Dismiss"]');
-                    
-                if (isUpsell) {
-                    const target = findBannerContainer(container);
-                    if (target && !target.classList.contains('pplx-hidden-banner')) {
-                        target.classList.add('pplx-hidden-banner');
-                        console.log('[Perplexity Improvements] Hidden container via fast path:', target);
-                    }
-                    return;
-                }
-            }
+            if (!hasKeyword && !hasComputerIcon && !hasTryCta) return
 
-            // Check icons/images inside the container
-            const uses = container.querySelectorAll('use');
-            for (const use of uses) {
-                const href = use.getAttribute('href') || use.getAttribute('xlink:href') || (use.href && use.href.baseVal) || '';
-                if (BANNER_ICON_ATTRS.some(attr => href.toLowerCase().includes(attr))) {
-                    const target = findBannerContainer(container);
-                    if (target && !target.classList.contains('pplx-hidden-banner')) {
-                        target.classList.add('pplx-hidden-banner');
-                        console.log('[Perplexity Improvements] Hidden container via SVG path:', target);
-                    }
-                    return;
-                }
-            }
+            const isUpsell =
+                hasComputerIcon ||
+                hasTryCta ||
+                container.querySelector('[aria-label="Dismiss"]') ||
+                (hasKeyword &&
+                    (container.querySelector('use') || container.querySelector('button.bg-button-bg')))
 
-            const imgs = container.querySelectorAll('img');
-            for (const img of imgs) {
-                const src = img.getAttribute('src') || '';
-                if (BANNER_ICON_ATTRS.some(attr => src.toLowerCase().includes(attr))) {
-                    const target = findBannerContainer(container);
-                    if (target && !target.classList.contains('pplx-hidden-banner')) {
-                        target.classList.add('pplx-hidden-banner');
-                        console.log('[Perplexity Improvements] Hidden container via Image path:', target);
-                    }
-                    return;
-                }
-            }
-        });
-
-        // Fallback/Standalone path
-        const candidates = document.querySelectorAll('button, use, img');
-        candidates.forEach(el => {
-            if (isMatch(el)) {
-                const target = findBannerContainer(el);
-                if (target && !target.classList.contains('pplx-hidden-banner')) {
-                    target.classList.add('pplx-hidden-banner');
-                    console.log('[Perplexity Improvements] Hidden standalone element:', target);
-                }
-            }
-        });
+            if (!isUpsell) return
+            const target = findBannerContainer(container)
+            if (target) suppressNode(target)
+        })
     }
 
-    // Use MutationObserver for instant removal
-    const observer = new MutationObserver(removeBanners)
-    observer.observe(document.body || document.documentElement, { childList: true, subtree: true })
+    let scheduled = false
+    const scheduleRemove = () => {
+        if (scheduled) return
+        scheduled = true
+        requestAnimationFrame(() => {
+            scheduled = false
+            removeBanners()
+        })
+    }
 
-    // Fallback interval for SPA navigation or items that don't trigger subtree mutations correctly
-    setInterval(removeBanners, 1000)
+    let observer = null
+    let intervalId = null
 
-    // Initial run
-    if (
-        document.readyState === 'complete' ||
-        document.readyState === 'interactive'
-    ) {
+    const startObserver = () => {
+        const root = document.body || document.documentElement
+        if (!root) return
+        observer = new MutationObserver(scheduleRemove)
+        observer.observe(root, {
+            childList: true,
+            subtree: true,
+            attributes: true,
+            attributeFilter: ['class', 'style', 'hidden']
+        })
         removeBanners()
     }
+
+    if (document.body) startObserver()
+    else document.addEventListener('DOMContentLoaded', startObserver, { once: true })
+
+    intervalId = setInterval(removeBanners, 200)
+    document.addEventListener('visibilitychange', onVis)
+
+    function onVis() {
+        if (document.visibilityState === 'visible') removeBanners()
+    }
+
+    return () => {
+        observer?.disconnect()
+        observer = null
+        if (intervalId) clearInterval(intervalId)
+        intervalId = null
+        document.removeEventListener('visibilitychange', onVis)
+        document.getElementById(STYLE_ID)?.remove()
+        document.querySelectorAll(`.${SUPPRESS_CLASS}`).forEach((el) => {
+            el.classList.remove(SUPPRESS_CLASS)
+            el.style.removeProperty('display')
+            el.style.removeProperty('visibility')
+            el.style.removeProperty('pointer-events')
+        })
+    }
+    })
 })()
 
 //!	9. Rate Limit Display
 ;(() => {
     'use strict'
 
+    const win = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window
+    if (win.__PPLX_BISECT && !win.__PPLX_BISECT.has('9')) return
+
     const BADGE_ID = 'pplx-rate-limit-badge'
     const REFRESH_MS = 300_000 // 5 minutes
     const CACHE_KEY = 'pplx-rate-limit-cache'
     const TS_KEY = 'pplx-rate-limit-ts'
+
+    function queryAllDeep(selector) {
+        const out = []
+        const visit = (node) => {
+            if (!node?.querySelectorAll) return
+            try {
+                node.querySelectorAll(selector).forEach((el) => out.push(el))
+            } catch {
+                /* invalid selector in some roots */
+            }
+            node.querySelectorAll('*').forEach((el) => {
+                if (el.shadowRoot) visit(el.shadowRoot)
+            })
+        }
+        if (document.body) visit(document.body)
+        else visit(document.documentElement)
+        return out
+    }
+
+    function useHref(useEl) {
+        return (
+            useEl.getAttribute('href') ||
+            useEl.getAttribute('xlink:href') ||
+            (useEl.href && useEl.href.baseVal) ||
+            ''
+        ).toLowerCase()
+    }
 
     async function fetchLimits(force = false) {
         const now = Date.now()
@@ -478,33 +1035,46 @@
             }
         }
 
-        try {
-            const r = await fetch('/rest/rate-limit/all')
-            if (!r.ok) throw new Error(`HTTP ${r.status}`)
-            const d = await r.json()
-            const limits = {
-                pro: d.remaining_pro ?? '?',
-                research: d.remaining_research ?? '?',
-            }
-            localStorage.setItem(CACHE_KEY, JSON.stringify(limits))
-            localStorage.setItem(TS_KEY, now.toString())
-            return limits
-        } catch (e) {
-            console.error('[pplx-rate-limit] Fetch error:', e)
+        const fallback = () => {
             const cached = localStorage.getItem(CACHE_KEY)
             if (cached) {
                 try {
                     return JSON.parse(cached)
                 } catch (err) {}
             }
-            return { pro: '!', research: '!' }
+            return { pro: '!', research: '!', uploadLimit: '!' }
+        }
+
+        try {
+            const [rateRes, settingsRes] = await Promise.all([
+                fetch('/rest/rate-limit/all'),
+                fetch('/rest/user/settings', { credentials: 'include' }),
+            ])
+            if (!rateRes.ok) throw new Error(`rate-limit HTTP ${rateRes.status}`)
+            const d = await rateRes.json()
+            const limits = {
+                pro: d.remaining_pro ?? '?',
+                research: d.remaining_research ?? '?',
+                uploadLimit: '?',
+            }
+            if (settingsRes.ok) {
+                const settings = await settingsRes.json()
+                limits.uploadLimit = settings.upload_limit ?? '?'
+            }
+            localStorage.setItem(CACHE_KEY, JSON.stringify(limits))
+            localStorage.setItem(TS_KEY, now.toString())
+            return limits
+        } catch (e) {
+            console.error('[pplx-rate-limit] Fetch error:', e)
+            return fallback()
         }
     }
 
     function buildBadge() {
         const wrap = document.createElement('div')
         wrap.id = BADGE_ID
-        wrap.title = 'Pro / Research queries remaining — click to refresh'
+        wrap.title =
+            'Pro / Research / document uploads remaining — click to refresh'
         Object.assign(wrap.style, {
             display: 'inline-flex',
             alignItems: 'center',
@@ -546,58 +1116,88 @@
                 </svg>
                 <span id="pplx-rl-research" style="font-weight: 500;">…</span>
             </span>
+            <span style="opacity:.3; font-size: 10px;">|</span>
+            <span title="Document uploads remaining" style="display:inline-flex;align-items:center;gap:4px;">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
+                </svg>
+                <span id="pplx-rl-docs" style="font-weight: 500;">…</span>
+            </span>
         `
 
         wrap.onclick = async (e) => {
             e.stopPropagation()
-            setValues('…', '…')
-            const { pro, research } = await fetchLimits(true)
-            setValues(pro, research)
+            setValues('…', '…', '…')
+            const limits = await fetchLimits(true)
+            setValues(limits.pro, limits.research, limits.uploadLimit ?? '?')
         }
 
         return wrap
     }
 
-    function setValues(pro, research) {
+    function setValues(pro, research, docs) {
         const p = document.getElementById('pplx-rl-pro')
         const r = document.getElementById('pplx-rl-research')
+        const doc = document.getElementById('pplx-rl-docs')
         if (p) p.textContent = pro
         if (r) r.textContent = research
+        if (doc) doc.textContent = docs
     }
 
     function getModelButton() {
-        // Use the stable ID of the input to find the local context
         const input = document.getElementById('ask-input')
         if (!input) return null
 
-        // The container is the grand-parent of the input area (uid 5077)
         const container =
             input.closest('div:has(> .px-3 #ask-input)') ||
             input.closest('.grid')
         if (!container) return null
 
-        // Find the model selection button (it has text and a menu popup)
-        // It's usually the first button with text inside the bottom right action area
         const buttons = Array.from(
             container.querySelectorAll('button[aria-haspopup="menu"]')
         )
         return buttons.find((btn) => btn.innerText.length > 0) || null
     }
 
+    function getHomepageSearchButton() {
+        for (const btn of queryAllDeep('button[aria-haspopup="menu"]')) {
+            const hasSearchIcon = Array.from(btn.querySelectorAll('use')).some(
+                (u) => useHref(u).includes('pplx-icon-search')
+            )
+            if (!hasSearchIcon) continue
+            if (!/\bsearch\b/i.test(btn.textContent)) continue
+            return btn
+        }
+        return null
+    }
+
+    function getAnchorButton() {
+        return getModelButton() || getHomepageSearchButton()
+    }
+
+    function injectBadgeBeforeControl(controlBtn, badge) {
+        const outer =
+            controlBtn.parentElement?.parentElement ||
+            controlBtn.parentElement
+        const inner = controlBtn.parentElement
+        if (!outer || !inner) return false
+        outer.insertBefore(badge, inner)
+        return true
+    }
+
     async function tryInject() {
+        const existing = document.getElementById(BADGE_ID)
+        if (existing && !document.body.contains(existing)) existing.remove()
         if (document.getElementById(BADGE_ID)) return
-        const modelBtn = getModelButton()
-        if (!modelBtn) return
+
+        const anchorBtn = getAnchorButton()
+        if (!anchorBtn) return
 
         const badge = buildBadge()
-        // Inject before the model button's wrapper to keep it in the same flex row
-        modelBtn.parentElement.parentElement.insertBefore(
-            badge,
-            modelBtn.parentElement
-        )
+        if (!injectBadgeBeforeControl(anchorBtn, badge)) return
 
-        const { pro, research } = await fetchLimits()
-        setValues(pro, research)
+        const limits = await fetchLimits()
+        setValues(limits.pro, limits.research, limits.uploadLimit ?? '?')
     }
 
     const mo = new MutationObserver(() => {
@@ -612,16 +1212,23 @@
 
         // Periodic refresh (throttled by fetchLimits)
         setInterval(async () => {
-            const { pro, research } = await fetchLimits()
-            setValues(pro, research)
+            const limits = await fetchLimits()
+            setValues(
+                limits.pro,
+                limits.research,
+                limits.uploadLimit ?? '?'
+            )
         }, 60_000)
 
-        // Sync with other tabs
         window.addEventListener('storage', (e) => {
             if (e.key === CACHE_KEY && e.newValue) {
                 try {
-                    const { pro, research } = JSON.parse(e.newValue)
-                    setValues(pro, research)
+                    const limits = JSON.parse(e.newValue)
+                    setValues(
+                        limits.pro,
+                        limits.research,
+                        limits.uploadLimit ?? '?'
+                    )
                 } catch (err) {}
             }
         })
@@ -640,6 +1247,12 @@
 //!    10. Auto Reset "Learn step by step" Mode to "Search" on Submit
 ;(() => {
     'use strict'
+
+    const win = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window
+    if (win.__PPLX_BISECT && !win.__PPLX_BISECT.has('10')) return
+    const run = win.__pplxWhenNotHomepage
+    if (!run) return
+    run(() => {
 
     const PREFIX = '[Perplexity - Auto Reset Mode]'
     let isResetting = false
@@ -845,5 +1458,6 @@
     } else {
         window.addEventListener('DOMContentLoaded', init)
     }
+    })
 })()
 

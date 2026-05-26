@@ -715,29 +715,6 @@
         }
     }
 
-    // Patch visibility and focus to prevent auto-pause
-    if (window.self === window.top) {
-        const blockEvent = (e) => {
-            if (isAutomationActive()) {
-                e.stopImmediatePropagation()
-            }
-        }
-        window.addEventListener('blur', blockEvent, true)
-        window.addEventListener('focusout', blockEvent, true)
-        document.addEventListener('visibilitychange', blockEvent, true)
-
-        try {
-            Object.defineProperty(document, 'visibilityState', {
-                get: () => (isAutomationActive() ? 'visible' : 'visible'), // Default to visible to be safe
-                configurable: true,
-            })
-            Object.defineProperty(document, 'hidden', {
-                get: () => (isAutomationActive() ? false : false),
-                configurable: true,
-            })
-        } catch (e) {}
-    }
-
     let isAutomationRunning = false
     let isAutomationPaused = false
     const DELAY_KEY = 'cc_automation_delay'
@@ -746,6 +723,8 @@
     const SPEED_KEY = 'cc_automation_speed'
     const MUTE_KEY = 'cc_automation_mute'
     const POS_KEY = 'cc_automation_pos'
+    const SLIDE_PROGRESS_MIN_PERCENT = 80
+    const LESSON_PRINT_DONE_PREFIX = 'cc_lesson_print_done:'
 
     let automationDelay = parseInt(localStorage.getItem(DELAY_KEY) || '500')
     let useDwellTime = localStorage.getItem(DWELL_KEY) !== 'false' // Default to true
@@ -757,6 +736,7 @@
     let lastSyncLogTime = 0
     let initialJumpTriggered = false
     let isSkipRequested = false
+    let keepControlBarVisibleAfterRun = false
 
     const setAutomationPaused = (paused) => {
         isAutomationPaused = paused
@@ -873,9 +853,7 @@
         skipBtn.addEventListener('click', () => {
             isSkipRequested = true
             setAutomationPaused(false) // Ensure unpaused on skip
-            // Try to force play on current audio if possible to unblock site state
-            const { el: audio } = findInIframes(window, 'audio#n')
-            if (audio && audio.paused) audio.play().catch(() => {})
+            scheduleForceResumeAutomationPlayback()
             console.log('[Userscript] Skip requested for current slide.')
         })
 
@@ -954,11 +932,14 @@
                 updateControlBarStatus('Resuming automation...')
 
                 setTimeout(() => {
-                    if (resumeScheduled && !isAutomationRunning) {
-                        performAutomation(state.type === 'download').catch(
-                            console.error
-                        )
-                    }
+                    ;(async () => {
+                        await waitForUrlSlideSync()
+                        if (resumeScheduled && !isAutomationRunning) {
+                            performAutomation(state.type === 'download').catch(
+                                console.error
+                            )
+                        }
+                    })().catch(console.error)
                 }, 1500)
             }
         } catch (e) {
@@ -1086,6 +1067,286 @@
         }
     }
 
+    const automationWantsPlayback = () =>
+        isAutomationRunning && !isAutomationPaused && !isSkipRequested
+
+    const patchedAutomationWindows = new WeakSet()
+    let documentVisibilitySpoofInstalled = false
+
+    const installDocumentVisibilitySpoof = () => {
+        if (documentVisibilitySpoofInstalled) return
+        documentVisibilitySpoofInstalled = true
+        try {
+            const hiddenDesc = Object.getOwnPropertyDescriptor(
+                Document.prototype,
+                'hidden'
+            )
+            const stateDesc = Object.getOwnPropertyDescriptor(
+                Document.prototype,
+                'visibilityState'
+            )
+            if (hiddenDesc?.get) {
+                Object.defineProperty(Document.prototype, 'hidden', {
+                    get() {
+                        if (isAutomationActive()) return false
+                        return hiddenDesc.get.call(this)
+                    },
+                    configurable: true,
+                    enumerable: hiddenDesc.enumerable,
+                })
+            }
+            if (stateDesc?.get) {
+                Object.defineProperty(Document.prototype, 'visibilityState', {
+                    get() {
+                        if (isAutomationActive()) return 'visible'
+                        return stateDesc.get.call(this)
+                    },
+                    configurable: true,
+                    enumerable: stateDesc.enumerable,
+                })
+            }
+        } catch (e) {
+            console.warn(
+                '[Userscript] Could not install document visibility spoof:',
+                e
+            )
+        }
+    }
+
+    const getMediaPlayPauseButton = () =>
+        findInIframes(window, '.mediaPlayer__playPause').el
+
+    /** Paused UI: #togglePlay still has icon-play-button. */
+    const clickPlayIfIconShowsPlay = () => {
+        const { el: icon } = findInIframes(window, '#togglePlay')
+        const { el: button } = findInIframes(
+            window,
+            'button.mediaPlayer__button--play'
+        )
+        if (icon?.classList.contains('icon-play-button') && button) {
+            button.click()
+        }
+    }
+
+    const isMediaPlayerUiPaused = () => {
+        const { el: icon } = findInIframes(window, '#togglePlay')
+        if (icon?.classList.contains('icon-play-button')) return true
+        const playBtn = getMediaPlayPauseButton()
+        if (!playBtn) return false
+        const title = (playBtn.getAttribute('title') || '')
+            .trim()
+            .toLowerCase()
+        return title === 'play'
+    }
+
+    const activateMediaPlayButton = (playBtn) => {
+        if (!playBtn) return false
+        const title = (playBtn.getAttribute('title') || '')
+            .trim()
+            .toLowerCase()
+        if (title !== 'play') return false
+        const doc = playBtn.ownerDocument
+        const view = doc.defaultView || window
+        try {
+            playBtn.click()
+        } catch (e) {}
+        const rect = playBtn.getBoundingClientRect()
+        const cx = rect.left + rect.width / 2
+        const cy = rect.top + rect.height / 2
+        const opts = {
+            view,
+            bubbles: true,
+            cancelable: true,
+            clientX: cx,
+            clientY: cy,
+            button: 0,
+        }
+        ;['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach(
+            (type) => {
+                playBtn.dispatchEvent(new MouseEvent(type, opts))
+            }
+        )
+        return true
+    }
+
+    const clickMediaPlayButton = () => {
+        const playBtn = getMediaPlayPauseButton()
+        return activateMediaPlayButton(playBtn)
+    }
+
+    const isSlidePlaybackPaused = (audio) => {
+        if (isMediaPlayerUiPaused()) return true
+        if (!audio) return false
+        return audio.paused
+    }
+
+    const clickCanvasToPlay = (canvas, canvasDoc) => {
+        if (!canvas || !canvasDoc) return false
+        const rect = canvas.getBoundingClientRect()
+        const clickOpts = {
+            view: canvasDoc.defaultView || window,
+            bubbles: true,
+            cancelable: true,
+            clientX: rect.left + rect.width / 2,
+            clientY: rect.top + rect.height / 2,
+            button: 0,
+        }
+        canvas.dispatchEvent(new MouseEvent('mousedown', clickOpts))
+        canvas.dispatchEvent(new MouseEvent('mouseup', clickOpts))
+        canvas.dispatchEvent(new MouseEvent('click', clickOpts))
+        return true
+    }
+
+    const forceResumeAutomationPlayback = () => {
+        if (!automationWantsPlayback()) return
+        clickPlayIfIconShowsPlay()
+    }
+
+    const scheduleForceResumeAutomationPlayback = () => {
+        forceResumeAutomationPlayback()
+        setTimeout(forceResumeAutomationPlayback, 0)
+        setTimeout(forceResumeAutomationPlayback, 50)
+        setTimeout(forceResumeAutomationPlayback, 200)
+        setTimeout(forceResumeAutomationPlayback, 600)
+    }
+
+    const ensureAutomationSlidePlayback = (audio, canvasDoc = null) => {
+        if (!automationWantsPlayback()) return
+        if (!isSlidePlaybackPaused(audio)) return
+        forceResumeAutomationPlayback()
+    }
+
+    let automationPlaybackWatchdogId = null
+
+    const stopAutomationPlaybackWatchdog = () => {
+        if (automationPlaybackWatchdogId != null) {
+            clearInterval(automationPlaybackWatchdogId)
+            automationPlaybackWatchdogId = null
+        }
+    }
+
+    const patchAutomationFocusGuards = (win) => {
+        if (!win || patchedAutomationWindows.has(win)) return
+        try {
+            patchedAutomationWindows.add(win)
+            const doc = win.document
+
+            const onVisibilityOrFocus = () => {
+                if (!isAutomationActive()) return
+                scheduleForceResumeAutomationPlayback()
+            }
+            doc.addEventListener('visibilitychange', onVisibilityOrFocus, true)
+            win.addEventListener('blur', onVisibilityOrFocus, true)
+            win.addEventListener('focus', onVisibilityOrFocus, true)
+            win.addEventListener('pageshow', onVisibilityOrFocus, true)
+            win.addEventListener('pagehide', onVisibilityOrFocus, true)
+
+            doc.querySelectorAll('iframe').forEach((iframe) => {
+                try {
+                    if (iframe.contentWindow) {
+                        patchAutomationFocusGuards(iframe.contentWindow)
+                    }
+                } catch (e) {}
+            })
+        } catch (e) {}
+    }
+
+    const startAutomationPlaybackWatchdog = () => {
+        stopAutomationPlaybackWatchdog()
+        installDocumentVisibilitySpoof()
+        patchAutomationFocusGuards(window)
+        const tick = () => {
+            if (!automationWantsPlayback()) return
+            clickPlayIfIconShowsPlay()
+        }
+        tick()
+        automationPlaybackWatchdogId = setInterval(tick, 1000)
+    }
+
+    if (window.self === window.top) {
+        installDocumentVisibilitySpoof()
+        patchAutomationFocusGuards(window)
+    }
+
+    const isPlayerBuffering = (canvasDoc = null) => {
+        const search = (root) => {
+            if (!root) return false
+            const loadDiv =
+                root.querySelector && root.querySelector('#loading')
+            if (loadDiv && loadDiv.style.display !== 'none') return true
+            const target = root.body || root
+            const txt =
+                target && target.innerText
+                    ? target.innerText.toLowerCase()
+                    : ''
+            if (txt.includes('buffer')) return true
+            const clock =
+                root.querySelector &&
+                root.querySelector('.current-time')
+            if (
+                clock &&
+                (clock.textContent.includes('N/A') ||
+                    clock.textContent === '0:00')
+            )
+                return true
+            const all = root.querySelectorAll ? root.querySelectorAll('*') : []
+            for (const el of all) {
+                if (el.shadowRoot && search(el.shadowRoot)) return true
+            }
+            return false
+        }
+        if (search(document)) return true
+        if (canvasDoc && search(canvasDoc)) return true
+        const iframes = document.querySelectorAll('iframe')
+        for (const f of iframes) {
+            try {
+                if (f.contentDocument && search(f.contentDocument)) return true
+            } catch (e) {}
+        }
+        return false
+    }
+
+    const tryResumeAutomationPlayback = (audio, canvasDoc = null) => {
+        if (!automationWantsPlayback()) return
+        if (isPlayerBuffering(canvasDoc)) return
+        if (isSlidePlaybackPaused(audio)) {
+            ensureAutomationSlidePlayback(audio, canvasDoc)
+        }
+    }
+
+    const scheduleResumeAutomationPlayback = (audio, canvasDoc = null) => {
+        tryResumeAutomationPlayback(audio, canvasDoc)
+        setTimeout(() => tryResumeAutomationPlayback(audio, canvasDoc), 150)
+        setTimeout(() => tryResumeAutomationPlayback(audio, canvasDoc), 600)
+        setTimeout(() => tryResumeAutomationPlayback(audio, canvasDoc), 1500)
+        scheduleForceResumeAutomationPlayback()
+    }
+
+    const injectAutomationPlaybackGuard = (audio) => {
+        if (!audio || audio._playbackGuardInjected) return
+        audio._playbackGuardInjected = true
+        const resumeFromEvent = () => {
+            scheduleForceResumeAutomationPlayback()
+        }
+        audio.addEventListener('pause', resumeFromEvent)
+        audio.addEventListener('stalled', () =>
+            setTimeout(resumeFromEvent, 250)
+        )
+        audio.addEventListener('canplay', resumeFromEvent)
+        audio.addEventListener('suspend', resumeFromEvent)
+        audio.addEventListener('waiting', () =>
+            setTimeout(resumeFromEvent, 300)
+        )
+        audio.addEventListener('play', () => {
+            if (isAutomationRunning && isAutomationPaused) {
+                console.log(
+                    '[Userscript] Audio PLAY detected - syncing automation state.'
+                )
+                setAutomationPaused(false)
+            }
+        })
+    }
+
     const applyDarkMode = () => {
         const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches
         if (!isDark) return
@@ -1112,34 +1373,8 @@
         console.log('[Userscript] [playCanvas] Triggered.')
         const { el: canvas, doc: canvasDoc } = findMainCanvas(window)
         if (canvas && canvasDoc) {
-            console.log(
-                '[Userscript] [playCanvas] Found main slide canvas. Calculating center...'
-            )
-            const rect = canvas.getBoundingClientRect()
-            const width = rect.width || canvas.offsetWidth || 300
-            const height = rect.height || canvas.offsetHeight || 200
-            const centerX = rect.left + width / 2
-            const centerY = rect.top + height / 2
-            console.log(
-                `[Userscript] [playCanvas] Center coordinates: ${centerX.toFixed(2)}, ${centerY.toFixed(2)} (using ${width}x${height})`
-            )
-
-            const clickOpts = {
-                view: canvasDoc.defaultView || window,
-                bubbles: true,
-                cancelable: true,
-                clientX: centerX,
-                clientY: centerY,
-                button: 0,
-            }
-
-            console.log(
-                '[Userscript] [playCanvas] Dispatching mousedown/mouseup/click sequence...'
-            )
-            canvas.dispatchEvent(new MouseEvent('mousedown', clickOpts))
-            canvas.dispatchEvent(new MouseEvent('mouseup', clickOpts))
-            canvas.dispatchEvent(new MouseEvent('click', clickOpts))
-            console.log('[Userscript] [playCanvas] All events dispatched.')
+            clickCanvasToPlay(canvas, canvasDoc)
+            console.log('[Userscript] [playCanvas] Click sequence dispatched.')
         } else {
             console.warn(
                 '[Userscript] [playCanvas] FAILED: Could not find canvas in any iframe.'
@@ -1235,14 +1470,53 @@
         }
     }
 
-    const performInitialSync = () => {
-        if (
-            initialSyncDone ||
-            initialJumpTriggered ||
-            isAutomationRunning ||
-            isAutomationActive()
+    const getCurrentSlideFromUi = () => {
+        const { el: slideIndicator } = findInIframes(
+            window,
+            'button.mediaPlayer__button--showslides'
         )
+        if (!slideIndicator) return null
+        const match = slideIndicator.textContent
+            .trim()
+            .match(/Slide (\d+) of (\d+)/i)
+        return match ? parseInt(match[1], 10) : null
+    }
+
+    /** ?slide= in URL is source of truth; automation must not run until this completes. */
+    const waitForUrlSlideSync = async (maxMs = 15000) => {
+        const target = initialTargetNum
+        if (!target) {
+            initialSyncDone = true
             return
+        }
+
+        if (initialSyncDone && getCurrentSlideFromUi() === target) return
+
+        if (initialSyncDone && getCurrentSlideFromUi() !== target) {
+            initialSyncDone = false
+            initialJumpTriggered = false
+        }
+
+        const start = Date.now()
+        while (Date.now() - start < maxMs) {
+            const cur = getCurrentSlideFromUi()
+            if (cur === target) {
+                initialSyncDone = true
+                lastCurrentSlide = cur
+                console.log(
+                    `[Userscript] URL slide sync complete: slide ${target}`
+                )
+                return
+            }
+            performInitialSync()
+            await new Promise((r) => setTimeout(r, 250))
+        }
+        console.warn('[Userscript] URL slide sync timed out; continuing anyway.')
+        initialSyncDone = true
+    }
+
+    const performInitialSync = () => {
+        if (initialSyncDone || initialJumpTriggered) return
 
         if (!initialTargetNum) {
             initialSyncDone = true
@@ -1659,10 +1933,177 @@
         }
     }
 
+    function getLessonPrintStorageKey(meta) {
+        return (
+            LESSON_PRINT_DONE_PREFIX +
+            [location.pathname, meta.course, meta.unit, meta.lesson].join('|')
+        )
+    }
+
+    function parseSlideBarWidthPercent(barEl) {
+        if (!barEl) return 0
+        const style = barEl.getAttribute('style') || ''
+        const m = style.match(/width:\s*([\d.]+)%/i)
+        if (m) return parseFloat(m[1])
+        const w = barEl.style.width
+        if (w && w.endsWith('%')) return parseFloat(w)
+        return 0
+    }
+
+    function collectSlideItemsFromDom() {
+        const { el: slidesRoot } = findInIframes(window, '.slides')
+        if (!slidesRoot) return []
+        return Array.from(slidesRoot.querySelectorAll('ul > li.slide'))
+    }
+
+    function slideIndexFromLi(li) {
+        const title = li.querySelector('h3.slide__title')
+        if (!title) return null
+        const m = title.textContent.match(/Slide\s+(\d+)\s+of\s+(\d+)/i)
+        return m ? parseInt(m[1], 10) : null
+    }
+
+    async function ensureSlidesPanelReady() {
+        let items = collectSlideItemsFromDom()
+        if (items.length > 0) return items
+        const { el: showBtn } = findInIframes(
+            window,
+            'button.mediaPlayer__button--showslides'
+        )
+        if (showBtn) {
+            showBtn.click()
+            await new Promise((r) => setTimeout(r, 400))
+            items = collectSlideItemsFromDom()
+        }
+        return items
+    }
+
+    async function getSlideProgressReportAsync(totalSlides) {
+        const items = await ensureSlidesPanelReady()
+        const all = []
+        for (const li of items) {
+            const slide = slideIndexFromLi(li)
+            if (slide == null) continue
+            const bar = li.querySelector('span.slide__bar')
+            all.push({ slide, percent: parseSlideBarWidthPercent(bar) })
+        }
+        const contentSlides = all.filter(
+            (s) => s.slide >= 1 && s.slide <= totalSlides - 1
+        )
+        const failing = contentSlides.filter(
+            (s) => s.percent < SLIDE_PROGRESS_MIN_PERCENT
+        )
+        const ok =
+            contentSlides.length === 0 || failing.length === 0
+        return { ok, failing, all: contentSlides }
+    }
+
+    function formatIncompleteProgressMessage(failing) {
+        const parts = failing
+            .sort((a, b) => a.slide - b.slide)
+            .map((s) => {
+                const pct =
+                    s.percent % 1 === 0
+                        ? String(s.percent)
+                        : s.percent.toFixed(1)
+                return `slide ${s.slide} (${pct}%)`
+            })
+        let msg = `Incomplete progress: ${parts.join(', ')} need ≥${SLIDE_PROGRESS_MIN_PERCENT}%`
+        if (msg.length > 500) {
+            msg =
+                `Incomplete progress: ${failing.length} slides below ${SLIDE_PROGRESS_MIN_PERCENT}% — ` +
+                parts.slice(0, 8).join(', ') +
+                (parts.length > 8 ? '…' : '')
+        }
+        return msg
+    }
+
+    async function triggerCornerPrintOnce(meta) {
+        const key = getLessonPrintStorageKey(meta)
+        if (localStorage.getItem(key) === 'true') {
+            console.log('[Userscript] Lesson print already done, skipping.')
+            return false
+        }
+        const printBtn = findInIframes(
+            window,
+            'ul.cornerMenu a[title="Print"]'
+        ).el
+        if (printBtn) {
+            updateControlBarStatus('Downloading Notes...')
+            console.log(
+                '[Userscript] Incomplete progress — triggering one-time Notes download.'
+            )
+            printBtn.click()
+            localStorage.setItem(key, 'true')
+            await new Promise((r) => setTimeout(r, 1500))
+            return true
+        }
+        return false
+    }
+
+    async function finishLessonWithProgressGate(meta, totalSlides) {
+        const report = await getSlideProgressReportAsync(totalSlides)
+        console.log('[Userscript] Slide progress report:', report)
+
+        if (report.ok) {
+            updateControlBarStatus('Lesson Complete!')
+
+            const printBtn = findInIframes(
+                window,
+                'ul.cornerMenu a[title="Print"]'
+            ).el
+            const practiceBtn = findInIframes(
+                window,
+                'ul.cornerMenu a[title="Practice"]'
+            ).el
+
+            if (printBtn) {
+                updateControlBarStatus('Downloading Notes...')
+                console.log(
+                    '[Userscript] Lesson complete. Triggering Notes download.'
+                )
+                printBtn.click()
+                await new Promise((r) => setTimeout(r, 1500))
+            }
+
+            if (practiceBtn) {
+                updateControlBarStatus('Going to Practice...')
+                console.log(
+                    '%cLesson complete. Clicking Practice link.',
+                    'color: #ff3385; font-weight: bold;'
+                )
+                practiceBtn.click()
+            } else {
+                updateControlBarStatus('Practice link not found.')
+                console.warn(
+                    '[Userscript] Could not find Practice link to click.'
+                )
+            }
+
+            updateControlBarStatus('Finished!')
+            console.log('Automation complete.')
+        } else {
+            keepControlBarVisibleAfterRun = true
+            await triggerCornerPrintOnce(meta)
+            updateControlBarStatus(
+                formatIncompleteProgressMessage(report.failing)
+            )
+            console.warn(
+                '[Userscript] Lesson incomplete — not navigating to Practice.',
+                report.failing
+            )
+        }
+        sessionStorage.removeItem(RUNNING_KEY)
+    }
+
     async function performAutomation(downloadSlides = true) {
+        await waitForUrlSlideSync()
+
+        keepControlBarVisibleAfterRun = false
         isAutomationRunning = true
         isAutomationPaused = false
         resumeScheduled = false
+        startAutomationPlaybackWatchdog()
         showControlBar(downloadSlides)
         sessionStorage.setItem(
             RUNNING_KEY,
@@ -1717,33 +2158,7 @@
                     if (canvas && seekbar && audio) {
                         if (isAutomationMuted) audio.muted = true
 
-                        // Sync pause state with video
-                        if (!audio._pauseSyncInjected) {
-                            audio._pauseSyncInjected = true
-                            audio.addEventListener('pause', () => {
-                                if (
-                                    isAutomationRunning &&
-                                    !isAutomationPaused &&
-                                    !isSkipRequested
-                                ) {
-                                    // We no longer pause the skipper automatically when the video pauses,
-                                    // as requested by the user to ensure autoplay and continuous skipping.
-                                    // Instead, we just try to resume playback if we're not supposed to be paused.
-                                    console.log(
-                                        '[Userscript] Audio PAUSED - automation will attempt to resume playback.'
-                                    )
-                                }
-                            })
-                            audio.addEventListener('play', () => {
-                                if (isAutomationRunning && isAutomationPaused) {
-                                    // Only auto-resume if we were actually paused (e.g. user clicked play on video)
-                                    console.log(
-                                        '[Userscript] Audio PLAY detected - syncing automation state.'
-                                    )
-                                    setAutomationPaused(false)
-                                }
-                            })
-                        }
+                        injectAutomationPlaybackGuard(audio)
                         break
                     }
                     retryCount++
@@ -1769,8 +2184,9 @@
                 const currentSlide = match ? parseInt(match[1]) : 1
                 const totalSlides = match ? parseInt(match[2]) : 1
 
-                // Update URL to reflect current slide state
-                updateUrlSlide(currentSlide)
+                if (initialSyncDone || !initialTargetNum) {
+                    updateUrlSlide(currentSlide)
+                }
 
                 const actionText = downloadSlides ? 'Capturing' : 'Skipping'
                 updateControlBarStatus(`${actionText} ${slideText}...`)
@@ -1797,52 +2213,7 @@
                     })
                 }
 
-                const checkLoadingState = () => {
-                    const search = (root) => {
-                        if (!root) return false
-                        // 1. Check for specific #loading div
-                        const loadDiv =
-                            root.querySelector && root.querySelector('#loading')
-                        if (loadDiv && loadDiv.style.display !== 'none')
-                            return true
-                        // 2. Check for "buffer" text (defensively)
-                        const target = root.body || root
-                        const txt =
-                            target && target.innerText
-                                ? target.innerText.toLowerCase()
-                                : ''
-                        if (txt.includes('buffer')) return true
-                        // 3. Check for N/A clock
-                        const clock =
-                            root.querySelector &&
-                            root.querySelector('.current-time')
-                        if (
-                            clock &&
-                            (clock.textContent.includes('N/A') ||
-                                clock.textContent === '0:00')
-                        )
-                            return true
-                        // 4. Recursive Shadow DOM search
-                        const all = root.querySelectorAll
-                            ? root.querySelectorAll('*')
-                            : []
-                        for (const el of all) {
-                            if (el.shadowRoot && search(el.shadowRoot))
-                                return true
-                        }
-                        return false
-                    }
-                    if (search(document)) return true
-                    if (canvasDoc && search(canvasDoc)) return true
-                    const iframes = document.querySelectorAll('iframe')
-                    for (const f of iframes) {
-                        try {
-                            if (f.contentDocument && search(f.contentDocument))
-                                return true
-                        } catch (e) {}
-                    }
-                    return false
-                }
+                const checkLoadingState = () => isPlayerBuffering(canvasDoc)
 
                 const events = [
                     'waiting',
@@ -1897,6 +2268,7 @@
                 recorder('WAITING FOR INITIAL READY')
                 for (let i = 0; i < 100; i++) {
                     if (isAutomationMuted) audio.muted = true
+                    tryResumeAutomationPlayback(audio, canvasDoc)
                     if (audio.readyState >= 3 && !checkLoadingState()) break
                     await new Promise((r) => setTimeout(r, 100))
                 }
@@ -1918,6 +2290,7 @@
                 let lastMax = ''
                 let maxStable = 0
                 for (let i = 0; i < 60; i++) {
+                    tryResumeAutomationPlayback(audio, canvasDoc)
                     const currentMax = seekbar.max
                     if (
                         currentMax &&
@@ -1974,8 +2347,7 @@
                     let stableFrames = 0
                     for (let i = 0; i < 50; i++) {
                         await waitIfPaused()
-                        if (audio.paused && !checkLoadingState())
-                            audio.play().catch(() => {})
+                        tryResumeAutomationPlayback(audio, canvasDoc)
 
                         // Ensure mute persistence
                         if (isAutomationMuted) {
@@ -2066,8 +2438,7 @@
 
                     if (remainingWait <= 0 || isSkipRequested) break
 
-                    if (audio.paused && !checkLoadingState())
-                        audio.play().catch(() => {})
+                    tryResumeAutomationPlayback(audio, canvasDoc)
 
                     // Ensure mute persistence
                     if (isAutomationMuted) {
@@ -2103,47 +2474,12 @@
                 await waitIfPaused()
                 if (!isAutomationRunning) break // Stop pressed while paused
 
-                // 5. Check if we're done (Process up to second-to-last slide, skipping the "completed" slide)
-                if (currentSlide >= totalSlides - 1 || !nextBtn) {
-                    updateControlBarStatus('Lesson Complete!')
-
-                    // Specific sequence: Print (Notes) then Practice
-                    const printBtn = findInIframes(
-                        window,
-                        'ul.cornerMenu a[title="Print"]'
-                    ).el
-                    const practiceBtn = findInIframes(
-                        window,
-                        'ul.cornerMenu a[title="Practice"]'
-                    ).el
-
-                    if (printBtn) {
-                        updateControlBarStatus('Downloading Notes...')
-                        console.log(
-                            '[Userscript] Lesson complete. Triggering Notes download.'
-                        )
-                        printBtn.click()
-                        // Small delay to ensure download triggers before navigation
-                        await new Promise((r) => setTimeout(r, 1500))
-                    }
-
-                    if (practiceBtn) {
-                        updateControlBarStatus('Going to Practice...')
-                        console.log(
-                            '%cLesson complete. Clicking Practice link.',
-                            'color: #ff3385; font-weight: bold;'
-                        )
-                        practiceBtn.click()
-                    } else {
-                        updateControlBarStatus('Practice link not found.')
-                        console.warn(
-                            '[Userscript] Could not find Practice link to click.'
-                        )
-                    }
-
-                    updateControlBarStatus('Finished!')
-                    console.log('Automation complete.')
-                    sessionStorage.removeItem(RUNNING_KEY)
+                // 5. After the final slide, gate on sidebar progress before Print → Practice
+                const atLessonEnd =
+                    currentSlide >= totalSlides ||
+                    (!nextBtn && currentSlide >= totalSlides - 1)
+                if (atLessonEnd) {
+                    await finishLessonWithProgressGate(meta, totalSlides)
                     break
                 }
 
@@ -2209,6 +2545,7 @@
                 })
             }
         } finally {
+            stopAutomationPlaybackWatchdog()
             isAutomationRunning = false
             isAutomationPaused = false
             resumeScheduled = false
@@ -2228,7 +2565,9 @@
                 // Ignore errors during final cleanup
             }
 
-            setTimeout(hideControlBar, 2000)
+            if (!keepControlBarVisibleAfterRun) {
+                setTimeout(hideControlBar, 2000)
+            }
             console.log('[Userscript] Automation sequence ended.')
         }
     }
