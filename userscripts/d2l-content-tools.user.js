@@ -883,23 +883,29 @@
                 const seen = new Set();
 
                 function walk(doc) {
-                    if (!doc || seen.has(doc)) return;
+                    if (!doc || !doc.defaultView || seen.has(doc)) return;
                     seen.add(doc);
                     docs.push(doc);
 
-                    const iframes = [
-                        ...doc.querySelectorAll('iframe'),
-                        ...findInShadow('iframe', doc)
-                    ];
+                    try {
+                        const iframes = [
+                            ...doc.querySelectorAll('iframe'),
+                            ...findInShadow('iframe', doc)
+                        ];
 
-                    for (const iframe of iframes) {
-                        try {
-                            if (iframe.contentDocument) walk(iframe.contentDocument);
-                        } catch (_) {}
-                    }
+                        for (const iframe of iframes) {
+                            try {
+                                if (iframe && iframe.contentDocument) {
+                                    walk(iframe.contentDocument);
+                                }
+                            } catch (_) {}
+                        }
+                    } catch (_) {}
                 }
 
-                walk(document);
+                try {
+                    walk(document);
+                } catch (_) {}
                 return docs;
             }
 
@@ -1060,16 +1066,24 @@
             function startObservers() {
                 disconnectObservers();
                 for (const doc of collectSameOriginDocuments()) {
+                    if (!doc.documentElement && !doc.body) continue;
                     const observer = new MutationObserver(() => {
+                        if (!state.running) return;
+                        if (!doc.defaultView) {
+                            observer.disconnect();
+                            return;
+                        }
                         scheduleForCurrentQuestion();
                     });
-                    observer.observe(doc.documentElement || doc.body, {
-                        childList: true,
-                        subtree: true,
-                        attributes: true,
-                        attributeFilter: ['class', 'style', 'aria-hidden']
-                    });
-                    state.observerDisconnectors.push(() => observer.disconnect());
+                    try {
+                        observer.observe(doc.documentElement || doc.body, {
+                            childList: true,
+                            subtree: true,
+                            attributes: true,
+                            attributeFilter: ['class', 'style', 'aria-hidden']
+                        });
+                        state.observerDisconnectors.push(() => observer.disconnect());
+                    } catch (_) {}
                 }
             }
 
