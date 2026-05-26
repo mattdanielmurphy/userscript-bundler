@@ -1158,8 +1158,29 @@
                 state.observerDisconnectors = [];
             }
 
+            function setupCloseInterception() {
+                for (const doc of collectSameOriginDocuments()) {
+                    try {
+                        const win = doc.defaultView;
+                        if (!win) continue;
+                        if (win.__d2lCloseIntercepted) continue;
+                        win.__d2lCloseIntercepted = true;
+
+                        win.addEventListener('click', (e) => {
+                            if (!state.running) return;
+                            const closeBtn = e.target && e.target.closest && e.target.closest('.qf-title-button.close, [aria-label="close question"]');
+                            if (closeBtn) {
+                                log('Close button click detected, stopping simulator.');
+                                stopSimTime('Stopped (closed)');
+                            }
+                        }, true);
+                    } catch (_) {}
+                }
+            }
+
             function startObservers() {
                 disconnectObservers();
+                setupCloseInterception();
                 for (const doc of collectSameOriginDocuments()) {
                     if (!doc.documentElement && !doc.body) continue;
                     const observer = new MutationObserver(() => {
@@ -1168,6 +1189,7 @@
                             observer.disconnect();
                             return;
                         }
+                        setupCloseInterception();
                         scheduleForCurrentQuestion();
                     });
                     try {
