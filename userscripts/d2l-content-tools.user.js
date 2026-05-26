@@ -909,56 +909,98 @@
                 return visible[visible.length - 1] || all[all.length - 1] || null
             }
 
-            const getCanvasInSlide = (slide) => {
-                const root = getActiveQuestionRoot()
-                if (!root) return null
-                const doc = root.ownerDocument || document
-                const container = (root.closest && root.closest(SIM_CONFIG.slideSelector)) || root
+            const isVisible = (el) => {
+                if (!el || !el.isConnected) return false
+                const rect = el.getBoundingClientRect()
+                return rect.width > 0 && rect.height > 0
+            }
 
-                let canvas = container.querySelector(SIM_CONFIG.canvasSelector)
+            const uniquePush = (list, item) => {
+                if (item && !list.includes(item)) list.push(item)
+            }
+
+            const findInShadow = (selector, root, out = []) => {
+                if (!root) return out
+                if (root.querySelectorAll) {
+                    root.querySelectorAll(selector).forEach(el => uniquePush(out, el))
+                }
+                const walker = (root.ownerDocument || document).createTreeWalker(
+                    root,
+                    NodeFilter.SHOW_ELEMENT,
+                    {
+                        acceptNode(node) {
+                            return node.shadowRoot ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP
+                        }
+                    }
+                )
+                let node
+                while ((node = walker.nextNode())) {
+                    findInShadow(selector, node.shadowRoot, out)
+                }
+                return out
+            }
+
+            const collectSameOriginDocuments = () => {
+                const docs = []
+                const seen = new Set()
+
+                function walk(doc) {
+                    if (!doc || seen.has(doc)) return
+                    seen.add(doc)
+                    docs.push(doc)
+
+                    const iframes = [
+                        ...doc.querySelectorAll('iframe'),
+                        ...findInShadow('iframe', doc)
+                    ]
+
+                    for (const iframe of iframes) {
+                        try {
+                            if (iframe.contentDocument) walk(iframe.contentDocument)
+                        } catch (_) {}
+                    }
+                }
+
+                walk(document)
+                return docs
+            }
+
+            const getQuestionCandidates = () => {
+                const results = []
+                for (const doc of collectSameOriginDocuments()) {
+                    for (const selector of SIM_CONFIG.questionSelector.split(',').map(s => s.trim())) {
+                        findInShadow(selector, doc, results)
+                    }
+                }
+                return results
+            }
+
+            const getActiveQuestionRootMinimal = () => {
+                const candidates = getQuestionCandidates().filter(isVisible)
+                if (!candidates.length) return null
+                return candidates[candidates.length - 1]
+            }
+
+            const getTargetCanvas = () => {
+                const root = getActiveQuestionRootMinimal()
+                if (!root) return null
+
+                const doc = root.ownerDocument || document
+                const slide = root.closest?.(SIM_CONFIG.slideSelector) || root
+
+                let canvas = slide.querySelector(SIM_CONFIG.canvasSelector)
                 if (!canvas && doc) canvas = doc.querySelector(SIM_CONFIG.canvasSelector)
                 if (!canvas) return null
+                if (!isVisible(canvas)) return null
 
-                const r = canvas.getBoundingClientRect()
-                if (r.width === 0 || r.height === 0) return null
                 return canvas
             }
 
-            const simulateCanvasClick = (slide, done, reason) => {
-                const canvas = getCanvasInSlide(slide)
-                if (!canvas) {
-                    console.warn('[sim-time] canvas click skipped (no canvas)', {
-                        reason,
-                    })
-                    return false
-                }
-
-                const win = canvas.ownerDocument && canvas.ownerDocument.defaultView
-                if (!win) {
-                    console.warn('[sim-time] canvas click skipped (no window)', {
-                        reason,
-                    })
-                    return false
-                }
-
+            const dispatchWorkingPattern = (canvas, done) => {
+                const win = canvas.ownerDocument?.defaultView || window
                 const rect = canvas.getBoundingClientRect()
                 const x = rect.left + rect.width / 2
                 const y = rect.top + rect.height / 2
-
-                if (!rect.width || !rect.height) {
-                    console.warn('[sim-time] canvas click skipped (not visible)', {
-                        reason,
-                        w: rect.width,
-                        h: rect.height,
-                    })
-                    return false
-                }
-
-                console.log('[sim-time] canvas click', {
-                    reason,
-                    x: Math.round(x),
-                    y: Math.round(y),
-                })
 
                 const mousedownEvent = new win.MouseEvent('mousedown', {
                     view: win,
@@ -966,35 +1008,49 @@
                     cancelable: true,
                     clientX: x,
                     clientY: y,
-                    buttons: 1,
+                    buttons: 1
+                })
+
+                const mouseupEvent = new win.MouseEvent('mouseup', {
+                    view: win,
+                    bubbles: true,
+                    cancelable: true,
+                    clientX: x,
+                    clientY: y,
+                    buttons: 0
+                })
+
+                const clickEvent = new win.MouseEvent('click', {
+                    view: win,
+                    bubbles: true,
+                    cancelable: true,
+                    clientX: x,
+                    clientY: y
                 })
 
                 canvas.dispatchEvent(mousedownEvent)
-
                 setTimeout(() => {
                     if (!simState.running) return
-                    const mouseupEvent = new win.MouseEvent('mouseup', {
-                        view: win,
-                        bubbles: true,
-                        cancelable: true,
-                        clientX: x,
-                        clientY: y,
-                        buttons: 0,
-                    })
-
-                    const clickEvent = new win.MouseEvent('click', {
-                        view: win,
-                        bubbles: true,
-                        cancelable: true,
-                        clientX: x,
-                        clientY: y,
-                    })
-
                     canvas.dispatchEvent(mouseupEvent)
                     canvas.dispatchEvent(clickEvent)
+                    console.log('[sim-time] clicked canvas', {
+                        x: Math.round(x),
+                        y: Math.round(y),
+                        sameAsDirectQuery: canvas === (canvas.ownerDocument || document).querySelector(SIM_CONFIG.canvasSelector)
+                    })
                     if (typeof done === 'function') done()
                 }, SIM_CONFIG.canvasClickHoldMs)
+            }
 
+            const simulateCanvasClick = (slide, done, reason) => {
+                const canvas = getTargetCanvas()
+                if (!canvas) {
+                    console.warn('[sim-time] canvas click skipped (no canvas)', {
+                        reason,
+                    })
+                    return false
+                }
+                dispatchWorkingPattern(canvas, done)
                 return true
             }
 
