@@ -1056,100 +1056,143 @@
                 }, CONFIG.holdMs);
             }
 
+            function parseTimeSpent(text) {
+                if (!text) return 0;
+                text = text.toLowerCase();
+                let seconds = 0;
+                const minMatch = text.match(/(\d+)\s*min/);
+                if (minMatch) {
+                    seconds += parseInt(minMatch[1], 10) * 60;
+                }
+                const secMatch = text.match(/(\d+)\s*sec/);
+                if (secMatch) {
+                    seconds += parseInt(secMatch[1], 10);
+                }
+                if (!minMatch && !secMatch) {
+                    const numMatch = text.match(/(\d+)/);
+                    if (numMatch) seconds += parseInt(numMatch[1], 10);
+                }
+                return seconds * 1000;
+            }
+
+            function findActiveCloseButton() {
+                const results = [];
+                for (const doc of collectSameOriginDocuments()) {
+                    findInShadow('.qf-title-button.close, [aria-label="close question"]', doc, results);
+                }
+                return results.filter(isVisible)[0] || null;
+            }
+
+            async function runSimulationStep() {
+                if (!state.running) return;
+
+                const activeCloseBtn = findActiveCloseButton();
+                if (activeCloseBtn) {
+                    setStatus('Active question open, closing to get clean state...');
+                    activeCloseBtn.click();
+                    state.timerId = setTimeout(runSimulationStep, 1500);
+                    return;
+                }
+
+                let container = null;
+                for (const doc of collectSameOriginDocuments()) {
+                    container = doc.querySelector('.questions-container');
+                    if (container) break;
+                }
+
+                if (!container) {
+                    setStatus('No .questions-container found. Waiting...');
+                    state.timerId = setTimeout(runSimulationStep, 2000);
+                    return;
+                }
+
+                const questions = Array.from(container.querySelectorAll('section.question'));
+                if (questions.length === 0) {
+                    setStatus('No questions found in container.');
+                    state.timerId = setTimeout(runSimulationStep, 2000);
+                    return;
+                }
+
+                let targetQuestion = null;
+                for (const q of questions) {
+                    const percentEl = q.querySelector('.q-progress-percent');
+                    const percentText = percentEl ? percentEl.textContent.trim() : '';
+                    if (percentText !== '100%') {
+                        targetQuestion = q;
+                        break;
+                    }
+                }
+
+                if (!targetQuestion) {
+                    setStatus('All questions at 100%! Done.');
+                    stopSimTime('Done (all 100%)');
+                    return;
+                }
+
+                const qNumber = targetQuestion.querySelector('.q-number')?.textContent?.trim() || '';
+                const qRef = targetQuestion.querySelector('.q-reference')?.textContent?.trim() || '';
+                const timeSpentEl = targetQuestion.querySelector('.q-time-spent');
+                const timeSpentText = timeSpentEl ? timeSpentEl.textContent.trim() : '';
+                const currentMs = parseTimeSpent(timeSpentText);
+
+                setStatus(`Selected Question ${qNumber} (${qRef}). Opening...`);
+                targetQuestion.click();
+
+                state.timerId = setTimeout(() => {
+                    if (!state.running) return;
+
+                    const activeRoot = getActiveQuestionRootMinimal();
+                    if (!activeRoot) {
+                        setStatus('Failed to detect opened question view. Retrying step...');
+                        runSimulationStep();
+                        return;
+                    }
+
+                    const subquestions = countSubquestions(activeRoot);
+                    const targetMs = CONFIG.baseMs + Math.max(0, subquestions - 1) * CONFIG.extraPerSubquestionMs;
+                    
+                    const jitter = randInt(-CONFIG.jitterMs, CONFIG.jitterMs);
+                    const calculatedDelayMs = Math.max(CONFIG.minDelayMs, targetMs - currentMs + jitter);
+
+                    setStatus(`Question ${qNumber} has ${subquestions} part(s). Target: ${Math.ceil(targetMs/1000)}s, Already: ${Math.ceil(currentMs/1000)}s. Waiting ${Math.ceil(calculatedDelayMs/1000)}s...`);
+
+                    state.scheduledAt = Date.now();
+                    state.scheduledDelayMs = calculatedDelayMs;
+                    startCountdown();
+
+                    state.timerId = setTimeout(() => {
+                        if (!state.running) return;
+
+                        const closeBtn = findActiveCloseButton();
+                        if (!closeBtn) {
+                            setStatus('Close button not found or question was already closed.');
+                            runSimulationStep();
+                            return;
+                        }
+
+                        setStatus(`Time reached for Question ${qNumber}. Closing...`);
+                        closeBtn.click();
+
+                        state.timerId = setTimeout(runSimulationStep, 1500);
+                    }, calculatedDelayMs);
+
+                }, 1000);
+            }
+
             function startCountdown() {
                 if (state.countdownId !== null) clearInterval(state.countdownId);
                 state.countdownId = setInterval(() => {
                     if (!state.running || !state.scheduledAt || !state.scheduledDelayMs) return;
                     const elapsed = Date.now() - state.scheduledAt;
                     const remaining = Math.max(0, state.scheduledDelayMs - elapsed);
-                    setStatus(`Click in ${Math.ceil(remaining / 1000)}s`);
+                    setStatus(`Close in ${Math.ceil(remaining / 1000)}s`);
                 }, 500);
             }
 
             function scheduleForCurrentQuestion() {
-                 if (!state.running) return;
- 
-                 const root = getActiveQuestionRootMinimal();
-                 if (!root) {
-                     clearTimer();
-                     setStatus('No visible question found');
-                     return;
-                 }
- 
-                 const key = getQuestionKeyMinimal(root);
-                 if (!key) {
-                     clearTimer();
-                     setStatus('Question found but key unavailable');
-                     return;
-                 }
- 
-                 if (key === state.activeKey && state.timerId !== null) return;
- 
-                 state.activeKey = key;
-                 clearTimer();
- 
-                 const canvas = getTargetCanvas();
-                 if (!canvas) {
-                     setStatus('No visible .qf-canvas-wrapper canvas found');
-                     return;
-                 }
- 
-                 const subquestions = countSubquestions(root);
-                 const advanceDelayMs = getDelayMs(subquestions);
-
-                 state.scheduledAt = Date.now();
-                 state.scheduledDelayMs = advanceDelayMs;
-                 setStatus(`Scheduled advance in ${Math.ceil(advanceDelayMs / 1000)}s for ${key}`);
-                 startCountdown();
- 
-                 // Click immediately on entering to record initial activity
-                 dispatchWorkingPattern(canvas);
-
-                 // Set 30s repeating interval to click the canvas to maintain active status
-                 state.clickIntervalId = setInterval(() => {
-                     if (!state.running) return;
-                     const latestRoot = getActiveQuestionRootMinimal();
-                     const latestKey = getQuestionKeyMinimal(latestRoot);
-                     if (latestKey !== key) {
-                         clearInterval(state.clickIntervalId);
-                         state.clickIntervalId = null;
-                         return;
-                     }
-                     const latestCanvas = getTargetCanvas();
-                     if (latestCanvas) {
-                         dispatchWorkingPattern(latestCanvas);
-                     }
-                 }, 30 * 1000);
-
-                 // Set timeout to auto-advance to next question
-                 state.timerId = setTimeout(() => {
-                     if (!state.running) return;
-                     const latestRoot = getActiveQuestionRootMinimal();
-                     const latestKey = getQuestionKeyMinimal(latestRoot);
-                     if (latestKey !== key) {
-                         setStatus('Question changed before auto-advance; rescheduling');
-                         scheduleForCurrentQuestion();
-                         return;
-                     }
-                     
-                     const latestCanvas = getTargetCanvas();
-                     if (latestCanvas) {
-                         dispatchWorkingPattern(latestCanvas);
-                     }
- 
-                     const nextBtn = findNextButton(latestRoot);
-                     if (!nextBtn || nextBtn.classList.contains('disabled')) {
-                         stopSimTime('Done (no more questions)');
-                         return;
-                     }
- 
-                     setStatus('Advancing to next question...');
-                     setTimeout(() => {
-                         if (!state.running) return;
-                         nextBtn.click();
-                     }, CONFIG.beforeNextDelayMs);
-                 }, advanceDelayMs);
-             }
+                if (!state.running) return;
+                runSimulationStep();
+            }
 
             function disconnectObservers() {
                 for (const fn of state.observerDisconnectors) {
@@ -1190,7 +1233,6 @@
                             return;
                         }
                         setupCloseInterception();
-                        scheduleForCurrentQuestion();
                     });
                     try {
                         observer.observe(doc.documentElement || doc.body, {
@@ -1212,7 +1254,7 @@
                 const advanceBtn = document.getElementById('d2l-sim-advance-btn');
                 if (advanceBtn) advanceBtn.disabled = false;
                 startObservers();
-                scheduleForCurrentQuestion();
+                runSimulationStep();
             }
 
             function stopSimTime(reason = 'Stopped') {
@@ -1241,27 +1283,15 @@
                 advanceBtn.addEventListener('click', () => {
                     if (!state.running) return;
                     clearTimer();
-                    setStatus('Advancing now...');
-
-                    const root = getActiveQuestionRootMinimal();
-                    if (!root) return;
-                    
-                    const canvas = getTargetCanvas();
-                    if (canvas) {
-                        dispatchWorkingPattern(canvas);
+                    const closeBtn = findActiveCloseButton();
+                    if (closeBtn) {
+                        setStatus('Advancing now (closing current)...');
+                        closeBtn.click();
+                        state.timerId = setTimeout(runSimulationStep, 1500);
+                    } else {
+                        setStatus('No active question to close. Rescheduling...');
+                        runSimulationStep();
                     }
-
-                    const nextBtn = findNextButton(root);
-                    if (!nextBtn || nextBtn.classList.contains('disabled')) {
-                        stopSimTime('Done (no more questions)');
-                        return;
-                    }
-
-                    setStatus('Advancing to next question...');
-                    setTimeout(() => {
-                        if (!state.running) return;
-                        nextBtn.click();
-                    }, CONFIG.beforeNextDelayMs);
                 });
             }
 
