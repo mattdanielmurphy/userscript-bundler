@@ -23,49 +23,103 @@
     const IS_TOP = window === window.top
 
     // Custom checkbox feature for lesson titles
-    if (window.location.href.includes('/d2l/le/lessons/')) {
-        (function() {
-            const processItems = () => {
-                const titles = document.querySelectorAll('.title-text, .topic-box span[id*="label"]');
-                
-                titles.forEach((el) => {
-                    // 1. Remove disruptive .text-wrapper divs
-                    el.querySelectorAll('.text-wrapper').forEach(wrapper => wrapper.remove());
+    console.log('checking location', window.location.href)
+    if (window.location.href.includes('/lessons/')) {
+        console.log('running checkbox insertion')
+        ;(function () {
+            const runScript = () => {
+                const iframe = document.querySelector(
+                    'iframe[src*="smart-curriculum"]'
+                )
+                if (!iframe) return
 
-                    // 2. Add checkbox if missing
-                    if (el.querySelector('.custom-check')) return;
+                let iframeDoc
+                try {
+                    iframeDoc =
+                        iframe.contentDocument || iframe.contentWindow.document
+                } catch (e) {
+                    return
+                }
 
-                    const text = el.innerText.trim();
-                    if (!text) return;
-                    const key = `check_state_${text.replace(/\s+/g, '_')}`;
+                if (!iframeDoc || iframeDoc.readyState !== 'complete') return
 
-                    const cb = document.createElement('input');
-                    cb.type = 'checkbox';
-                    cb.className = 'custom-check';
-                    cb.style.cssText = 'margin-right: 10px; width: 18px; height: 18px; cursor: pointer; flex-shrink: 0;';
-                    
-                    cb.checked = localStorage.getItem(key) === 'true';
-                    if (cb.checked) el.style.opacity = '0.5';
+                const processItems = () => {
+                    const titles = iframeDoc.querySelectorAll(
+                        '.title-text, .topic-box span[id*="label"]'
+                    )
 
-                    cb.onclick = (e) => e.stopPropagation();
-                    cb.onchange = () => {
-                        localStorage.setItem(key, cb.checked);
-                        el.style.opacity = cb.checked ? '0.5' : '1';
-                    };
+                    titles.forEach((el) => {
+                        // Remove disruptive .text-wrapper divs
+                        el.querySelectorAll('.text-wrapper').forEach(
+                            (wrapper) => wrapper.remove()
+                        )
 
-                    el.style.display = 'flex';
-                    el.style.maxWidth='100%';
-                    el.style.alignItems = 'center';
-                    el.prepend(cb);
-                });
-            };
+                        const win = iframe.contentWindow
+                        const style = win.getComputedStyle(el)
+                        const isHidden =
+                            style.width === '1px' ||
+                            style.height === '1px' ||
+                            el.classList.contains('screen-reader-only')
 
-            // Initial run
-            processItems();
+                        if (isHidden && el.tagName === 'SPAN') return
 
-            // Watch for collapsible chapter expansions
-            new MutationObserver(processItems).observe(document.body, { childList: true, subtree: true });
-        })();
+                        // --- LAYOUT FIXES FOR LONG TITLES ---
+                        el.style.display = 'flex'
+                        el.style.alignItems = 'flex-start' // Align checkbox to top of text
+                        el.style.maxWidth = '100%'
+                        el.style.overflow = 'visible' // Prevent scrollbars
+                        el.style.whiteSpace = 'normal' // Allow text to wrap
+                        el.style.height = 'auto' // Let it grow vertically
+
+                        // Ensure child spans also wrap properly
+                        const textSpan = el.querySelector('span')
+                        if (textSpan) {
+                            textSpan.style.whiteSpace = 'normal'
+                            textSpan.style.display = 'inline'
+                        }
+                        // ------------------------------------
+
+                        if (el.querySelector('.custom-check')) return
+
+                        const text = el.innerText.trim()
+                        if (!text) return
+                        const key = `check_state_${text.replace(/\s+/g, '_')}`
+
+                        const cb = iframeDoc.createElement('input')
+                        cb.type = 'checkbox'
+                        cb.className = 'custom-check'
+                        // margin-top: 3px aligns the checkbox with the first line of text
+                        cb.style.cssText =
+                            'margin-right: 10px; margin-top: 3px; width: 18px; height: 18px; cursor: pointer; flex-shrink: 0; position: relative; z-index: 10;'
+
+                        cb.checked = localStorage.getItem(key) === 'true'
+                        if (cb.checked) el.style.opacity = '0.5'
+
+                        cb.onclick = (e) => e.stopPropagation()
+                        cb.onchange = () => {
+                            localStorage.setItem(key, cb.checked)
+                            el.style.opacity = cb.checked ? '0.5' : '1'
+                        }
+
+                        el.prepend(cb)
+                    })
+                }
+
+                processItems()
+
+                if (!iframeDoc._hasCheckboxObserver) {
+                    const observer = new MutationObserver(processItems)
+                    observer.observe(iframeDoc.body, {
+                        childList: true,
+                        subtree: true,
+                    })
+                    iframeDoc._hasCheckboxObserver = true
+                }
+            }
+
+            const pollInterval = setInterval(runScript, 1000)
+            runScript()
+        })()
     }
 
     function findInShadow(selector, root = document) {
@@ -840,7 +894,6 @@
             automationBar.innerHTML = `
                 <span class="title">Automation</span>
                 <button class="btn" id="d2l-sim-time-btn" type="button">Sim time</button>
-                <button class="btn" id="d2l-sim-advance-btn" type="button" disabled>Advance now</button>
                 <span class="status" id="d2l-automation-status">Idle</span>
             `
             document.body.appendChild(automationBar)
@@ -857,14 +910,14 @@
                 slideSelector: '.question-fullscreen',
                 subquestionSelector: '.qf-answer',
                 nextButtonSelector: '.qf-title-button.next',
-                baseMs: 60_000,
+                baseMs: 30_000,
                 extraPerSubquestionMs: 30_000,
-                jitterMs: 10_000,
+                jitterMs: 20_000,
                 minDelayMs: 5_000,
                 beforeNextDelayMs: 2000,
                 holdMs: 50,
                 debug: true,
-            };
+            }
 
             const state = {
                 running: false,
@@ -875,85 +928,89 @@
                 countdownId: null,
                 scheduledAt: 0,
                 scheduledDelayMs: 0,
-            };
+                lastBaseSeconds: 30,
+                processedQuestionKeys: new Set(),
+            }
 
             const log = (...args) => {
-                if (CONFIG.debug) console.log('[time-metric-sim]', ...args);
-            };
+                if (CONFIG.debug) console.log('[time-metric-sim]', ...args)
+            }
 
             function setStatus(text) {
-                const el = document.getElementById('d2l-automation-status');
-                if (el) el.textContent = text;
-                log(text);
+                const el = document.getElementById('d2l-automation-status')
+                if (el) el.textContent = text
+                log(text)
             }
 
             function clearTimer() {
                 if (state.timerId !== null) {
-                    clearTimeout(state.timerId);
-                    state.timerId = null;
+                    clearTimeout(state.timerId)
+                    state.timerId = null
                 }
                 if (state.clickIntervalId !== null) {
-                    clearInterval(state.clickIntervalId);
-                    state.clickIntervalId = null;
+                    clearInterval(state.clickIntervalId)
+                    state.clickIntervalId = null
                 }
                 if (state.countdownId !== null) {
-                    clearInterval(state.countdownId);
-                    state.countdownId = null;
+                    clearInterval(state.countdownId)
+                    state.countdownId = null
                 }
-                state.scheduledAt = 0;
-                state.scheduledDelayMs = 0;
+                state.scheduledAt = 0
+                state.scheduledDelayMs = 0
             }
 
             function isVisible(el) {
-                if (!el || !el.isConnected) return false;
-                const rect = el.getBoundingClientRect();
-                return rect.width > 0 && rect.height > 0;
+                if (!el || !el.isConnected) return false
+                const rect = el.getBoundingClientRect()
+                return rect.width > 0 && rect.height > 0
             }
 
             function uniquePush(list, item) {
-                if (item && !list.includes(item)) list.push(item);
+                if (item && !list.includes(item)) list.push(item)
             }
 
             function findInShadow(selector, root, out = []) {
-                if (!root) return out;
+                if (!root) return out
                 if (root.querySelectorAll) {
-                    root.querySelectorAll(selector).forEach(el => uniquePush(out, el));
+                    root.querySelectorAll(selector).forEach((el) =>
+                        uniquePush(out, el)
+                    )
                 }
-                const walker = (root.ownerDocument || document).createTreeWalker(
-                    root,
-                    NodeFilter.SHOW_ELEMENT,
-                    {
-                        acceptNode(node) {
-                            return node.shadowRoot ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP;
-                        }
-                    }
-                );
-                let node;
+                const walker = (
+                    root.ownerDocument || document
+                ).createTreeWalker(root, NodeFilter.SHOW_ELEMENT, {
+                    acceptNode(node) {
+                        return node.shadowRoot
+                            ? NodeFilter.FILTER_ACCEPT
+                            : NodeFilter.FILTER_SKIP
+                    },
+                })
+                let node
                 while ((node = walker.nextNode())) {
-                    findInShadow(selector, node.shadowRoot, out);
+                    findInShadow(selector, node.shadowRoot, out)
                 }
-                return out;
+                return out
             }
 
             function collectSameOriginDocuments() {
-                const docs = [];
-                const seen = new Set();
+                const docs = []
+                const seen = new Set()
 
                 function walk(doc) {
-                    if (!doc || !doc.defaultView || seen.has(doc)) return;
-                    seen.add(doc);
-                    docs.push(doc);
+                    if (!doc || !doc.defaultView || seen.has(doc)) return
+                    seen.add(doc)
+                    docs.push(doc)
 
                     try {
                         const iframes = [
                             ...doc.querySelectorAll('iframe'),
-                            ...findInShadow('iframe', doc)
-                        ];
+                            ...findInShadow('iframe', doc),
+                        ]
 
                         for (const iframe of iframes) {
                             try {
                                 if (iframe && iframe.contentDocument) {
-                                    walk(iframe.contentDocument);
+                                    walk(iframe.contentDocument)
                                 }
                             } catch (_) {}
                         }
@@ -961,106 +1018,131 @@
                 }
 
                 try {
-                    walk(document);
+                    walk(document)
                 } catch (_) {}
-                return docs;
+                return docs
             }
 
             function getQuestionCandidates() {
-                const results = [];
+                const results = []
                 for (const doc of collectSameOriginDocuments()) {
-                    for (const selector of CONFIG.questionSelector.split(',').map(s => s.trim())) {
-                        findInShadow(selector, doc, results);
+                    for (const selector of CONFIG.questionSelector
+                        .split(',')
+                        .map((s) => s.trim())) {
+                        findInShadow(selector, doc, results)
                     }
                 }
-                return results;
+                return results
             }
 
             function getActiveQuestionRootMinimal() {
-                const candidates = getQuestionCandidates().filter(isVisible);
-                if (!candidates.length) return null;
-                return candidates[candidates.length - 1];
+                const candidates = getQuestionCandidates().filter(isVisible)
+                if (!candidates.length) return null
+                return candidates[candidates.length - 1]
             }
 
             function getQuestionKeyMinimal(root) {
-                if (!root) return null;
-                const doc = root.ownerDocument || document;
-                const slide = root.closest?.(CONFIG.slideSelector) || root;
-                const ref = slide.querySelector?.('.qf-reference')?.textContent?.trim();
-                const num = slide.querySelector?.('.qf-number')?.textContent?.trim();
-                return root.id || ref || num || root.textContent?.trim()?.slice(0, 80) || null;
+                if (!root) return null
+                const doc = root.ownerDocument || document
+                const slide = root.closest?.(CONFIG.slideSelector) || root
+                const ref = slide
+                    .querySelector?.('.qf-reference')
+                    ?.textContent?.trim()
+                const num = slide
+                    .querySelector?.('.qf-number')
+                    ?.textContent?.trim()
+                return (
+                    root.id ||
+                    ref ||
+                    num ||
+                    root.textContent?.trim()?.slice(0, 80) ||
+                    null
+                )
             }
 
             function getTargetCanvas() {
-                const root = getActiveQuestionRootMinimal();
-                if (!root) return null;
+                const root = getActiveQuestionRootMinimal()
+                if (!root) return null
 
-                const doc = root.ownerDocument || document;
-                const slide = root.closest?.(CONFIG.slideSelector) || root;
+                const doc = root.ownerDocument || document
+                const slide = root.closest?.(CONFIG.slideSelector) || root
 
-                let canvas = slide.querySelector(CONFIG.canvasSelector);
-                if (!canvas && doc) canvas = doc.querySelector(CONFIG.canvasSelector);
-                if (!canvas) return null;
-                if (!isVisible(canvas)) return null;
-                return canvas;
+                let canvas = slide.querySelector(CONFIG.canvasSelector)
+                if (!canvas && doc)
+                    canvas = doc.querySelector(CONFIG.canvasSelector)
+                if (!canvas) return null
+                if (!isVisible(canvas)) return null
+                return canvas
             }
 
-             function countSubquestions(root) {
-                 try {
-                     if (!root) return 1;
-                     const slide = root.closest?.(CONFIG.slideSelector) || root;
-                     const question = slide?.querySelector('.qf-question') || slide;
-                     if (!question) return 1;
-                     const count = question.querySelectorAll(CONFIG.subquestionSelector).length;
-                     return Math.max(1, count);
-                 } catch (_) {
-                     return 1;
-                 }
-             }
+            function countSubquestions(root) {
+                try {
+                    if (!root) return 1
+                    const slide = root.closest?.(CONFIG.slideSelector) || root
+                    const question =
+                        slide?.querySelector('.qf-question') || slide
+                    if (!question) return 1
+                    const count = question.querySelectorAll(
+                        CONFIG.subquestionSelector
+                    ).length
+                    return Math.max(1, count)
+                } catch (_) {
+                    return 1
+                }
+            }
 
-             function randInt(min, max) {
-                 return Math.floor(Math.random() * (max - min + 1)) + min;
-             }
+            function randInt(min, max) {
+                return Math.floor(Math.random() * (max - min + 1)) + min
+            }
 
-             function getDelayMs(subquestions) {
-                 const base = CONFIG.baseMs + Math.max(0, subquestions - 1) * CONFIG.extraPerSubquestionMs;
-                 const jitter = randInt(-CONFIG.jitterMs, CONFIG.jitterMs);
-                 return Math.max(CONFIG.minDelayMs, base + jitter);
-             }
+            function getDelayMs(subquestions) {
+                const base =
+                    CONFIG.baseMs +
+                    Math.max(0, subquestions - 1) * CONFIG.extraPerSubquestionMs
+                const jitter = randInt(-CONFIG.jitterMs, CONFIG.jitterMs)
+                return Math.max(CONFIG.minDelayMs, base + jitter)
+            }
 
-             function getVisible(el) {
-                 try {
-                     if (!el) return false;
-                     const r = el.getBoundingClientRect();
-                     return r.width > 0 && r.height > 0;
-                 } catch (_) {
-                     return false;
-                 }
-             }
+            function getVisible(el) {
+                try {
+                    if (!el) return false
+                    const r = el.getBoundingClientRect()
+                    return r.width > 0 && r.height > 0
+                } catch (_) {
+                    return false
+                }
+            }
 
-             function findNextButton(root) {
-                 try {
-                     if (root) {
-                         const slide = root.closest?.(CONFIG.slideSelector) || root;
-                         const btn = slide?.querySelector(CONFIG.nextButtonSelector);
-                         if (btn) return btn;
-                     }
-                     const results = [];
-                     for (const doc of collectSameOriginDocuments()) {
-                         findInShadow(CONFIG.nextButtonSelector, doc, results);
-                     }
-                     const visible = results.filter(getVisible);
-                     return visible[visible.length - 1] || results[results.length - 1] || null;
-                 } catch (_) {
-                     return null;
-                 }
-             }
+            function findNextButton(root) {
+                try {
+                    if (root) {
+                        const slide =
+                            root.closest?.(CONFIG.slideSelector) || root
+                        const btn = slide?.querySelector(
+                            CONFIG.nextButtonSelector
+                        )
+                        if (btn) return btn
+                    }
+                    const results = []
+                    for (const doc of collectSameOriginDocuments()) {
+                        findInShadow(CONFIG.nextButtonSelector, doc, results)
+                    }
+                    const visible = results.filter(getVisible)
+                    return (
+                        visible[visible.length - 1] ||
+                        results[results.length - 1] ||
+                        null
+                    )
+                } catch (_) {
+                    return null
+                }
+            }
 
-             function dispatchWorkingPattern(canvas) {
-                const win = canvas.ownerDocument?.defaultView || window;
-                const rect = canvas.getBoundingClientRect();
-                const x = rect.left + rect.width / 2;
-                const y = rect.top + rect.height / 2;
+            function dispatchWorkingPattern(canvas) {
+                const win = canvas.ownerDocument?.defaultView || window
+                const rect = canvas.getBoundingClientRect()
+                const x = rect.left + rect.width / 2
+                const y = rect.top + rect.height / 2
 
                 const mousedownEvent = new win.MouseEvent('mousedown', {
                     view: win,
@@ -1068,8 +1150,8 @@
                     cancelable: true,
                     clientX: x,
                     clientY: y,
-                    buttons: 1
-                });
+                    buttons: 1,
+                })
 
                 const mouseupEvent = new win.MouseEvent('mouseup', {
                     view: win,
@@ -1077,268 +1159,384 @@
                     cancelable: true,
                     clientX: x,
                     clientY: y,
-                    buttons: 0
-                });
+                    buttons: 0,
+                })
 
                 const clickEvent = new win.MouseEvent('click', {
                     view: win,
                     bubbles: true,
                     cancelable: true,
                     clientX: x,
-                    clientY: y
-                });
+                    clientY: y,
+                })
 
-                canvas.dispatchEvent(mousedownEvent);
+                canvas.dispatchEvent(mousedownEvent)
                 setTimeout(() => {
-                    if (!state.running) return;
-                    canvas.dispatchEvent(mouseupEvent);
-                    canvas.dispatchEvent(clickEvent);
+                    if (!state.running) return
+                    canvas.dispatchEvent(mouseupEvent)
+                    canvas.dispatchEvent(clickEvent)
                     log('clicked canvas', {
                         x: Math.round(x),
                         y: Math.round(y),
-                        sameAsDirectQuery: canvas === (canvas.ownerDocument || document).querySelector(CONFIG.canvasSelector)
-                    });
-                    setStatus('Click fired; waiting for question change or rescan');
-                }, CONFIG.holdMs);
+                        sameAsDirectQuery:
+                            canvas ===
+                            (canvas.ownerDocument || document).querySelector(
+                                CONFIG.canvasSelector
+                            ),
+                    })
+                    setStatus(
+                        'Click fired; waiting for question change or rescan'
+                    )
+                }, CONFIG.holdMs)
             }
 
             function parseTimeSpent(text) {
-                if (!text) return 0;
-                text = text.toLowerCase();
-                let seconds = 0;
-                const minMatch = text.match(/(\d+)\s*min/);
+                if (!text) return 0
+                text = text.toLowerCase()
+                let seconds = 0
+                const minMatch = text.match(/(\d+)\s*min/)
                 if (minMatch) {
-                    seconds += parseInt(minMatch[1], 10) * 60;
+                    seconds += parseInt(minMatch[1], 10) * 60
                 }
-                const secMatch = text.match(/(\d+)\s*sec/);
+                const secMatch = text.match(/(\d+)\s*sec/)
                 if (secMatch) {
-                    seconds += parseInt(secMatch[1], 10);
+                    seconds += parseInt(secMatch[1], 10)
                 }
                 if (!minMatch && !secMatch) {
-                    const numMatch = text.match(/(\d+)/);
-                    if (numMatch) seconds += parseInt(numMatch[1], 10);
+                    const numMatch = text.match(/(\d+)/)
+                    if (numMatch) seconds += parseInt(numMatch[1], 10)
                 }
-                return seconds * 1000;
+                return seconds * 1000
+            }
+
+            const QUESTIONS = {
+                containerSelector: 'div.questions-container',
+                itemSelector: 'section.question[data-type="question"]',
+                timeSpentSelector: '.q-time-spent',
+                timeSpentSkipMs: 5 * 60 * 1000,
             }
 
             function findActiveCloseButton() {
-                const results = [];
+                const results = []
                 for (const doc of collectSameOriginDocuments()) {
-                    findInShadow('.qf-title-button.close, [aria-label="close question"]', doc, results);
+                    findInShadow(
+                        '.qf-title-button.close, [aria-label="close question"]',
+                        doc,
+                        results
+                    )
                 }
-                return results.filter(isVisible)[0] || null;
+                return results.filter(isVisible)[0] || null
             }
 
-            async function runSimulationStep() {
-                if (!state.running) return;
+            const sleep = (ms) =>
+                new Promise((resolve) => setTimeout(resolve, ms))
 
-                const activeCloseBtn = findActiveCloseButton();
-                if (activeCloseBtn) {
-                    setStatus('Active question open, closing to get clean state...');
-                    activeCloseBtn.click();
-                    state.timerId = setTimeout(runSimulationStep, 1500);
-                    return;
+            async function sleepWhileRunning(totalMs) {
+                const start = Date.now()
+                while (state.running && Date.now() - start < totalMs) {
+                    await sleep(Math.min(250, totalMs))
                 }
+            }
 
-                let container = null;
+            function getQuestionListItems() {
+                const results = []
                 for (const doc of collectSameOriginDocuments()) {
-                    container = doc.querySelector('.questions-container');
-                    if (container) break;
+                    findInShadow(
+                        `${QUESTIONS.containerSelector} ${QUESTIONS.itemSelector}`,
+                        doc,
+                        results
+                    )
                 }
+                return results.filter(isVisible)
+            }
 
-                if (!container) {
-                    setStatus('No .questions-container found. Waiting...');
-                    state.timerId = setTimeout(runSimulationStep, 2000);
-                    return;
+            function getQuestionListTimeMs(item) {
+                try {
+                    const timeEl = item?.querySelector?.(QUESTIONS.timeSpentSelector)
+                    const text = timeEl?.textContent || ''
+                    return parseTimeSpent(text)
+                } catch (_) {
+                    return 0
                 }
+            }
 
-                const questions = Array.from(container.querySelectorAll('section.question'));
-                if (questions.length === 0) {
-                    setStatus('No questions found in container.');
-                    state.timerId = setTimeout(runSimulationStep, 2000);
-                    return;
+            function getQuestionListId(item) {
+                try {
+                    return (
+                        item?.getAttribute?.('data-id') ||
+                        item?.id ||
+                        item?.getAttribute?.('aria-label') ||
+                        null
+                    )
+                } catch (_) {
+                    return null
                 }
+            }
 
-                let targetQuestion = null;
-                for (const q of questions) {
-                    const percentEl = q.querySelector('.q-progress-percent');
-                    const percentText = percentEl ? percentEl.textContent.trim() : '';
-                    if (percentText !== '100%') {
-                        targetQuestion = q;
-                        break;
+            function getQuestionListKey(item) {
+                return getQuestionListId(item) || item?.id || null
+            }
+
+            function getQuestionListItemByKey(itemKey) {
+                if (!itemKey) return null
+                const items = getQuestionListItems()
+                return items.find((item) => getQuestionListKey(item) === itemKey) || null
+            }
+
+            function getQuestionListPreviewText(item) {
+                try {
+                    const el =
+                        item?.querySelector?.('.q-preview .text') ||
+                        item?.querySelector?.('.q-info') ||
+                        item
+                    return (el?.textContent || '').trim()
+                } catch (_) {
+                    return ''
+                }
+            }
+
+            function isExcludedQuestionByText(text) {
+                const t = (text || '').trim().toLowerCase()
+                if (!t) return false
+                if (t.includes('ap prep')) return true
+                // "Try this:" variants: "Try this:", "(Try this:)", "(Try this ...", etc
+                if (/^\(?\s*try this\b/.test(t)) return true
+                return false
+            }
+
+            function clickQuestionListItem(item) {
+                try {
+                    item.scrollIntoView?.({ block: 'center', inline: 'center' })
+                } catch (_) {}
+                try {
+                    item.focus?.()
+                } catch (_) {}
+                try {
+                    item.click()
+                    return true
+                } catch (_) {
+                    return false
+                }
+            }
+
+            async function waitForActiveQuestionOpen(timeoutMs = 8000) {
+                const start = Date.now()
+                while (state.running && Date.now() - start < timeoutMs) {
+                    const root = getActiveQuestionRootMinimal()
+                    if (root && isVisible(root)) return root
+                    await sleep(100)
+                }
+                return null
+            }
+
+            async function waitForQuestionClose(prevKey, timeoutMs = 8000) {
+                const start = Date.now()
+                while (state.running && Date.now() - start < timeoutMs) {
+                    const root = getActiveQuestionRootMinimal()
+                    const key = getQuestionKeyMinimal(root)
+                    if (!root || (prevKey && key && key !== prevKey)) return true
+                    await sleep(100)
+                }
+                return false
+            }
+
+            function computeMinMs(baseSeconds, subquestions) {
+                return Math.max(
+                    60_000,
+                    baseSeconds * 1000 +
+                        Math.max(0, subquestions - 1) *
+                            CONFIG.extraPerSubquestionMs
+                )
+            }
+
+            function computeWaitMs(baseSeconds, subquestions, alreadyMs) {
+                const minMs = computeMinMs(baseSeconds, subquestions)
+                const already = Math.max(0, alreadyMs || 0)
+                if (already >= minMs) return 0
+                // Must exceed minimum with randomness (not exact threshold).
+                const randomExtraMs = randInt(3_000, CONFIG.jitterMs)
+                const targetMs = minMs + randomExtraMs
+                return Math.max(0, targetMs - already)
+            }
+
+            function toDisplayedBucketMs(totalMs) {
+                const safe = Math.max(0, totalMs || 0)
+                if (safe >= 60_000) {
+                    return Math.floor(safe / 60_000) * 60_000
+                }
+                return Math.floor(safe / 1000) * 1000
+            }
+
+            async function waitForListTimeRefresh(
+                itemKey,
+                beforeMs,
+                timeoutMs = 8000
+            ) {
+                const start = Date.now()
+                let latestMs = beforeMs
+                while (state.running && Date.now() - start < timeoutMs) {
+                    const item = getQuestionListItemByKey(itemKey)
+                    if (item) {
+                        latestMs = getQuestionListTimeMs(item)
+                        if (latestMs !== beforeMs) return latestMs
                     }
+                    await sleep(200)
                 }
+                return latestMs
+            }
 
-                if (!targetQuestion) {
-                    setStatus('All questions at 100%! Done.');
-                    stopSimTime('Done (all 100%)');
-                    return;
+            function findNextEligibleQuestionItem() {
+                const items = getQuestionListItems()
+                for (const item of items) {
+                    const timeMs = getQuestionListTimeMs(item)
+                    const itemKey = getQuestionListKey(item)
+                    if (!itemKey) continue
+                    if (timeMs >= QUESTIONS.timeSpentSkipMs) continue
+                    if (state.processedQuestionKeys.has(itemKey)) continue
+                    const previewText = getQuestionListPreviewText(item)
+                    if (isExcludedQuestionByText(previewText)) continue
+                    return item
                 }
+                return null
+            }
 
-                const qNumber = targetQuestion.querySelector('.q-number')?.textContent?.trim() || '';
-                const qRef = targetQuestion.querySelector('.q-reference')?.textContent?.trim() || '';
-                const timeSpentEl = targetQuestion.querySelector('.q-time-spent');
-                const timeSpentText = timeSpentEl ? timeSpentEl.textContent.trim() : '';
-                const currentMs = parseTimeSpent(timeSpentText);
+            async function runAutoSimLoop() {
+                const baseSeconds = Math.round(CONFIG.baseMs / 1000)
+                while (state.running) {
+                    const nextItem = findNextEligibleQuestionItem()
+                    if (!nextItem) {
+                        stopSimTime('Done (no more eligible questions)')
+                        return
+                    }
 
-                setStatus(`Selected Question ${qNumber} (${qRef}). Opening...`);
-                targetQuestion.click();
+                    const itemId = getQuestionListId(nextItem)
+                    const itemKey = getQuestionListKey(nextItem)
+                    const alreadyMs = getQuestionListTimeMs(nextItem)
+                    if (!itemKey) {
+                        stopSimTime('Question key missing')
+                        return
+                    }
 
-                state.timerId = setTimeout(() => {
-                    if (!state.running) return;
+                    setStatus(
+                        `Open Q ${itemId || '?'} (already ${Math.round(alreadyMs / 1000)}s)`
+                    )
 
-                    const activeRoot = getActiveQuestionRootMinimal();
+                    if (!clickQuestionListItem(nextItem)) {
+                        stopSimTime('Failed click question item')
+                        return
+                    }
+
+                    const activeRoot = await waitForActiveQuestionOpen()
                     if (!activeRoot) {
-                        setStatus('Failed to detect opened question view. Retrying step...');
-                        runSimulationStep();
-                        return;
+                        stopSimTime('Question did not open (timeout)')
+                        return
                     }
 
-                    const subquestions = countSubquestions(activeRoot);
-                    const targetMs = CONFIG.baseMs + Math.max(0, subquestions - 1) * CONFIG.extraPerSubquestionMs;
-                    
-                    const jitter = randInt(-CONFIG.jitterMs, CONFIG.jitterMs);
-                    const calculatedDelayMs = Math.max(CONFIG.minDelayMs, targetMs - currentMs + jitter);
+                    const subquestions = countSubquestions(activeRoot)
+                    const waitMs = computeWaitMs(baseSeconds, subquestions, alreadyMs)
+                    const expectedDisplayedMs = toDisplayedBucketMs(
+                        alreadyMs + waitMs
+                    )
 
-                    setStatus(`Question ${qNumber} has ${subquestions} part(s). Target: ${Math.ceil(targetMs/1000)}s, Already: ${Math.ceil(currentMs/1000)}s. Waiting ${Math.ceil(calculatedDelayMs/1000)}s...`);
+                    state.scheduledAt = Date.now()
+                    state.scheduledDelayMs = waitMs
+                    startCountdown()
+                    setStatus(
+                        `Waiting ${Math.ceil(waitMs / 1000)}s (subq ${subquestions}, already ${Math.round(alreadyMs / 1000)}s)`
+                    )
 
-                    state.scheduledAt = Date.now();
-                    state.scheduledDelayMs = calculatedDelayMs;
-                    startCountdown();
+                    await sleepWhileRunning(waitMs)
+                    if (!state.running) return
 
-                    state.timerId = setTimeout(() => {
-                        if (!state.running) return;
-
-                        const closeBtn = findActiveCloseButton();
-                        if (!closeBtn) {
-                            setStatus('Close button not found or question was already closed.');
-                            runSimulationStep();
-                            return;
+                    const closeBtn = findActiveCloseButton()
+                    if (!closeBtn) {
+                        stopSimTime('Close button not found')
+                        return
+                    }
+                    const keyBeforeClose = getQuestionKeyMinimal(
+                        getActiveQuestionRootMinimal()
+                    )
+                    closeBtn.click()
+                    await waitForQuestionClose(keyBeforeClose)
+                    clearTimer()
+                    if (waitMs > 0) {
+                        const finalMs = await waitForListTimeRefresh(
+                            itemKey,
+                            alreadyMs
+                        )
+                        if (finalMs < expectedDisplayedMs) {
+                            stopSimTime(
+                                `Time check failed Q ${itemId || '?'} (${Math.round(finalMs / 1000)}s < expected ${Math.round(expectedDisplayedMs / 1000)}s)`
+                            )
+                            return
                         }
+                    }
+                    state.processedQuestionKeys.add(itemKey)
 
-                        setStatus(`Time reached for Question ${qNumber}. Closing...`);
-                        closeBtn.click();
-
-                        state.timerId = setTimeout(runSimulationStep, 1500);
-                    }, calculatedDelayMs);
-
-                }, 1000);
+                    // Move fast when no wait was needed.
+                    await sleep(waitMs > 0 ? CONFIG.beforeNextDelayMs : 150)
+                }
             }
 
             function startCountdown() {
-                if (state.countdownId !== null) clearInterval(state.countdownId);
+                if (state.countdownId !== null) clearInterval(state.countdownId)
                 state.countdownId = setInterval(() => {
-                    if (!state.running || !state.scheduledAt || !state.scheduledDelayMs) return;
-                    const elapsed = Date.now() - state.scheduledAt;
-                    const remaining = Math.max(0, state.scheduledDelayMs - elapsed);
-                    setStatus(`Close in ${Math.ceil(remaining / 1000)}s`);
-                }, 500);
+                    if (
+                        !state.running ||
+                        !state.scheduledAt ||
+                        !state.scheduledDelayMs
+                    )
+                        return
+                    const elapsed = Date.now() - state.scheduledAt
+                    const remaining = Math.max(
+                        0,
+                        state.scheduledDelayMs - elapsed
+                    )
+                    setStatus(`Close in ${Math.ceil(remaining / 1000)}s`)
+                }, 500)
             }
 
             function scheduleForCurrentQuestion() {
-                if (!state.running) return;
-                runSimulationStep();
+                if (!state.running) return
+                clearTimer()
+                runAutoSimLoop()
             }
 
             function disconnectObservers() {
                 for (const fn of state.observerDisconnectors) {
-                    try { fn(); } catch (_) {}
-                }
-                state.observerDisconnectors = [];
-            }
-
-            function setupCloseInterception() {
-                for (const doc of collectSameOriginDocuments()) {
                     try {
-                        const win = doc.defaultView;
-                        if (!win) continue;
-                        if (win.__d2lCloseIntercepted) continue;
-                        win.__d2lCloseIntercepted = true;
-
-                        win.addEventListener('click', (e) => {
-                            if (!state.running) return;
-                            const closeBtn = e.target && e.target.closest && e.target.closest('.qf-title-button.close, [aria-label="close question"]');
-                            if (closeBtn) {
-                                log('Close button click detected, stopping simulator.');
-                                stopSimTime('Stopped (closed)');
-                            }
-                        }, true);
+                        fn()
                     } catch (_) {}
                 }
-            }
-
-            function startObservers() {
-                disconnectObservers();
-                setupCloseInterception();
-                for (const doc of collectSameOriginDocuments()) {
-                    if (!doc.documentElement && !doc.body) continue;
-                    const observer = new MutationObserver(() => {
-                        if (!state.running) return;
-                        if (!doc.defaultView) {
-                            observer.disconnect();
-                            return;
-                        }
-                        setupCloseInterception();
-                    });
-                    try {
-                        observer.observe(doc.documentElement || doc.body, {
-                            childList: true,
-                            subtree: true,
-                            attributes: true,
-                            attributeFilter: ['class', 'style', 'aria-hidden']
-                        });
-                        state.observerDisconnectors.push(() => observer.disconnect());
-                    } catch (_) {}
-                }
+                state.observerDisconnectors = []
             }
 
             function startSimTime() {
-                if (state.running) return;
-                state.running = true;
-                const btn = document.getElementById('d2l-sim-time-btn');
-                if (btn) btn.classList.add('on');
-                const advanceBtn = document.getElementById('d2l-sim-advance-btn');
-                if (advanceBtn) advanceBtn.disabled = false;
-                startObservers();
-                runSimulationStep();
+                if (state.running) return
+                state.running = true
+                state.processedQuestionKeys = new Set()
+                const btn = document.getElementById('d2l-sim-time-btn')
+                if (btn) btn.classList.add('on')
+                runAutoSimLoop()
             }
 
             function stopSimTime(reason = 'Stopped') {
-                state.running = false;
-                state.activeKey = null;
-                clearTimer();
-                disconnectObservers();
-                const btn = document.getElementById('d2l-sim-time-btn');
-                if (btn) btn.classList.remove('on');
-                const advanceBtn = document.getElementById('d2l-sim-advance-btn');
-                if (advanceBtn) advanceBtn.disabled = true;
-                setStatus(reason);
+                state.running = false
+                state.activeKey = null
+                state.processedQuestionKeys = new Set()
+                clearTimer()
+                disconnectObservers()
+                const btn = document.getElementById('d2l-sim-time-btn')
+                if (btn) btn.classList.remove('on')
+                setStatus(reason)
             }
 
-            const simBtn = document.getElementById('d2l-sim-time-btn');
+            const simBtn = document.getElementById('d2l-sim-time-btn')
             if (simBtn) {
                 simBtn.addEventListener('click', () => {
-                    if (state.running) stopSimTime('Stopped');
-                    else startSimTime();
-                });
-            }
-
-            const advanceBtn = document.getElementById('d2l-sim-advance-btn');
-            if (advanceBtn) {
-                advanceBtn.textContent = 'Advance now';
-                advanceBtn.addEventListener('click', () => {
-                    if (!state.running) return;
-                    clearTimer();
-                    const closeBtn = findActiveCloseButton();
-                    if (closeBtn) {
-                        setStatus('Advancing now (closing current)...');
-                        closeBtn.click();
-                        state.timerId = setTimeout(runSimulationStep, 1500);
-                    } else {
-                        setStatus('No active question to close. Rescheduling...');
-                        runSimulationStep();
-                    }
-                });
+                    if (state.running) stopSimTime('Stopped')
+                    else startSimTime()
+                })
             }
 
             window.questionTimeSimulator = {
@@ -1661,11 +1859,21 @@ y = 1
             const c = document.getElementById('chatFrame')
             if (c) c.remove()
 
-            const isQMode = checkQMode()
+            const isLessonPage = (() => {
+                try {
+                    return (
+                        /\/lesson\/\d+/.test(window.location.href) ||
+                        (window.top &&
+                            /\/lesson\/\d+/.test(window.top.location.href))
+                    )
+                } catch (_) {
+                    return /\/lesson\/\d+/.test(window.location.href)
+                }
+            })()
             const hasQuizQuestion = !!findInDocumentOrIframes(
                 '.qf-question, [id^="question-display-"]'
             )
-            const showQuestionTools = isQMode || hasQuizQuestion
+            const showQuestionTools = isLessonPage || hasQuizQuestion
 
             const dlBtn = document.getElementById('d2l-dl-btn')
             const sbtn = document.getElementById('d2l-script-btn')

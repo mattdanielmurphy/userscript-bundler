@@ -129,6 +129,92 @@
     win.__PPLX_BISECT = null
 })()
 
+//!    7a. Homepage — autofocus Ask input on new tab
+;(() => {
+    const win = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window
+    if (win.__PPLX_BISECT && !win.__PPLX_BISECT.has('7a')) return
+    const whenHome = win.__pplxWhenHomepage
+    if (!whenHome) return
+
+    function focusAskInput() {
+        if (!win.__pplxIsHomepage?.()) return false
+
+        const inputDiv = document.querySelector('div#ask-input')
+        if (!inputDiv) return false
+
+        const ae = document.activeElement
+        if (ae && ae !== document.body && ae !== document.documentElement) {
+            if (inputDiv.contains(ae)) return true
+            if (ae.matches?.('input, textarea, [contenteditable="true"]')) return false
+        }
+
+        try {
+            inputDiv.focus()
+
+            const range = document.createRange()
+            const sel = window.getSelection()
+            if (!sel) return true
+
+            const target = inputDiv.querySelector('p') || inputDiv
+            range.selectNodeContents(target)
+            range.collapse(false)
+
+            sel.removeAllRanges()
+            sel.addRange(range)
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    whenHome(() => {
+        let stopped = false
+
+        let scheduled = false
+        const schedule = () => {
+            if (scheduled || stopped) return
+            scheduled = true
+            requestAnimationFrame(() => {
+                scheduled = false
+                focusAskInput()
+            })
+        }
+
+        // Immediate attempt (new tab) + short retry burst
+        schedule()
+        const burstId = setInterval(() => {
+            if (focusAskInput()) {
+                clearInterval(burstId)
+            }
+        }, 100)
+        setTimeout(() => clearInterval(burstId), 2500)
+
+        // SPA / async mount
+        let observer = null
+        const attachObserver = () => {
+            const root = document.body || document.documentElement
+            if (!root || stopped) return
+            observer = new MutationObserver(schedule)
+            observer.observe(root, { childList: true, subtree: true })
+        }
+        if (document.body) attachObserver()
+        else document.addEventListener('DOMContentLoaded', attachObserver, { once: true })
+
+        // Focus when user returns to tab
+        const onVis = () => {
+            if (document.visibilityState === 'visible') schedule()
+        }
+        document.addEventListener('visibilitychange', onVis)
+
+        return () => {
+            stopped = true
+            observer?.disconnect()
+            clearInterval(burstId)
+            document.removeEventListener('visibilitychange', onVis)
+        }
+    })
+})()
+
 //!    7b. Homepage — hide Computer setup / starter promos
 ;(() => {
     const win = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window
