@@ -693,6 +693,64 @@
         return false
     }
 
+    function hasMultipleFactors(s) {
+        s = s.replace(/\^([a-zA-Z0-9]+)/g, '')
+        s = s.replace(/\^\{[^{}]*\}/g, '')
+        s = s.trim()
+        if (!s) return false
+
+        let pDepth = 0
+        let bDepth = 0
+        let brDepth = 0
+
+        let factorCount = 0
+        let lastType = null // 'num', 'word', 'group'
+
+        for (let i = 0; i < s.length; i++) {
+            const char = s[i]
+
+            if (char === '(' || char === '{' || char === '[') {
+                if (char === '(') pDepth++
+                if (char === '{') bDepth++
+                if (char === '[') brDepth++
+
+                if (pDepth + bDepth + brDepth === 1) {
+                    factorCount++
+                    lastType = 'group'
+                }
+            } else if (char === ')' || char === '}' || char === ']') {
+                if (char === ')') pDepth--
+                if (char === '}') bDepth--
+                if (char === ']') brDepth--
+            } else if (pDepth === 0 && bDepth === 0 && brDepth === 0) {
+                if (/\s/.test(char)) {
+                    lastType = null
+                } else if (/[+\-*/=,]/.test(char)) {
+                    return true
+                } else if (/\d/.test(char)) {
+                    if (lastType !== 'num') {
+                        factorCount++
+                        lastType = 'num'
+                    }
+                } else {
+                    if (lastType !== 'word') {
+                        factorCount++
+                        lastType = 'word'
+                    }
+                }
+            }
+        }
+
+        return factorCount > 1
+    }
+
+    function wrapParensOrBrackets(expr) {
+        if (/[(){}[\]]/.test(expr)) {
+            return `[${expr}]`
+        }
+        return `(${expr})`
+    }
+
     function shouldWrapFraction(left, right) {
         const safeLatexOps = [
             'pm', 'mp', 'to', 'times', 'cdot', 'approx',
@@ -749,15 +807,15 @@
                 let num = a.trim()
                 let den = b.trim()
                 if (hasMultipleTerms(num)) {
-                    num = `(${num})`
+                    num = wrapParensOrBrackets(num)
                 }
-                if (hasMultipleTerms(den)) {
-                    den = `(${den})`
+                if (hasMultipleTerms(den) || hasMultipleFactors(den)) {
+                    den = wrapParensOrBrackets(den)
                 }
 
                 let replacement = `${num}/${den}`
                 if (shouldWrapFraction(left, right)) {
-                    replacement = `(${replacement})`
+                    replacement = wrapParensOrBrackets(replacement)
                 }
 
                 s = s.substring(0, matchIndex) + replacement + s.substring(endIndex)
