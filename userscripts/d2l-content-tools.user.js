@@ -784,55 +784,106 @@
         return false
     }
 
-    function replaceSimpleFractions(s) {
-        const fracBody = '(?:[^{}]|\\{[^{}]*\\})*'
-        const re = new RegExp(
-            `\\\\(?:d|t)?frac\\s*\\{(${fracBody})\\}\\s*\\{(${fracBody})\\}`,
-            'g'
-        )
-        let prev = ''
-        while (s !== prev) {
-            prev = s
-            let match
-            while ((match = re.exec(s)) !== null) {
-                const fullMatch = match[0]
-                const a = match[1]
-                const b = match[2]
-                const matchIndex = match.index
-                const endIndex = matchIndex + fullMatch.length
+    function findMatchingBrace(s, startIdx) {
+        let braceIdx = s.indexOf('{', startIdx)
+        if (braceIdx === -1) return null
 
-                const left = s.substring(0, matchIndex).trim()
-                const right = s.substring(endIndex).trim()
-
-                let num = a.trim()
-                let den = b.trim()
-                if (hasMultipleTerms(num)) {
-                    num = wrapParensOrBrackets(num)
+        let depth = 0
+        for (let i = braceIdx; i < s.length; i++) {
+            if (s[i] === '{') {
+                depth++
+            } else if (s[i] === '}') {
+                depth--
+                if (depth === 0) {
+                    return {
+                        content: s.substring(braceIdx + 1, i),
+                        start: braceIdx,
+                        end: i + 1,
+                    }
                 }
-                if (hasMultipleTerms(den) || hasMultipleFactors(den)) {
-                    den = wrapParensOrBrackets(den)
-                }
-
-                let replacement = `${num}/${den}`
-                if (shouldWrapFraction(left, right)) {
-                    replacement = wrapParensOrBrackets(replacement)
-                }
-
-                s = s.substring(0, matchIndex) + replacement + s.substring(endIndex)
-                re.lastIndex = 0
-                break
             }
+        }
+        return null
+    }
+
+    function replaceSimpleFractions(s) {
+        let index = 0
+        while (true) {
+            const rest = s.substring(index)
+            const match = rest.match(/\\(?:d|t)?frac\b/)
+            if (!match) break
+
+            const matchIdx = index + match.index
+            const afterFrac = matchIdx + match[0].length
+
+            let ws1 = s.substring(afterFrac).match(/^\s*/)
+            let numStart = afterFrac + ws1[0].length
+            const numMatch = findMatchingBrace(s, numStart)
+
+            if (numMatch && numMatch.start === numStart) {
+                let denStart = numMatch.end
+                let ws2 = s.substring(denStart).match(/^\s*/)
+                let denMatchStart = denStart + ws2[0].length
+                const denMatch = findMatchingBrace(s, denMatchStart)
+
+                if (denMatch && denMatch.start === denMatchStart) {
+                    const left = s.substring(0, matchIdx).trim()
+                    const right = s.substring(denMatch.end).trim()
+
+                    let num = numMatch.content.trim()
+                    let den = denMatch.content.trim()
+
+                    // Process inner fractions first
+                    num = replaceSimpleFractions(num)
+                    den = replaceSimpleFractions(den)
+
+                    if (hasMultipleTerms(num)) {
+                        num = wrapParensOrBrackets(num)
+                    }
+                    if (hasMultipleTerms(den) || hasMultipleFactors(den)) {
+                        den = wrapParensOrBrackets(den)
+                    }
+
+                    let replacement = `${num}/${den}`
+                    if (shouldWrapFraction(left, right)) {
+                        replacement = wrapParensOrBrackets(replacement)
+                    }
+
+                    s = s.substring(0, matchIdx) + replacement + s.substring(denMatch.end)
+                    index = 0
+                    continue
+                }
+            }
+
+            index = matchIdx + 1
         }
         return s
     }
 
     function replaceSimpleSqrt(s) {
-        const sqrtBody = '(?:[^{}]|\\{[^{}]*\\})*'
-        const re = new RegExp(`\\\\sqrt\\s*\\{(${sqrtBody})\\}`, 'g')
-        let prev = ''
-        while (s !== prev) {
-            prev = s
-            s = s.replace(re, (_, a) => `√(${a.trim()})`)
+        let index = 0
+        while (true) {
+            const rest = s.substring(index)
+            const match = rest.match(/\\sqrt\b/)
+            if (!match) break
+
+            const matchIdx = index + match.index
+            const afterSqrt = matchIdx + match[0].length
+
+            let ws = s.substring(afterSqrt).match(/^\s*/)
+            let argStart = afterSqrt + ws[0].length
+            const argMatch = findMatchingBrace(s, argStart)
+
+            if (argMatch && argMatch.start === argStart) {
+                let arg = argMatch.content.trim()
+                arg = replaceSimpleSqrt(arg)
+                const replacement = `√(${arg})`
+                s = s.substring(0, matchIdx) + replacement + s.substring(argMatch.end)
+                index = 0
+                continue
+            }
+
+            index = matchIdx + 1
         }
         return s
     }
@@ -986,6 +1037,7 @@
         s = chooseBestDuplicateEquation(s)
         s = cleanupPlaintextMath(s)
         s = postProcessTrigPlaintext(s)
+        s = collapseRedundantParenPairs(s)
         return s
     }
 
