@@ -1114,11 +1114,188 @@
         return aria.trim()
     }
 
+    function formatMathSpacesAndBrackets(str, isLatex) {
+        if (!str) return str;
+
+        // Helper to strip outer $$ for latex
+        let strippedStr = str;
+        if (isLatex) {
+            if (strippedStr.startsWith('$$') && strippedStr.endsWith('$$')) {
+                strippedStr = strippedStr.slice(2, -2).trim();
+            } else if (strippedStr.startsWith('$') && strippedStr.endsWith('$')) {
+                strippedStr = strippedStr.slice(1, -1).trim();
+            }
+        }
+
+        // Standardize = spacing first
+        strippedStr = strippedStr.replace(/\s*=\s*/g, ' = ');
+
+        // Tokenizer
+        function tokenize(s) {
+            const tokens = [];
+            let i = 0;
+            const latexDelims = ['\\left(', '\\right)', '\\left[', '\\right]', '\\left\\{', '\\right\\}', '(', ')', '[', ']'];
+            const plainDelims = ['(', ')', '[', ']'];
+            const delims = isLatex ? latexDelims : plainDelims;
+
+            while (i < s.length) {
+                let matchedDelim = null;
+                for (const delim of delims) {
+                    if (s.startsWith(delim, i)) {
+                        matchedDelim = delim;
+                        break;
+                    }
+                }
+                if (matchedDelim) {
+                    tokens.push({ type: 'delim', value: matchedDelim, index: i });
+                    i += matchedDelim.length;
+                } else {
+                    let nextDelimIndex = s.length;
+                    for (const delim of delims) {
+                        const idx = s.indexOf(delim, i);
+                        if (idx !== -1 && idx < nextDelimIndex) {
+                            nextDelimIndex = idx;
+                        }
+                    }
+                    tokens.push({ type: 'text', value: s.substring(i, nextDelimIndex), index: i });
+                    i = nextDelimIndex;
+                }
+            }
+            return tokens;
+        }
+
+        const tokens = tokenize(strippedStr);
+
+        // Build Tree
+        const root = { type: 'root', children: [] };
+        const stack = [root];
+
+        for (let i = 0; i < tokens.length; i++) {
+            const token = tokens[i];
+            if (token.type === 'delim') {
+                const val = token.value;
+                if (val === '(' || val === '[' || val === '{' || val.startsWith('\\left')) {
+                    const node = { type: 'group', open: val, children: [], close: null };
+                    
+                    // Check if preceded by caret '^' to mark as exponent group
+                    const parent = stack[stack.length - 1];
+                    let isExponent = false;
+                    if (parent.children.length > 0) {
+                        const lastChild = parent.children[parent.children.length - 1];
+                        if (lastChild.type === 'text' && lastChild.value.trim().endsWith('^')) {
+                            isExponent = true;
+                        }
+                    }
+                    node.isExponent = isExponent;
+
+                    parent.children.push(node);
+                    stack.push(node);
+                } else if (val === ')' || val === ']' || val === '}' || val.startsWith('\\right')) {
+                    const node = stack.pop();
+                    if (node && node.type === 'group') {
+                        node.close = val;
+                    } else {
+                        if (node) stack.push(node);
+                        stack[stack.length - 1].children.push({ type: 'text', value: val });
+                    }
+                }
+            } else {
+                stack[stack.length - 1].children.push({ type: 'text', value: token.value });
+            }
+        }
+
+        // Determine nesting (isParent)
+        function markParents(node) {
+            if (node.type === 'group') {
+                node.isParent = node.children.some(c => c.type === 'group' && !c.isExponent);
+            }
+            node.children?.forEach(markParents);
+        }
+        markParents(root);
+
+        // Recursive Formatting
+        function formatNode(node, isDirectlyUnderParent, isInsideExponent) {
+            if (node.type === 'root') {
+                let res = node.children.map(c => formatNode(c, false, false)).join('');
+                
+                // Post-processing: Ensure adjacent parenthetical groups like (A)(B) are spaced as (A) (B)
+                if (isLatex) {
+                    res = res.replace(/(\\right[)\]])(\\left[([\]])/g, '$1 $2');
+                    res = res.replace(/(\))(\()/g, '$1 $2');
+                } else {
+                    res = res.replace(/([)\]])([([\]])/g, '$1 $2');
+                }
+                return res;
+            }
+
+            if (node.type === 'text') {
+                let val = node.value;
+                // Standardize trig/log functions
+                if (isLatex) {
+                    val = val.replace(/\\?(ln|log|sin|cos|tan|csc|sec|cot|arcsin|arccos|arctan)\s*([a-zA-Zθαβγπ0-9])/g, '\\$1 $2');
+                } else {
+                    val = val.replace(/\b(ln|log|sin|cos|tan|csc|sec|cot|arcsin|arccos|arctan)\s*([a-zA-Zθαβγπ0-9])/g, '$1 $2');
+                }
+
+                // Standardize operator spacing if directly under parent
+                if (isDirectlyUnderParent) {
+                    if (isLatex) {
+                        val = val.replace(/\s*([+\-])\s*/g, ' \\ $1 \\ ');
+                    } else {
+                        val = val.replace(/\s*([+\-])\s*/g, '  $1  ');
+                    }
+                }
+                return val;
+            }
+
+            if (node.type === 'group') {
+                const nextInsideExponent = isInsideExponent || node.isExponent;
+                const childrenFormatted = node.children.map(c => formatNode(c, node.isParent, nextInsideExponent)).join('').trim();
+
+                const isSimple = childrenFormatted.length <= 1;
+
+                if (node.isParent) {
+                    if (isLatex) {
+                        return `\\left[ \\ ${childrenFormatted} \\ \\right]`;
+                    } else {
+                        return `[ ${childrenFormatted} ]`;
+                    }
+                } else {
+                    let openDelim = node.open;
+                    let closeDelim = node.close;
+                    if (isLatex) {
+                        const innerContent = node.children.map(c => c.value || '').join('');
+                        if (openDelim === '(' && (innerContent.length > 1 || innerContent.includes('^'))) {
+                            openDelim = '\\left(';
+                            closeDelim = '\\right)';
+                        }
+                    }
+
+                    if (nextInsideExponent || isSimple) {
+                        return `${openDelim}${childrenFormatted}${closeDelim}`;
+                    } else {
+                        return `${openDelim} ${childrenFormatted} ${closeDelim}`;
+                    }
+                }
+            }
+            return '';
+        }
+
+        let formatted = formatNode(root, false, false);
+        return formatted;
+    }
+
     function extractAnswerPayloadFromPart(partEl) {
         const answer = findAnswerElementInPart(partEl)
         const content = answer ? getAnswerContentRoot(answer) : null
-        const raw = extractRawAnswerTextFromPart(partEl)
-        const plain = raw ? formatExtractedAnswer(raw) : ''
+        let raw = extractRawAnswerTextFromPart(partEl)
+        if (raw) {
+            raw = formatMathSpacesAndBrackets(raw, true)
+        }
+        let plain = raw ? formatExtractedAnswer(raw) : ''
+        if (plain) {
+            plain = formatMathSpacesAndBrackets(plain, false)
+        }
         const mathNodes = content ? collectMathNodeSources(content) : []
         const usedTexScriptOnly = !!(
             content && content.querySelector('script[type^="math/tex"]')
