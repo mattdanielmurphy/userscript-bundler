@@ -265,7 +265,7 @@
 
     function getCurrentQuestionYesButton() {
         const answers = findAllInDocumentOrIframes(
-            'div.qf-answer.qf-answer-text'
+            'div.qf-answer.qf-answer-text, div.qf-answer-text[role="button"]'
         )
         const visible = answers.filter(
             (el) => el.getAttribute('aria-hidden') === 'false'
@@ -304,138 +304,902 @@
             }
         }
         const label = partEl.querySelector('.qf-paragraph span span')
-        const text = (label && label.textContent) || partEl.textContent || ''
-        const m = text.match(/^\s*([a-z])\)/i) || text.match(/\b([a-z])\)/i)
+        const text = (label && label.textContent) || ''
+        const m = text.match(/^\s*([a-z])\)/i)
         return m ? m[1].toLowerCase() : '?'
+    }
+
+    const ANSWER_REVEAL_SELECTOR =
+        'div.qf-answer[role="button"], div.qf-answer-text[role="button"]'
+
+    function isAnswerRevealControl(el) {
+        if (!el || el.nodeType !== 1) return false
+        const label = (el.getAttribute('aria-label') || '').toLowerCase()
+        return label.includes('show') && label.includes('answer')
+    }
+
+    function findAllAnswerRevealControls(doc = document) {
+        return findAllInDocumentOrIframes(ANSWER_REVEAL_SELECTOR).filter(
+            isAnswerRevealControl
+        )
+    }
+
+    function isAnswerRevealed(el) {
+        return (
+            el.classList.contains('show') ||
+            el.getAttribute('aria-hidden') === 'false'
+        )
+    }
+
+    function findAnswerElementInPart(partEl) {
+        if (!partEl) return null
+        return (
+            partEl.querySelector('.qf-answer') ||
+            partEl.querySelector('.qf-answer-text[role="button"]')
+        )
+    }
+
+    function getAnswerContentRoot(answerEl) {
+        if (!answerEl) return null
+        const nested = answerEl.querySelector('.qf-answer-content')
+        if (nested) return nested
+
+        const clone = answerEl.cloneNode(true)
+        clone
+            .querySelectorAll(
+                '.qf-feedback-question, .qf-table, .qf-row, .qf-cell, .qf-answer-option'
+            )
+            .forEach((el) => el.remove())
+        clone.querySelectorAll(':scope > div').forEach((div) => {
+            if (
+                !div.querySelector(
+                    'script[type^="math/tex"], .MathJax_SVG, .mjx-container, span.MathJax'
+                )
+            ) {
+                div.remove()
+            }
+        })
+        return clone
+    }
+
+    function getQuestionPartsWithAnswers(questionRoot) {
+        if (!questionRoot) return []
+        const parts = questionRoot.querySelectorAll('.qf-part')
+        const withAnswers = Array.from(parts).filter((p) =>
+            findAnswerElementInPart(p)
+        )
+        if (withAnswers.length) return withAnswers
+        if (findAnswerElementInPart(questionRoot)) return [questionRoot]
+        return []
+    }
+
+    function isMultiPartQuestion(partEl) {
+        const questionRoot =
+            partEl.closest('.qf-question') ||
+            partEl.closest('[id^="question-display-"]') ||
+            partEl
+        return getQuestionPartsWithAnswers(questionRoot).length > 1
     }
 
     function getShowAnswerControl(partEl) {
         return (
             partEl.querySelector('.qf-answer[role="button"]') ||
+            partEl.querySelector('.qf-answer-text[role="button"]') ||
             partEl.querySelector('.qf-answer[tabindex="0"]') ||
-            partEl.querySelector('.qf-answer')
+            findAnswerElementInPart(partEl)
         )
     }
 
-    function extractAnswerFromPart(partEl) {
-        const answer = partEl.querySelector('.qf-answer')
+    const MATH_NODE_SELECTOR =
+        'script[type^="math/tex"], .mjx-container, .MathJax_SVG, .MathJax_Display, span.MathJax'
+
+    const MATH_RENDERED_REMOVE_SELECTOR =
+        '.MathJax_SVG, .MathJax_Display, .mjx-container, span.MathJax, .MathJax_Preview'
+
+    function removeRenderedMathIfTexPresent(root) {
+        if (!root?.querySelector('script[type^="math/tex"]')) return false
+        root.querySelectorAll(MATH_RENDERED_REMOVE_SELECTOR).forEach((el) =>
+            el.remove()
+        )
+        return true
+    }
+
+    /** TeX script(s) only — never mix with MathJax SVG innerText (speech duplicate). */
+    function extractLatexFromMathRoot(root) {
+        if (!root) return ''
+        const clone = root.cloneNode(true)
+        clone
+            .querySelectorAll(
+                '.qf-feedback-question, .qf-table, .MathJax_Preview'
+            )
+            .forEach((el) => el.remove())
+        removeRenderedMathIfTexPresent(clone)
+        const scripts = [...clone.querySelectorAll('script[type^="math/tex"]')]
+            .map((s) => s.textContent.trim())
+            .filter(Boolean)
+        if (scripts.length) return scripts.join(' ')
+        return ''
+    }
+
+    function mathReplacementText(el) {
+        if (!el || el.nodeType !== 1) return ''
+        if (
+            el.tagName === 'SCRIPT' &&
+            (el.getAttribute('type') || '').startsWith('math/tex')
+        ) {
+            return el.textContent.trim()
+        }
+        const nestedTex = el.querySelector('script[type^="math/tex"]')
+        if (nestedTex && nestedTex.textContent.trim()) {
+            return nestedTex.textContent.trim()
+        }
+        let prev = el.previousElementSibling
+        while (prev) {
+            if (
+                prev.tagName === 'SCRIPT' &&
+                (prev.getAttribute('type') || '').startsWith('math/tex')
+            ) {
+                const t = prev.textContent.trim()
+                if (t) return t
+            }
+            if (
+                prev.matches?.(
+                    '.MathJax_SVG, .MathJax_Display, .mjx-container, span.MathJax'
+                )
+            ) {
+                prev = prev.previousElementSibling
+                continue
+            }
+            break
+        }
+        const aria = el.getAttribute('aria-label')
+        if (aria && aria.trim() && aria.includes('\\')) {
+            return aria.trim()
+        }
+        if (
+            el.matches?.(
+                '.MathJax_SVG, .MathJax_Display, .mjx-container, span.MathJax'
+            )
+        ) {
+            const inRoot = el
+                .closest('.qf-answer-content, .qf-answer, .qf-answer-text')
+                ?.querySelector('script[type^="math/tex"]')
+            if (inRoot) return ''
+            const inner = el.innerText.replace(/\s+/g, ' ').trim()
+            if (inner) return inner
+        }
+        return ''
+    }
+
+    function filterMathCandidatesPreferTex(candidates, root) {
+        const texInRoot = root.querySelectorAll('script[type^="math/tex"]')
+        if (texInRoot.length > 0) {
+            return candidates.filter(
+                (el) =>
+                    el.tagName === 'SCRIPT' &&
+                    (el.getAttribute('type') || '').startsWith('math/tex')
+            )
+        }
+
+        const drop = new Set()
+        for (const el of candidates) {
+            if (el.tagName !== 'SCRIPT') continue
+            let sib = el.nextElementSibling
+            while (sib) {
+                if (
+                    sib.matches?.(
+                        '.MathJax_SVG, .MathJax_Display, .mjx-container, span.MathJax'
+                    )
+                ) {
+                    drop.add(sib)
+                    break
+                }
+                if (sib.tagName === 'SCRIPT') break
+                sib = sib.nextElementSibling
+            }
+        }
+        for (const el of candidates) {
+            if (!el.querySelector?.('script[type^="math/tex"]')) continue
+            if (
+                el.matches?.(
+                    '.MathJax_SVG, .MathJax_Display, .mjx-container, span.MathJax'
+                )
+            ) {
+                drop.add(el)
+            }
+        }
+        return candidates.filter((el) => !drop.has(el))
+    }
+
+    function scoreAnswerLatexChunk(chunk) {
+        if (!chunk) return -999
+        let score = 0
+        if (chunk.includes('\u2061')) score -= 50
+        if (!chunk.includes('\\')) score -= 40
+        score += (chunk.match(/\\/g) || []).length * 10
+        score += (chunk.match(/\^/g) || []).length * 3
+        score += (chunk.match(/frac|dfrac|tfrac/gi) || []).length * 8
+        score += (chunk.match(/\{/g) || []).length * 2
+        return score
+    }
+
+    function splitMergedMathChunks(line) {
+        const trimmed = line.trim()
+        const byLatexBoundary = trimmed
+            .split(/\s+(?=(?:[+-]?\d+(?:\.\d+)?\s*)?\\[a-zA-Z{])/)
+            .map((c) => c.trim())
+            .filter(Boolean)
+        if (byLatexBoundary.length >= 2) return byLatexBoundary
+
+        const byBackslashCmd = trimmed
+            .split(/\s+(?=\\[a-zA-Z]+)/)
+            .map((c) => c.trim())
+            .filter(Boolean)
+        if (byBackslashCmd.length >= 2) return byBackslashCmd
+
+        return [trimmed]
+    }
+
+    function dedupeSpokenAndLatexDuplicates(line) {
+        const trimmed = line.trim()
+        if (!trimmed) return trimmed
+
+        const chunks = splitMergedMathChunks(trimmed)
+        if (chunks.length < 2) return chooseBestDuplicateEquation(trimmed)
+
+        const best = chunks.reduce((a, b) =>
+            scoreAnswerLatexChunk(b) > scoreAnswerLatexChunk(a) ? b : a
+        )
+        return chooseBestDuplicateEquation(best)
+    }
+
+    function getTopLevelMathCandidates(root) {
+        root
+            .querySelectorAll(
+                '.qf-feedback-question, .qf-table, .MathJax_Preview'
+            )
+            .forEach((el) => el.remove())
+
+        const candidates = Array.from(
+            root.querySelectorAll(MATH_NODE_SELECTOR)
+        ).filter((el) => {
+            if (el.tagName === 'SCRIPT') return true
+            if (el.classList.contains('MathJax_Preview')) return false
+            return true
+        })
+        const topLevel = candidates.filter(
+            (el) =>
+                !candidates.some(
+                    (other) => other !== el && other.contains(el)
+                )
+        )
+        return filterMathCandidatesPreferTex(topLevel, root)
+    }
+
+    function extractPlainTextWithMath(root) {
+        if (!root) return ''
+        const fromTexOnly = extractLatexFromMathRoot(root)
+        if (fromTexOnly) return dedupeSpokenAndLatexDuplicates(fromTexOnly)
+
+        const clone = root.cloneNode(true)
+        const topLevel = getTopLevelMathCandidates(clone)
+
+        for (const el of topLevel) {
+            const replacement = mathReplacementText(el)
+            el.replaceWith(
+                document.createTextNode(replacement ? ` ${replacement} ` : '')
+            )
+        }
+
+        const merged = clone.textContent.replace(/\s+/g, ' ').trim()
+        return dedupeSpokenAndLatexDuplicates(merged)
+    }
+
+    const LATEX_SUPER_MAP = {
+        '0': '⁰',
+        '1': '¹',
+        '2': '²',
+        '3': '³',
+        '4': '⁴',
+        '5': '⁵',
+        '6': '⁶',
+        '7': '⁷',
+        '8': '⁸',
+        '9': '⁹',
+        '+': '⁺',
+        '-': '⁻',
+    }
+
+    function latexToSuperscript(exp) {
+        exp = String(exp).trim()
+        if (/^[+-]?\d$/.test(exp)) {
+            return [...exp]
+                .map((ch) => LATEX_SUPER_MAP[ch] || ch)
+                .join('')
+        }
+        return '^(' + exp + ')'
+    }
+
+    function stripLatexCodeFences(s) {
+        return s
+            .replace(/^```[a-zA-Z]*\n?/, '')
+            .replace(/\n?```$/, '')
+    }
+
+    function normalizeLatexLhs(lhs) {
+        return lhs.replace(/′/g, "'").replace(/\s+/g, '').trim()
+    }
+
+    function chooseBestDuplicateEquation(line) {
+        const re = /(^|\s)([A-Za-z][A-Za-z0-9']*(?:\([^)]*\))?)\s*=/g
+        const matches = []
+        let m
+        while ((m = re.exec(line)) !== null) {
+            matches.push({
+                lhs: normalizeLatexLhs(m[2]),
+                index: m.index + m[1].length,
+            })
+        }
+        if (matches.length < 2) return line
+        for (let i = 0; i < matches.length; i++) {
+            for (let j = matches.length - 1; j > i; j--) {
+                if (matches[i].lhs === matches[j].lhs) {
+                    return line.slice(matches[j].index).trim()
+                }
+            }
+        }
+        return line
+    }
+
+    function hasMultipleTerms(s) {
+        s = s.trim()
+        if (!s) return false
+
+        let pDepth = 0
+        let bDepth = 0
+        let brDepth = 0
+
+        let startIdx = 0
+        if (s.startsWith('+') || s.startsWith('-')) {
+            startIdx = 1
+        } else if (s.startsWith('\\pm') || s.startsWith('\\mp')) {
+            startIdx = 3
+        }
+
+        for (let i = startIdx; i < s.length; i++) {
+            const char = s[i]
+            if (char === '(') pDepth++
+            else if (char === ')') pDepth--
+            else if (char === '{') bDepth++
+            else if (char === '}') bDepth--
+            else if (char === '[') brDepth++
+            else if (char === ']') brDepth--
+            else if (pDepth === 0 && bDepth === 0 && brDepth === 0) {
+                if (char === '+' || char === '-') {
+                    return true
+                }
+                if (
+                    s.substring(i).startsWith('\\pm') ||
+                    s.substring(i).startsWith('\\mp') ||
+                    s.substring(i).startsWith('\\to') ||
+                    s.substring(i).startsWith('\\approx') ||
+                    s.substring(i).startsWith('\\le') ||
+                    s.substring(i).startsWith('\\ge')
+                ) {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    function replaceSimpleFractions(s) {
+        const fracBody = '(?:[^{}]|\\{[^{}]*\\})*'
+        const re = new RegExp(
+            `\\\\(?:d|t)?frac\\s*\\{(${fracBody})\\}\\s*\\{(${fracBody})\\}`,
+            'g'
+        )
+        let prev = ''
+        while (s !== prev) {
+            prev = s
+            s = s.replace(re, (_, a, b) => {
+                let num = a.trim()
+                let den = b.trim()
+                if (hasMultipleTerms(num)) {
+                    num = `(${num})`
+                }
+                if (hasMultipleTerms(den)) {
+                    den = `(${den})`
+                }
+                return `${num}/${den}`
+            })
+        }
+        return s
+    }
+
+    function replaceSimpleSqrt(s) {
+        const sqrtBody = '(?:[^{}]|\\{[^{}]*\\})*'
+        const re = new RegExp(`\\\\sqrt\\s*\\{(${sqrtBody})\\}`, 'g')
+        let prev = ''
+        while (s !== prev) {
+            prev = s
+            s = s.replace(re, (_, a) => `√(${a.trim()})`)
+        }
+        return s
+    }
+
+    function stripLatexLeftRight(s) {
+        s = s.replace(/\\left\s*([([{|.])/g, '$1')
+        s = s.replace(/\\right\s*([)\]}|.])/g, '$1')
+        s = s.replace(/\\left\s*/g, '')
+        s = s.replace(/\\right\s*/g, '')
+        return s
+    }
+
+    function collapseRedundantParenPairs(s) {
+        let prev = ''
+        while (s !== prev) {
+            prev = s
+            s = s.replace(/\(\(([^()]*)\)\)/g, '($1)')
+        }
+        return s
+    }
+
+    function replaceLatexCommands(s) {
+        s = stripLatexLeftRight(s)
+
+        const symbolMap = {
+            '\\pm': '±',
+            '\\infty': '∞',
+            '\\neq': '≠',
+            '\\ne': '≠',
+            '\\approx': '≈',
+            '\\pi': 'π',
+            '\\Delta': '∆',
+            '\\mu': 'µ',
+            '\\to': '→',
+            '\\rightarrow': '→',
+            '\\le': '≤',
+            '\\leq': '≤',
+            '\\ge': '≥',
+            '\\geq': '≥',
+            '\\degree': '˚',
+        }
+        const symbolKeys = Object.keys(symbolMap).sort(
+            (a, b) => b.length - a.length
+        )
+        for (const k of symbolKeys) {
+            s = s.split(k).join(symbolMap[k])
+        }
+        s = s.replace(/\\,/g, ' ')
+        s = s.replace(/\\!/g, '')
+        s = s.replace(/\\;/g, ' ')
+        s = s.replace(/\\:/g, ' ')
+        s = s.replace(/\\cdot/g, '*')
+        s = s.replace(/\\times/g, '*')
+        s = s.replace(
+            /\\(sin|cos|tan|csc|sec|cot|log|ln|arcsin|arccos|arctan)\b/g,
+            '$1'
+        )
+        s = s.replace(/\\theta/g, 'θ')
+        s = s.replace(/\\alpha/g, 'α')
+        s = s.replace(/\\beta/g, 'β')
+        s = s.replace(/\\gamma/g, 'γ')
+        return s
+    }
+
+    function replaceLatexExponents(s) {
+        s = s.replace(/\^\s*(?:\{\s*([+-]?\d+)\s*\}|([+-]?\d+))/g, (match, p1, p2) => {
+            const exp = p1 !== undefined ? p1 : p2
+            if (/^[+-]?\d$/.test(exp)) return latexToSuperscript(exp)
+            if (/^[+-]?\d{2}$/.test(exp)) {
+                return '^(' + exp + ')'
+            }
+            return match
+        })
+        s = s.replace(/\^\s*\(\s*([+-]?\d)\s*\)/g, (_, exp) =>
+            latexToSuperscript(exp)
+        )
+        s = s.replace(
+            /\b(sin|cos|tan|csc|sec|cot|log|ln)\^([+-]?\d)\b/g,
+            (_, fn, exp) => fn + latexToSuperscript(exp)
+        )
+        s = s.replace(
+            /\b(sin|cos|tan|csc|sec|cot|log|ln)([23])\(/g,
+            (_, fn, exp) => fn + latexToSuperscript(exp) + '('
+        )
+        return s
+    }
+
+    function replaceBareFracCalls(s) {
+        let prev = ''
+        while (s !== prev) {
+            prev = s
+            s = s.replace(
+                /\bfrac\s*\(([^()]*(?:\([^()]*\)[^()]*)*)\)\s*\(([^()]*(?:\([^()]*\)[^()]*)*)\)/gi,
+                (_, a, b) => `${a.trim()}/${b.trim()}`
+            )
+        }
+        return s
+    }
+
+    function cleanupPlaintextMath(s) {
+        s = s.replace(/[\u2061\u200B-\u200D\uFEFF]/g, '')
+        s = s.replace(/′/g, "'")
+        s = s.replace(/−/g, '-')
+        s = s.replace(/–/g, '-')
+        s = replaceSimpleFractions(s)
+        s = replaceBareFracCalls(s)
+        s = replaceSimpleSqrt(s)
+        s = replaceLatexCommands(s)
+        s = replaceLatexExponents(s)
+        s = s.replace(/\{/g, '(').replace(/\}/g, ')')
+        s = s.replace(/\\([A-Za-z]+)/g, '$1')
+        s = collapseRedundantParenPairs(s)
+        s = replaceLatexExponents(s)
+        s = s.replace(/\s+/g, ' ').trim()
+        s = s.replace(/\s*\/\s*/g, '/')
+        s = s.replace(/\s*([=+])\s*/g, ' $1 ')
+        s = s.replace(/\s*-\s*/g, ' - ')
+        s = s.replace(/(^|[(=+/*,])\s-\s/g, '$1-')
+        s = s.replace(/\(\s+/g, '(')
+        s = s.replace(/\s+\)/g, ')')
+        s = s.replace(/\b([A-Za-z]+)\s+\(/g, '$1(')
+        s = s.replace(/\s+/g, ' ').trim()
+        return s
+    }
+
+    const TRIG_PLAIN_NAMES =
+        'arcsin|arccos|arctan|sin|cos|tan|csc|sec|cot|ln|log'
+    const TRIG_FN_SUPERS = '[²³⁴⁵⁶⁷⁸⁹⁰¹⁺⁻]+'
+    const TRIG_SIMPLE_ARG = '(?:[a-zA-Zθπ][a-zA-Z0-9θπ]*|\\d+)'
+
+    function postProcessTrigPlaintext(s) {
+        const trigLead = `(?<![a-zA-Z])(${TRIG_PLAIN_NAMES})`
+        const trigParenRe = new RegExp(
+            `${trigLead}(${TRIG_FN_SUPERS})?\\s*\\(\\s*(${TRIG_SIMPLE_ARG})\\s*\\)`,
+            'g'
+        )
+        s = s.replace(trigParenRe, (_, fn, sup, arg) => fn + (sup || '') + arg)
+
+        const trigAdjacentRe = new RegExp(
+            `${trigLead}(${TRIG_FN_SUPERS})?(${TRIG_SIMPLE_ARG})(?=${TRIG_PLAIN_NAMES}\\b)`,
+            'g'
+        )
+        s = s.replace(trigAdjacentRe, (_, fn, sup, arg) => fn + (sup || '') + arg + ' ')
+        return s
+    }
+
+    function convertLatexLineToPlaintext(line) {
+        let s = stripLatexCodeFences(line).trim()
+        if (!s) return ''
+        s = dedupeSpokenAndLatexDuplicates(s)
+        s = chooseBestDuplicateEquation(s)
+        s = cleanupPlaintextMath(s)
+        s = postProcessTrigPlaintext(s)
+        return s
+    }
+
+    function convertAnswerBlockToWorksheetPlaintext(input) {
+        return stripLatexCodeFences(input)
+            .split(/\r?\n/)
+            .map(convertLatexLineToPlaintext)
+            .filter(Boolean)
+            .join('\n')
+    }
+
+    function stripMathDollarDelimiters(s) {
+        return String(s)
+            .replace(/\$\$/g, ' ')
+            .replace(/\$/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim()
+    }
+
+    function formatExtractedAnswer(raw) {
+        if (!raw || !String(raw).trim()) return raw
+        const stripped = stripMathDollarDelimiters(raw)
+        return convertAnswerBlockToWorksheetPlaintext(stripped)
+    }
+
+    function collectMathNodeSources(root) {
+        if (!root) return []
+        const clone = root.cloneNode(true)
+        removeRenderedMathIfTexPresent(clone)
+        const topLevel = getTopLevelMathCandidates(clone)
+
+        return topLevel.map((el) => {
+            const texEl = el.querySelector?.('script[type^="math/tex"]')
+            const aria = el.getAttribute?.('aria-label') || null
+            return {
+                tag: el.tagName,
+                className: el.className || '',
+                texScript:
+                    (el.tagName === 'SCRIPT'
+                        ? el.textContent
+                        : texEl?.textContent) || null,
+                ariaLabel: aria,
+                ariaSkipped:
+                    aria && !aria.includes('\\') && !!texEl ? true : false,
+                usedForMerge: mathReplacementText(el) || null,
+            }
+        })
+    }
+
+    function extractRawAnswerTextFromPart(partEl) {
+        const answer = findAnswerElementInPart(partEl)
         if (!answer) return ''
 
-        const tex = answer.querySelector('script[type="math/tex"]')
-        if (tex && tex.textContent.trim()) {
-            return tex.textContent.trim()
-        }
-
-        const img = answer.querySelector('.qf-answer-content img')
+        const content = getAnswerContentRoot(answer)
+        const img = content.querySelector('img')
         if (img && img.alt && img.alt.trim()) {
-            return img.alt.trim()
+            const withoutImg = content.cloneNode(true)
+            withoutImg.querySelectorAll('img').forEach((n) => n.remove())
+            const rest =
+                extractLatexFromMathRoot(withoutImg) ||
+                extractPlainTextWithMath(withoutImg)
+            const alt = img.alt.trim()
+            return rest ? `${alt} ${rest}` : alt
         }
 
-        const content = answer.querySelector('.qf-answer-content')
-        if (content) {
-            const text = content.innerText.replace(/\s+/g, ' ').trim()
-            if (text) return text
-        }
+        const fromTex = extractLatexFromMathRoot(content)
+        if (fromTex) return fromTex
+
+        const text = extractPlainTextWithMath(content)
+        if (text) return text
 
         const aria = answer.getAttribute('aria-label') || ''
         if (/show/i.test(aria)) return ''
         return aria.trim()
     }
 
+    function extractAnswerPayloadFromPart(partEl) {
+        const answer = findAnswerElementInPart(partEl)
+        const content = answer ? getAnswerContentRoot(answer) : null
+        const raw = extractRawAnswerTextFromPart(partEl)
+        const plain = raw ? formatExtractedAnswer(raw) : ''
+        const mathNodes = content ? collectMathNodeSources(content) : []
+        const usedTexScriptOnly = !!(
+            content && content.querySelector('script[type^="math/tex"]')
+        )
+        return { raw, plain, mathNodes, usedTexScriptOnly }
+    }
+
+    function logAnswerConversionReadableSummary(raw, plain) {
+        const latexBody = raw && raw.trim() ? raw.trim() : '(empty)'
+        const plainBody = plain && plain.trim() ? plain.trim() : '(empty)'
+        console.log(`latex:\n${latexBody}\n\nplain:\n${plainBody}`)
+    }
+
+    function formatAnswerBlockForClipboard({ multiPart, letter, plain }) {
+        const body = plain && plain.trim() ? plain.trim() : '(empty)'
+        if (multiPart && letter && letter !== '?') {
+            return `${letter}. ${body}`
+        }
+        return body
+    }
+
+    function extractAnswerFromPart(partEl) {
+        return extractAnswerPayloadFromPart(partEl).plain
+    }
+
+    let copyAllAnswersRunning = false
+
+    function isShowAnswerRevealButton(el) {
+        if (!el || el.nodeType !== 1) return false
+        if (
+            !el.matches(
+                '.qf-answer.qf-answer-text[role="button"], .qf-answer-text[role="button"], .qf-answer[role="button"]'
+            )
+        ) {
+            return false
+        }
+        return isAnswerRevealControl(el)
+    }
+
+    function findShowAnswerRevealButtonFromEvent(event) {
+        const path = event.composedPath?.() || [event.target]
+        for (const node of path) {
+            if (!(node instanceof Element)) continue
+            if (isShowAnswerRevealButton(node)) return node
+            const closest = node.closest?.(ANSWER_REVEAL_SELECTOR)
+            if (closest && isShowAnswerRevealButton(closest)) return closest
+        }
+        return null
+    }
+
+    async function runCopyAllAnswersWithButtonFeedback(answersBtn) {
+        if (copyAllAnswersRunning) return
+        if (answersBtn) answersBtn.disabled = true
+        try {
+            await revealPartsAndCopyAnswers()
+            if (answersBtn) {
+                answersBtn.classList.add('copied')
+                const label = answersBtn.querySelector('.text')
+                if (label) label.textContent = 'Copied!'
+                setTimeout(() => {
+                    answersBtn.classList.remove('copied')
+                    if (label) label.textContent = 'Copy All Answers'
+                }, 2000)
+            }
+        } catch (err) {
+            console.error('[D2L-DL] Copy all answers failed:', err)
+            alert('Could not copy answers. See console for details.')
+        } finally {
+            if (answersBtn) answersBtn.disabled = false
+        }
+    }
+
+    function installShowAnswerTriggersCopyAll() {
+        if (installShowAnswerTriggersCopyAll.installed) return
+        installShowAnswerTriggersCopyAll.installed = true
+        document.addEventListener(
+            'click',
+            (event) => {
+                if (copyAllAnswersRunning) return
+                if (!findShowAnswerRevealButtonFromEvent(event)) return
+                const answersBtn = document.getElementById('d2l-answers-btn')
+                void runCopyAllAnswersWithButtonFeedback(answersBtn)
+            },
+            true
+        )
+    }
+
+    installShowAnswerTriggersCopyAll()
+
     async function revealPartsAndCopyAnswers() {
-        console.log('[D2L-DL] Auto-processing all questions...')
+        if (copyAllAnswersRunning) return null
+        copyAllAnswersRunning = true
+        try {
+            console.log('[D2L-DL] Auto-processing all questions...')
 
-        const lines = []
+            const lines = []
+            const processed = new Set()
 
-        while (true) {
-            const targetQuestion = Array.from(
-                document.querySelectorAll('.qf-answer')
-            ).find((q) => !q.classList.contains('show'))
+            while (true) {
+                const allControls = findAllAnswerRevealControls()
+                const targetQuestion = allControls.find((el) => {
+                    const key = el.id || el.getAttribute('data-id') || el
+                    return !processed.has(key)
+                })
 
-            if (!targetQuestion) {
-                console.log(
-                    '[D2L-DL] Finished. No more unclicked questions found.'
+                if (!targetQuestion) {
+                    console.log('[D2L-DL] Finished. No more answers to copy.')
+                    break
+                }
+
+                const key =
+                    targetQuestion.id ||
+                    targetQuestion.getAttribute('data-id') ||
+                    targetQuestion
+                processed.add(key)
+
+                targetQuestion.scrollIntoView({
+                    behavior: 'smooth',
+                    block: 'center',
+                })
+
+                const questionRoot =
+                    targetQuestion.closest('.qf-question') ||
+                    targetQuestion.closest('[id^="question-display-"]') ||
+                    targetQuestion.closest('.qf-part') ||
+                    document.body
+                const solutionHandle = questionRoot.querySelector(
+                    '.qf-solution-handle, [aria-label*="show solution" i]'
                 )
-                break
-            }
+                if (solutionHandle) {
+                    solutionHandle.click()
+                    await sleep(100)
+                }
 
-            targetQuestion.scrollIntoView({
-                behavior: 'smooth',
-                block: 'center',
-            })
-
-            // Expand solution UI (if present) before clicking answer reveal controls.
-            const questionRoot =
-                targetQuestion.closest('.qf-question') ||
-                targetQuestion.closest('.qf-part') ||
-                document.body
-            const solutionHandle = questionRoot.querySelector(
-                '.qf-solution-handle'
-            )
-            if (solutionHandle) {
-                solutionHandle.click()
-                await sleep(100)
-            }
-
-            targetQuestion.click()
-            console.log(
-                `[D2L-DL] Processing answer container: ${targetQuestion.id}`
-            )
-
-            const part =
-                targetQuestion.closest('.qf-part') ||
-                targetQuestion.closest('.qf-question') ||
-                document.body
-            const letter = letterFromPart(part)
-
-            await new Promise((resolve) => {
-                const startTime = Date.now()
-                const checkInterval = setInterval(() => {
-                    const yesButton = targetQuestion.querySelector(
-                        '.qf-cell.qf-answer-option.yes'
+                const alreadyRevealed = isAnswerRevealed(targetQuestion)
+                if (!alreadyRevealed) {
+                    targetQuestion.click()
+                    console.log(
+                        `[D2L-DL] Revealing answer: ${targetQuestion.id}`
                     )
 
-                    if (yesButton && yesButton.offsetParent !== null) {
-                        clearInterval(checkInterval)
-                        yesButton.click()
-                        resolve()
+                    await new Promise((resolve) => {
+                        const startTime = Date.now()
+                        const checkInterval = setInterval(() => {
+                            const yesButton =
+                                targetQuestion.querySelector(
+                                    '.qf-cell.qf-answer-option.yes, .qf-cell.yes[role="button"]'
+                                ) ||
+                                questionRoot.querySelector(
+                                    '.qf-cell.qf-answer-option.yes, .qf-cell.yes[role="button"]'
+                                )
+
+                            if (
+                                yesButton &&
+                                yesButton.offsetParent !== null
+                            ) {
+                                clearInterval(checkInterval)
+                                yesButton.click()
+                                resolve()
+                            }
+
+                            if (Date.now() - startTime > 3000) {
+                                clearInterval(checkInterval)
+                                console.warn(
+                                    `[D2L-DL] Timed out waiting for "Yes" in ${targetQuestion.id}`
+                                )
+                                resolve()
+                            }
+                        }, 100)
+                    })
+
+                    await sleep(400)
+                } else {
+                    console.log(
+                        `[D2L-DL] Answer already shown: ${targetQuestion.id}`
+                    )
+                }
+
+                const part =
+                    targetQuestion.closest('.qf-part') ||
+                    targetQuestion.closest('.qf-question') ||
+                    targetQuestion.closest('[id^="question-display-"]') ||
+                    document.body
+                const multiPart = isMultiPartQuestion(part)
+                const letter = multiPart ? letterFromPart(part) : '?'
+
+                let payload = extractAnswerPayloadFromPart(part)
+                if (!payload.plain && !payload.raw) {
+                    await sleep(250)
+                    payload = extractAnswerPayloadFromPart(part)
+                }
+                if (!payload.plain && !payload.raw) {
+                    payload = {
+                        raw: '',
+                        plain: '(no answer text)',
+                        mathNodes: payload.mathNodes,
                     }
+                }
 
-                    if (Date.now() - startTime > 3000) {
-                        clearInterval(checkInterval)
-                        console.warn(
-                            `[D2L-DL] Timed out waiting for "Yes" button in ${targetQuestion.id}`
-                        )
-                        resolve()
-                    }
-                }, 100)
-            })
+                console.log('[D2L-DL] Answer conversion debug', {
+                    answerId: targetQuestion.id,
+                    alreadyRevealed,
+                    multiPart,
+                    letter,
+                    latex: payload.raw,
+                    plain: payload.plain,
+                    mathNodes: payload.mathNodes,
+                    usedTexScriptOnly: payload.usedTexScriptOnly,
+                })
+                if (
+                    payload.raw.includes('\u2061') ||
+                    (payload.raw.match(/f['′]?\s*\(/gi) || []).length > 1
+                ) {
+                    console.warn(
+                        '[D2L-DL] Spoken + TeX duplicate still in raw — check DOM',
+                        { raw: payload.raw }
+                    )
+                }
 
-            await sleep(400)
+                logAnswerConversionReadableSummary(payload.raw, payload.plain)
 
-            let answer = extractAnswerFromPart(part)
-            if (!answer) {
-                await sleep(250)
-                answer = extractAnswerFromPart(part)
+                lines.push(
+                    formatAnswerBlockForClipboard({
+                        multiPart,
+                        letter,
+                        plain: payload.plain,
+                    })
+                )
             }
-            if (!answer) answer = '(no answer text)'
 
-            if (letter === '?') {
-                lines.push(answer)
-            } else {
-                lines.push(`${letter}. ${answer}`)
+            if (!lines.length) {
+                alert('No answer controls found on this question.')
+                return null
             }
-        }
 
-        if (!lines.length) {
-            alert('No unanswered questions found.')
-            return null
+            const text = lines.join('\n\n')
+            await navigator.clipboard.writeText(text)
+            console.log('[D2L-DL] Copied answers (plain):\n' + text)
+            return text
+        } finally {
+            copyAllAnswersRunning = false
         }
-
-        const text = lines.join('\n')
-        await navigator.clipboard.writeText(text)
-        console.log('[D2L-DL] Copied answers:\n' + text)
-        return text
     }
 
     function isTypingTarget() {
@@ -1548,23 +2312,8 @@
             }
             // --- END EXACT MINIMAL SCRIPT LOGIC ---
 
-            answersBtn.onclick = async () => {
-                answersBtn.disabled = true
-                try {
-                    await revealPartsAndCopyAnswers()
-                    answersBtn.classList.add('copied')
-                    answersBtn.querySelector('.text').textContent = 'Copied!'
-                    setTimeout(() => {
-                        answersBtn.classList.remove('copied')
-                        answersBtn.querySelector('.text').textContent =
-                            'Copy All Answers'
-                    }, 2000)
-                } catch (err) {
-                    console.error('[D2L-DL] Copy all answers failed:', err)
-                    alert('Could not copy answers. See console for details.')
-                } finally {
-                    answersBtn.disabled = false
-                }
+            answersBtn.onclick = () => {
+                void runCopyAllAnswersWithButtonFeedback(answersBtn)
             }
 
             promptBtn.onclick = () => {
@@ -1969,26 +2718,8 @@ y = 1
                 answersBtn.id = 'd2l-answers-btn'
                 answersBtn.innerHTML =
                     '<div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"></path><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg></div><div class="text">Copy All Answers</div>'
-                answersBtn.onclick = async () => {
-                    answersBtn.disabled = true
-                    try {
-                        await revealPartsAndCopyAnswers()
-                        answersBtn.classList.add('copied')
-                        answersBtn.querySelector('.text').textContent =
-                            'Copied!'
-                        setTimeout(() => {
-                            answersBtn.classList.remove('copied')
-                            answersBtn.querySelector('.text').textContent =
-                                'Copy All Answers'
-                        }, 2000)
-                    } catch (err) {
-                        console.error('[D2L-DL] Copy all answers failed:', err)
-                        alert(
-                            'Could not copy answers. See console for details.'
-                        )
-                    } finally {
-                        answersBtn.disabled = false
-                    }
+                answersBtn.onclick = () => {
+                    void runCopyAllAnswersWithButtonFeedback(answersBtn)
                 }
                 document.body.appendChild(answersBtn)
             }
