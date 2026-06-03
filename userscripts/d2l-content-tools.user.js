@@ -2472,7 +2472,7 @@
             async function waitForListTimeRefresh(
                 itemKey,
                 beforeMs,
-                timeoutMs = 8000
+                timeoutMs = 30000
             ) {
                 const start = Date.now()
                 let latestMs = beforeMs
