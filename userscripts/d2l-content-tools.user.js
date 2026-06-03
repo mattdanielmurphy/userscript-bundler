@@ -693,6 +693,39 @@
         return false
     }
 
+    function shouldWrapFraction(left, right) {
+        const safeLatexOps = [
+            'pm', 'mp', 'to', 'times', 'cdot', 'approx',
+            'le', 'leq', 'ge', 'geq', 'ne', 'neq', 'approx', 'rightarrow'
+        ]
+
+        if (left.length > 0) {
+            const lastChar = left[left.length - 1]
+            const isStandardSafe = /[=+\-*/,]/.test(lastChar)
+            if (!isStandardSafe) {
+                const match = left.match(/\\([a-zA-Z]+)$/)
+                const endsWithSafeCmd = match && safeLatexOps.includes(match[1])
+                if (!endsWithSafeCmd) {
+                    return true
+                }
+            }
+        }
+
+        if (right.length > 0) {
+            const firstChar = right[0]
+            const isStandardSafe = /[=+\-*/,]/.test(firstChar)
+            if (!isStandardSafe) {
+                const match = right.match(/^\\([a-zA-Z]+)/)
+                const startsWithSafeCmd = match && safeLatexOps.includes(match[1])
+                if (!startsWithSafeCmd) {
+                    return true
+                }
+            }
+        }
+
+        return false
+    }
+
     function replaceSimpleFractions(s) {
         const fracBody = '(?:[^{}]|\\{[^{}]*\\})*'
         const re = new RegExp(
@@ -702,7 +735,17 @@
         let prev = ''
         while (s !== prev) {
             prev = s
-            s = s.replace(re, (_, a, b) => {
+            let match
+            while ((match = re.exec(s)) !== null) {
+                const fullMatch = match[0]
+                const a = match[1]
+                const b = match[2]
+                const matchIndex = match.index
+                const endIndex = matchIndex + fullMatch.length
+
+                const left = s.substring(0, matchIndex).trim()
+                const right = s.substring(endIndex).trim()
+
                 let num = a.trim()
                 let den = b.trim()
                 if (hasMultipleTerms(num)) {
@@ -711,8 +754,16 @@
                 if (hasMultipleTerms(den)) {
                     den = `(${den})`
                 }
-                return `${num}/${den}`
-            })
+
+                let replacement = `${num}/${den}`
+                if (shouldWrapFraction(left, right)) {
+                    replacement = `(${replacement})`
+                }
+
+                s = s.substring(0, matchIndex) + replacement + s.substring(endIndex)
+                re.lastIndex = 0
+                break
+            }
         }
         return s
     }
