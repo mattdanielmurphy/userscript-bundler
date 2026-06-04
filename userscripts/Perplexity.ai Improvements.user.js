@@ -139,6 +139,15 @@
     function focusAskInput() {
         if (!win.__pplxIsHomepage?.()) return false
 
+        // Do not steal focus if a dropdown menu, listbox, dialog, or expanded element is active
+        if (
+            document.querySelector(
+                '[role="menu"], [role="listbox"], [data-radix-menu-content], [aria-expanded="true"], [role="dialog"]'
+            )
+        ) {
+            return false
+        }
+
         const inputDiv = document.querySelector('div#ask-input')
         if (!inputDiv) return false
 
