@@ -1556,3 +1556,28 @@
     })
 })()
 
+
+//!    11. Prose Styling Improvements
+;(function() {
+    const style = document.createElement('style')
+    style.textContent = `
+        /* Increase spacing between paragraphs */
+        .prose p {
+            margin-top: 2rem !important;
+            margin-bottom: 2rem !important;
+        }
+
+        /* Make headings bigger and remove blue color */
+        .prose h2 {
+            font-size: 2.25rem !important;
+            color: currentColor !important; /* Inherits the standard text color */
+        }
+
+        /* Remove blue color from bold text */
+        .prose strong {
+            color: inherit !important;
+        }
+    `
+    document.head.appendChild(style)
+    console.log('Styles applied: Increased paragraph spacing, enlarged headings, and removed blue tints.')
+})()
