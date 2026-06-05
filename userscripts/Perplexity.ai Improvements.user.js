@@ -154,7 +154,8 @@
         const ae = document.activeElement
         if (ae && ae !== document.body && ae !== document.documentElement) {
             if (inputDiv.contains(ae)) return true
-            if (ae.matches?.('input, textarea, [contenteditable="true"]')) return false
+            if (ae.matches?.('input, textarea, [contenteditable="true"]'))
+                return false
         }
 
         try {
@@ -207,7 +208,10 @@
             observer.observe(root, { childList: true, subtree: true })
         }
         if (document.body) attachObserver()
-        else document.addEventListener('DOMContentLoaded', attachObserver, { once: true })
+        else
+            document.addEventListener('DOMContentLoaded', attachObserver, {
+                once: true,
+            })
 
         // Focus when user returns to tab
         const onVis = () => {
@@ -247,7 +251,9 @@
                 ) {
                     continue
                 }
-                const card = dock.querySelector('.bg-raised.rounded-xl, .rounded-xl.bg-raised')
+                const card = dock.querySelector(
+                    '.bg-raised.rounded-xl, .rounded-xl.bg-raised'
+                )
                 if (!card && !dock.querySelector('.ring-1')) continue
                 hideElement(dock)
             }
@@ -267,7 +273,12 @@
 
             const text = norm(block.textContent)
             if (!text.includes('try out perplexity computer')) return
-            if (!block.querySelector('button[aria-label="Shuffle starter cards"]')) return
+            if (
+                !block.querySelector(
+                    'button[aria-label="Shuffle starter cards"]'
+                )
+            )
+                return
 
             hideElement(block)
         }
@@ -299,7 +310,10 @@
         }
 
         if (document.body) attachObserver()
-        else document.addEventListener('DOMContentLoaded', attachObserver, { once: true })
+        else
+            document.addEventListener('DOMContentLoaded', attachObserver, {
+                once: true,
+            })
 
         const intervalId = setInterval(purge, 250)
 
@@ -316,8 +330,9 @@
     if (win.__PPLX_BISECT && !win.__PPLX_BISECT.has('7c')) return
     if (window.self !== window.top) return
 
-    const hideElement =
-        (typeof unsafeWindow !== 'undefined' ? unsafeWindow : window).__pplxHideElement
+    const hideElement = (
+        typeof unsafeWindow !== 'undefined' ? unsafeWindow : window
+    ).__pplxHideElement
     if (!hideElement) return
 
     function useHref(useEl) {
@@ -331,7 +346,7 @@
 
     function hasSidebarComputerIcon(root) {
         if (!root) return false
-        return Array.from(root.querySelectorAll('use')).some(u => {
+        return Array.from(root.querySelectorAll('use')).some((u) => {
             const href = useHref(u)
             return (
                 href.includes('pplx-icon-custom-computer') ||
@@ -356,7 +371,10 @@
         let node = el
         while (node && node !== document.documentElement) {
             const cls = node.className
-            if (typeof cls === 'string' && cls.includes('collapsible-sidebar-section')) {
+            if (
+                typeof cls === 'string' &&
+                cls.includes('collapsible-sidebar-section')
+            ) {
                 return node
             }
             node = node.parentElement
@@ -366,13 +384,15 @@
 
     function hideSidebarComputerSection() {
         const seen = new Set()
-        document.querySelectorAll('a[href*="/computer/tasks"]').forEach(link => {
-            if (!isSidebarComputerNavLink(link)) return
-            const section = findCollapsibleSidebarSection(link)
-            if (!section || seen.has(section)) return
-            seen.add(section)
-            hideElement(section)
-        })
+        document
+            .querySelectorAll('a[href*="/computer/tasks"]')
+            .forEach((link) => {
+                if (!isSidebarComputerNavLink(link)) return
+                const section = findCollapsibleSidebarSection(link)
+                if (!section || seen.has(section)) return
+                seen.add(section)
+                hideElement(section)
+            })
     }
 
     let scheduled = false
@@ -396,7 +416,10 @@
     }
 
     if (document.body) attachObserver()
-    else document.addEventListener('DOMContentLoaded', attachObserver, { once: true })
+    else
+        document.addEventListener('DOMContentLoaded', attachObserver, {
+            once: true,
+        })
 
     const intervalId = setInterval(hideSidebarComputerSection, 250)
 
@@ -430,8 +453,20 @@
     const COUNCIL_SUPPRESS_CLASS = 'pplx-suppress-model-council'
     const COMPUTER_MODE_SUPPRESS_CLASS = 'pplx-suppress-computer-mode'
     const MAX_MODEL_SUPPRESS_CLASS = 'pplx-suppress-max-model'
-    const TOPIC_NAV_PATHS = ['/discover', '/finance', '/health', '/academic', '/patents']
-    const TOPIC_NAV_LABELS = ['discover', 'finance', 'health', 'academic', 'patents']
+    const TOPIC_NAV_PATHS = [
+        '/discover',
+        '/finance',
+        '/health',
+        '/academic',
+        '/patents',
+    ]
+    const TOPIC_NAV_LABELS = [
+        'discover',
+        'finance',
+        'health',
+        'academic',
+        'patents',
+    ]
 
     function useHref(useEl) {
         return (
@@ -446,7 +481,10 @@
         const raw = (a.getAttribute('href') || '').trim()
         if (!raw) return ''
         try {
-            return new URL(raw, location.origin).pathname.replace(/\/+$/, '') || '/'
+            return (
+                new URL(raw, location.origin).pathname.replace(/\/+$/, '') ||
+                '/'
+            )
         } catch {
             return raw.split('?')[0].replace(/\/+$/, '') || '/'
         }
@@ -473,11 +511,11 @@
         const visit = (node) => {
             if (!node?.querySelectorAll) return
             try {
-                node.querySelectorAll(selector).forEach(el => out.push(el))
+                node.querySelectorAll(selector).forEach((el) => out.push(el))
             } catch {
                 /* invalid selector in some roots */
             }
-            node.querySelectorAll('*').forEach(el => {
+            node.querySelectorAll('*').forEach((el) => {
                 if (el.shadowRoot) visit(el.shadowRoot)
             })
         }
@@ -513,7 +551,9 @@
     }
 
     function hideAskInputModeToggleIndicator() {
-        for (const el of queryAllDeep('[data-testid="ask-input-mode-toggle-indicator"]')) {
+        for (const el of queryAllDeep(
+            '[data-testid="ask-input-mode-toggle-indicator"]'
+        )) {
             hideElement(el)
         }
     }
@@ -529,12 +569,18 @@
     function isModelCouncilMenuItem(el) {
         if (!el || el.getAttribute('role') !== 'menuitem') return false
         if (!norm(el.textContent).includes('model council')) return false
-        return Array.from(el.querySelectorAll('use')).some(u => useHref(u).includes('gavel'))
+        return Array.from(el.querySelectorAll('use')).some((u) =>
+            useHref(u).includes('gavel')
+        )
     }
 
     function isComputerModeMenuItem(el) {
         if (!el || el.getAttribute('role') !== 'menuitem') return false
-        if (!Array.from(el.querySelectorAll('use')).some(u => useHref(u).includes('custom-computer')))
+        if (
+            !Array.from(el.querySelectorAll('use')).some((u) =>
+                useHref(u).includes('custom-computer')
+            )
+        )
             return false
         const text = norm(el.textContent)
         return text === 'computer' || text.endsWith(' computer')
@@ -544,7 +590,9 @@
         if (!span || span.tagName !== 'SPAN') return false
         if (norm(span.textContent) !== 'max') return false
         const only = [...span.childNodes].every(
-            n => n.nodeType === Node.TEXT_NODE || (n.nodeType === Node.ELEMENT_NODE && n.tagName === 'SPAN')
+            (n) =>
+                n.nodeType === Node.TEXT_NODE ||
+                (n.nodeType === Node.ELEMENT_NODE && n.tagName === 'SPAN')
         )
         if (!only) return false
         const inner = span.querySelector(':scope > span')
@@ -555,7 +603,9 @@
     function isMaxOnlyModelMenuItem(el) {
         if (!el || el.getAttribute('role') !== 'menuitem') return false
         if (!el.closest('[role="menu"]')) return false
-        const hasLock = Array.from(el.querySelectorAll('use')).some(u => useHref(u).includes('lock'))
+        const hasLock = Array.from(el.querySelectorAll('use')).some((u) =>
+            useHref(u).includes('lock')
+        )
         if (!hasLock) return false
         return Array.from(el.querySelectorAll('span')).some(spanIsMaxPlanBadge)
     }
@@ -633,7 +683,7 @@
 
     function hasComposerComputerIcon(root) {
         if (!root) return false
-        return Array.from(root.querySelectorAll('use')).some(u =>
+        return Array.from(root.querySelectorAll('use')).some((u) =>
             useHref(u).includes('custom-computer')
         )
     }
@@ -641,14 +691,17 @@
     function isComposerComputerToggle(btn) {
         if (!btn || btn.tagName !== 'BUTTON') return false
         if (!hasComposerComputerIcon(btn)) return false
-        const label = (btn.getAttribute('aria-label') || '').trim().toLowerCase()
+        const label = (btn.getAttribute('aria-label') || '')
+            .trim()
+            .toLowerCase()
         return label === 'computer'
     }
 
     function hideComputerChip() {
         const seen = new Set()
         const buttons = new Set()
-        for (const btn of queryAllDeep('button[aria-label="Computer"]')) buttons.add(btn)
+        for (const btn of queryAllDeep('button[aria-label="Computer"]'))
+            buttons.add(btn)
         for (const use of queryAllDeep('use')) {
             if (!useHref(use).includes('custom-computer')) continue
             const btn = use.closest('button')
@@ -676,13 +729,13 @@
             const p = pathnameFromAnchor(a)
             if (p) paths.add(p)
         }
-        if (!TOPIC_NAV_PATHS.every(p => paths.has(p))) return false
+        if (!TOPIC_NAV_PATHS.every((p) => paths.has(p))) return false
         const labels = new Set()
         for (const a of anchors) {
             const t = norm(a.textContent)
             if (t) labels.add(t)
         }
-        return TOPIC_NAV_LABELS.every(l => labels.has(l))
+        return TOPIC_NAV_LABELS.every((l) => labels.has(l))
     }
 
     function findTopicNavFromAnchor(a) {
@@ -723,7 +776,10 @@
     const attachGlobalObserver = () => {
         const root = document.body || document.documentElement
         if (!root) return
-        new MutationObserver(scheduleGlobal).observe(root, { childList: true, subtree: true })
+        new MutationObserver(scheduleGlobal).observe(root, {
+            childList: true,
+            subtree: true,
+        })
     }
 
     injectStyles()
@@ -732,7 +788,10 @@
     blockMaxOnlyModelClicks()
     scheduleGlobal()
     if (document.body) attachGlobalObserver()
-    else document.addEventListener('DOMContentLoaded', attachGlobalObserver, { once: true })
+    else
+        document.addEventListener('DOMContentLoaded', attachGlobalObserver, {
+            once: true,
+        })
     setInterval(() => {
         suppressModelCouncilMenuItem()
         suppressComputerModeMenuItem()
@@ -769,7 +828,10 @@
         }
 
         if (document.body) attachObserver()
-        else document.addEventListener('DOMContentLoaded', attachObserver, { once: true })
+        else
+            document.addEventListener('DOMContentLoaded', attachObserver, {
+                once: true,
+            })
 
         const intervalId = setInterval(purge, 250)
 
@@ -787,28 +849,28 @@
     const run = win.__pplxWhenNotHomepage
     if (!run) return
     run(() => {
-    const isHome = () => win.__pplxIsHomepage?.() === true
+        const isHome = () => win.__pplxIsHomepage?.() === true
 
-    // Perplexity labels live upsell wrappers with class "pplx-hidden-banner" — do NOT reuse that name.
-    const SUPPRESS_CLASS = 'pplx-upsell-suppressed'
-    const STYLE_ID = 'pplx-upsell-suppress-style'
+        // Perplexity labels live upsell wrappers with class "pplx-hidden-banner" — do NOT reuse that name.
+        const SUPPRESS_CLASS = 'pplx-upsell-suppressed'
+        const STYLE_ID = 'pplx-upsell-suppress-style'
 
-    function containsComposer(node) {
-        if (!node?.querySelector) return false
-        return !!(
-            node.querySelector('#ask-input') ||
-            node.querySelector('[data-testid="ask-input"]') ||
-            node.querySelector('textarea') ||
-            node.querySelector('[contenteditable="true"]')
-        )
-    }
+        function containsComposer(node) {
+            if (!node?.querySelector) return false
+            return !!(
+                node.querySelector('#ask-input') ||
+                node.querySelector('[data-testid="ask-input"]') ||
+                node.querySelector('textarea') ||
+                node.querySelector('[contenteditable="true"]')
+            )
+        }
 
-    const injectStyles = () => {
-        if (isHome()) return
-        if (document.getElementById(STYLE_ID)) return
-        const style = document.createElement('style')
-        style.id = STYLE_ID
-        style.textContent = `
+        const injectStyles = () => {
+            if (isHome()) return
+            if (document.getElementById(STYLE_ID)) return
+            const style = document.createElement('style')
+            style.id = STYLE_ID
+            style.textContent = `
         /* Upsell cards only — avoid href*="computer" (matches unrelated sprites) */
         .rounded-2xl:has(use[*|href*="custom-computer"]),
         .rounded-2xl:has(use[*|href*="pplx-icon-custom-computer"]),
@@ -834,248 +896,269 @@
             overflow: hidden !important;
         }
     `
-        ;(document.head || document.documentElement).appendChild(style)
-    }
-    injectStyles()
-
-    const BANNER_KEYWORDS = [
-        'try computer',
-        'let computer build',
-        'computer generates full',
-        'perplexity computer',
-        'computer writes sql',
-        'turn your data questions',
-        'put computer to work',
-        'ship faster with computer',
-        'computer connects to',
-        'upgrade to max',
-        'upgrade now',
-        'try this answer with'
-    ]
-
-    const BANNER_ICON_ATTRS = [
-        'custom-computer',
-        'perplexity_computer',
-        'perplexity_computer_upsell',
-        'pplx-icon-custom-computer'
-    ]
-
-    const COMPUTER_CTA_RE = /^\s*try\s+computer\s*$/i
-
-    function useHref(useEl) {
-        return (
-            useEl.getAttribute('href') ||
-            useEl.getAttribute('xlink:href') ||
-            (useEl.href && useEl.href.baseVal) ||
-            ''
-        ).toLowerCase()
-    }
-
-    function isComputerUpsellIcon(href) {
-        return BANNER_ICON_ATTRS.some(attr => href.includes(attr))
-    }
-
-    function isSuppressed(el) {
-        return el && (el.classList.contains(SUPPRESS_CLASS) || el.closest(`.${SUPPRESS_CLASS}`))
-    }
-
-    function isProtectedContent(el) {
-        return el.closest(
-            '[data-testid="user-message"], .message-container, #ask-input, textarea, [contenteditable="true"]'
-        )
-    }
-
-    function suppressNode(node) {
-        if (!node || isSuppressed(node) || containsComposer(node)) return
-        node.classList.add(SUPPRESS_CLASS)
-        node.style.setProperty('display', 'none', 'important')
-        node.style.setProperty('visibility', 'hidden', 'important')
-        node.style.setProperty('pointer-events', 'none', 'important')
-    }
-
-    function findBannerContainer(el) {
-        let card = el.closest(
-            '.rounded-2xl, .bg-raised, .shadow-xl, .shadow-md, [role="dialog"], .modal, .border-subtlest, div.pplx-hidden-banner'
-        )
-        if (!card) {
-            card = el.parentElement
-            if (!card) return null
+            ;(document.head || document.documentElement).appendChild(style)
         }
-
-        let current = card
-        while (current.parentElement) {
-            if (containsComposer(current)) return null
-            const parent = current.parentElement
-            if (
-                parent === document.body ||
-                parent === document.documentElement ||
-                parent.tagName === 'MAIN'
-            ) {
-                break
-            }
-
-            const siblingCount = Array.from(parent.children).filter(c => {
-                if (c === current) return true
-                if (c.classList.contains(SUPPRESS_CLASS) || c.style.display === 'none')
-                    return false
-                return true
-            }).length
-
-            const isWrapper =
-                siblingCount === 1 &&
-                (parent.classList.contains('pplx-hidden-banner') ||
-                    parent.style.opacity === '1' ||
-                    parent.style.transform !== '' ||
-                    parent.tagName === 'DIV')
-
-            if (isWrapper) current = parent
-            else break
-        }
-        return current
-    }
-
-    function isTryComputerButton(el) {
-        if (el.tagName !== 'BUTTON') return false
-        const label = (el.getAttribute('aria-label') || '').toLowerCase()
-        if (label.includes('try computer')) return true
-        const truncate = el.querySelector('.truncate')
-        const text = (truncate ? truncate.textContent : el.textContent) || ''
-        return COMPUTER_CTA_RE.test(text)
-    }
-
-    function isMatch(el) {
-        if (isSuppressed(el) || isProtectedContent(el)) return false
-
-        if (isTryComputerButton(el)) return true
-
-        if (el.tagName === 'use' || el.tagName === 'USE') {
-            if (isComputerUpsellIcon(useHref(el))) return true
-        }
-
-        if (el.tagName === 'IMG') {
-            const src = (el.getAttribute('src') || '').toLowerCase()
-            if (BANNER_ICON_ATTRS.some(attr => src.includes(attr))) return true
-        }
-
-        if (el.tagName === 'BUTTON') {
-            const ariaLabel = (el.getAttribute('aria-label') || '').toLowerCase()
-            if (BANNER_KEYWORDS.some(kw => ariaLabel.includes(kw))) return true
-        }
-
-        const text = (el.textContent || '').toLowerCase().trim()
-        if (!text) return false
-        for (const kw of BANNER_KEYWORDS) {
-            if (!text.includes(kw)) continue
-            if (
-                el.tagName === 'BUTTON' ||
-                el.tagName === 'A' ||
-                el.tagName === 'H1' ||
-                el.tagName === 'H2' ||
-                el.tagName === 'H3' ||
-                text.length < 200
-            ) {
-                return true
-            }
-        }
-        return false
-    }
-
-    const removeBanners = () => {
-        if (isHome()) return
         injectStyles()
 
-        document.querySelectorAll('use').forEach(use => {
-            if (isProtectedContent(use) || isSuppressed(use)) return
-            if (!isComputerUpsellIcon(useHref(use))) return
-            const target = findBannerContainer(use)
-            if (target) suppressNode(target)
-        })
+        const BANNER_KEYWORDS = [
+            'try computer',
+            'let computer build',
+            'computer generates full',
+            'perplexity computer',
+            'computer writes sql',
+            'turn your data questions',
+            'put computer to work',
+            'ship faster with computer',
+            'computer connects to',
+            'upgrade to max',
+            'upgrade now',
+            'try this answer with',
+        ]
 
-        document.querySelectorAll('button').forEach(btn => {
-            if (isProtectedContent(btn) || isSuppressed(btn)) return
-            if (!isTryComputerButton(btn) && !isMatch(btn)) return
-            const target = findBannerContainer(btn)
-            if (target) suppressNode(target)
-        })
+        const BANNER_ICON_ATTRS = [
+            'custom-computer',
+            'perplexity_computer',
+            'perplexity_computer_upsell',
+            'pplx-icon-custom-computer',
+        ]
 
-        const containers = document.querySelectorAll(
-            '.rounded-2xl, .bg-raised, .shadow-xl, div.pplx-hidden-banner'
-        )
-        containers.forEach(container => {
-            if (isSuppressed(container) || isProtectedContent(container)) return
+        const COMPUTER_CTA_RE = /^\s*try\s+computer\s*$/i
 
-            const text = (container.textContent || '').toLowerCase()
-            const hasKeyword = BANNER_KEYWORDS.some(kw => text.includes(kw))
-            const hasComputerIcon = Array.from(container.querySelectorAll('use')).some(u =>
-                isComputerUpsellIcon(useHref(u))
+        function useHref(useEl) {
+            return (
+                useEl.getAttribute('href') ||
+                useEl.getAttribute('xlink:href') ||
+                (useEl.href && useEl.href.baseVal) ||
+                ''
+            ).toLowerCase()
+        }
+
+        function isComputerUpsellIcon(href) {
+            return BANNER_ICON_ATTRS.some((attr) => href.includes(attr))
+        }
+
+        function isSuppressed(el) {
+            return (
+                el &&
+                (el.classList.contains(SUPPRESS_CLASS) ||
+                    el.closest(`.${SUPPRESS_CLASS}`))
             )
-            const hasTryCta = Array.from(container.querySelectorAll('button')).some(isTryComputerButton)
+        }
 
-            if (!hasKeyword && !hasComputerIcon && !hasTryCta) return
+        function isProtectedContent(el) {
+            return el.closest(
+                '[data-testid="user-message"], .message-container, #ask-input, textarea, [contenteditable="true"]'
+            )
+        }
 
-            const isUpsell =
-                hasComputerIcon ||
-                hasTryCta ||
-                container.querySelector('[aria-label="Dismiss"]') ||
-                (hasKeyword &&
-                    (container.querySelector('use') || container.querySelector('button.bg-button-bg')))
+        function suppressNode(node) {
+            if (!node || isSuppressed(node) || containsComposer(node)) return
+            node.classList.add(SUPPRESS_CLASS)
+            node.style.setProperty('display', 'none', 'important')
+            node.style.setProperty('visibility', 'hidden', 'important')
+            node.style.setProperty('pointer-events', 'none', 'important')
+        }
 
-            if (!isUpsell) return
-            const target = findBannerContainer(container)
-            if (target) suppressNode(target)
-        })
-    }
+        function findBannerContainer(el) {
+            let card = el.closest(
+                '.rounded-2xl, .bg-raised, .shadow-xl, .shadow-md, [role="dialog"], .modal, .border-subtlest, div.pplx-hidden-banner'
+            )
+            if (!card) {
+                card = el.parentElement
+                if (!card) return null
+            }
 
-    let scheduled = false
-    const scheduleRemove = () => {
-        if (scheduled) return
-        scheduled = true
-        requestAnimationFrame(() => {
-            scheduled = false
+            let current = card
+            while (current.parentElement) {
+                if (containsComposer(current)) return null
+                const parent = current.parentElement
+                if (
+                    parent === document.body ||
+                    parent === document.documentElement ||
+                    parent.tagName === 'MAIN'
+                ) {
+                    break
+                }
+
+                const siblingCount = Array.from(parent.children).filter((c) => {
+                    if (c === current) return true
+                    if (
+                        c.classList.contains(SUPPRESS_CLASS) ||
+                        c.style.display === 'none'
+                    )
+                        return false
+                    return true
+                }).length
+
+                const isWrapper =
+                    siblingCount === 1 &&
+                    (parent.classList.contains('pplx-hidden-banner') ||
+                        parent.style.opacity === '1' ||
+                        parent.style.transform !== '' ||
+                        parent.tagName === 'DIV')
+
+                if (isWrapper) current = parent
+                else break
+            }
+            return current
+        }
+
+        function isTryComputerButton(el) {
+            if (el.tagName !== 'BUTTON') return false
+            const label = (el.getAttribute('aria-label') || '').toLowerCase()
+            if (label.includes('try computer')) return true
+            const truncate = el.querySelector('.truncate')
+            const text =
+                (truncate ? truncate.textContent : el.textContent) || ''
+            return COMPUTER_CTA_RE.test(text)
+        }
+
+        function isMatch(el) {
+            if (isSuppressed(el) || isProtectedContent(el)) return false
+
+            if (isTryComputerButton(el)) return true
+
+            if (el.tagName === 'use' || el.tagName === 'USE') {
+                if (isComputerUpsellIcon(useHref(el))) return true
+            }
+
+            if (el.tagName === 'IMG') {
+                const src = (el.getAttribute('src') || '').toLowerCase()
+                if (BANNER_ICON_ATTRS.some((attr) => src.includes(attr)))
+                    return true
+            }
+
+            if (el.tagName === 'BUTTON') {
+                const ariaLabel = (
+                    el.getAttribute('aria-label') || ''
+                ).toLowerCase()
+                if (BANNER_KEYWORDS.some((kw) => ariaLabel.includes(kw)))
+                    return true
+            }
+
+            const text = (el.textContent || '').toLowerCase().trim()
+            if (!text) return false
+            for (const kw of BANNER_KEYWORDS) {
+                if (!text.includes(kw)) continue
+                if (
+                    el.tagName === 'BUTTON' ||
+                    el.tagName === 'A' ||
+                    el.tagName === 'H1' ||
+                    el.tagName === 'H2' ||
+                    el.tagName === 'H3' ||
+                    text.length < 200
+                ) {
+                    return true
+                }
+            }
+            return false
+        }
+
+        const removeBanners = () => {
+            if (isHome()) return
+            injectStyles()
+
+            document.querySelectorAll('use').forEach((use) => {
+                if (isProtectedContent(use) || isSuppressed(use)) return
+                if (!isComputerUpsellIcon(useHref(use))) return
+                const target = findBannerContainer(use)
+                if (target) suppressNode(target)
+            })
+
+            document.querySelectorAll('button').forEach((btn) => {
+                if (isProtectedContent(btn) || isSuppressed(btn)) return
+                if (!isTryComputerButton(btn) && !isMatch(btn)) return
+                const target = findBannerContainer(btn)
+                if (target) suppressNode(target)
+            })
+
+            const containers = document.querySelectorAll(
+                '.rounded-2xl, .bg-raised, .shadow-xl, div.pplx-hidden-banner'
+            )
+            containers.forEach((container) => {
+                if (isSuppressed(container) || isProtectedContent(container))
+                    return
+
+                const text = (container.textContent || '').toLowerCase()
+                const hasKeyword = BANNER_KEYWORDS.some((kw) =>
+                    text.includes(kw)
+                )
+                const hasComputerIcon = Array.from(
+                    container.querySelectorAll('use')
+                ).some((u) => isComputerUpsellIcon(useHref(u)))
+                const hasTryCta = Array.from(
+                    container.querySelectorAll('button')
+                ).some(isTryComputerButton)
+
+                if (!hasKeyword && !hasComputerIcon && !hasTryCta) return
+
+                const isUpsell =
+                    hasComputerIcon ||
+                    hasTryCta ||
+                    container.querySelector('[aria-label="Dismiss"]') ||
+                    (hasKeyword &&
+                        (container.querySelector('use') ||
+                            container.querySelector('button.bg-button-bg')))
+
+                if (!isUpsell) return
+                const target = findBannerContainer(container)
+                if (target) suppressNode(target)
+            })
+        }
+
+        let scheduled = false
+        const scheduleRemove = () => {
+            if (scheduled) return
+            scheduled = true
+            requestAnimationFrame(() => {
+                scheduled = false
+                removeBanners()
+            })
+        }
+
+        let observer = null
+        let intervalId = null
+
+        const startObserver = () => {
+            const root = document.body || document.documentElement
+            if (!root) return
+            observer = new MutationObserver(scheduleRemove)
+            observer.observe(root, {
+                childList: true,
+                subtree: true,
+                attributes: true,
+                attributeFilter: ['class', 'style', 'hidden'],
+            })
             removeBanners()
-        })
-    }
+        }
 
-    let observer = null
-    let intervalId = null
+        if (document.body) startObserver()
+        else
+            document.addEventListener('DOMContentLoaded', startObserver, {
+                once: true,
+            })
 
-    const startObserver = () => {
-        const root = document.body || document.documentElement
-        if (!root) return
-        observer = new MutationObserver(scheduleRemove)
-        observer.observe(root, {
-            childList: true,
-            subtree: true,
-            attributes: true,
-            attributeFilter: ['class', 'style', 'hidden']
-        })
-        removeBanners()
-    }
+        intervalId = setInterval(removeBanners, 200)
+        document.addEventListener('visibilitychange', onVis)
 
-    if (document.body) startObserver()
-    else document.addEventListener('DOMContentLoaded', startObserver, { once: true })
+        function onVis() {
+            if (document.visibilityState === 'visible') removeBanners()
+        }
 
-    intervalId = setInterval(removeBanners, 200)
-    document.addEventListener('visibilitychange', onVis)
-
-    function onVis() {
-        if (document.visibilityState === 'visible') removeBanners()
-    }
-
-    return () => {
-        observer?.disconnect()
-        observer = null
-        if (intervalId) clearInterval(intervalId)
-        intervalId = null
-        document.removeEventListener('visibilitychange', onVis)
-        document.getElementById(STYLE_ID)?.remove()
-        document.querySelectorAll(`.${SUPPRESS_CLASS}`).forEach((el) => {
-            el.classList.remove(SUPPRESS_CLASS)
-            el.style.removeProperty('display')
-            el.style.removeProperty('visibility')
-            el.style.removeProperty('pointer-events')
-        })
-    }
+        return () => {
+            observer?.disconnect()
+            observer = null
+            if (intervalId) clearInterval(intervalId)
+            intervalId = null
+            document.removeEventListener('visibilitychange', onVis)
+            document.getElementById(STYLE_ID)?.remove()
+            document.querySelectorAll(`.${SUPPRESS_CLASS}`).forEach((el) => {
+                el.classList.remove(SUPPRESS_CLASS)
+                el.style.removeProperty('display')
+                el.style.removeProperty('visibility')
+                el.style.removeProperty('pointer-events')
+            })
+        }
     })
 })()
 
@@ -1145,7 +1228,8 @@
                 fetch('/rest/rate-limit/all'),
                 fetch('/rest/user/settings', { credentials: 'include' }),
             ])
-            if (!rateRes.ok) throw new Error(`rate-limit HTTP ${rateRes.status}`)
+            if (!rateRes.ok)
+                throw new Error(`rate-limit HTTP ${rateRes.status}`)
             const d = await rateRes.json()
             const limits = {
                 pro: d.remaining_pro ?? '?',
@@ -1272,8 +1356,7 @@
 
     function injectBadgeBeforeControl(controlBtn, badge) {
         const outer =
-            controlBtn.parentElement?.parentElement ||
-            controlBtn.parentElement
+            controlBtn.parentElement?.parentElement || controlBtn.parentElement
         const inner = controlBtn.parentElement
         if (!outer || !inner) return false
         outer.insertBefore(badge, inner)
@@ -1308,11 +1391,7 @@
         // Periodic refresh (throttled by fetchLimits)
         setInterval(async () => {
             const limits = await fetchLimits()
-            setValues(
-                limits.pro,
-                limits.research,
-                limits.uploadLimit ?? '?'
-            )
+            setValues(limits.pro, limits.research, limits.uploadLimit ?? '?')
         }, 60_000)
 
         window.addEventListener('storage', (e) => {
@@ -1348,228 +1427,226 @@
     const run = win.__pplxWhenNotHomepage
     if (!run) return
     run(() => {
+        const PREFIX = '[Perplexity - Auto Reset Mode]'
+        let isResetting = false
+        let isSubmittingProgrammatically = false
 
-    const PREFIX = '[Perplexity - Auto Reset Mode]'
-    let isResetting = false
-    let isSubmittingProgrammatically = false
-
-    // Helper to select the mode selector button
-    function getModeSelectorButton() {
-        return document.querySelector(
-            'div:has(> [data-testid="ask-input-mode-toggle-indicator"]) button'
-        )
-    }
-
-    // Helper to select the "Search" mode button inside the opened Radix dropdown menu
-    function getSearchModeButton() {
-        return Array.from(
-            document.querySelectorAll('[role="menuitemradio"]')
-        ).find((el) => {
-            const text = el.textContent.trim()
-            if (text === 'Search') return true
-            // Fallback checking if it contains "Search" and the search icon
-            if (text.includes('Search')) {
-                const hasSearchIcon = el.querySelector(
-                    'use[href*="search"], use[*|href*="search"]'
-                )
-                if (hasSearchIcon) return true
-            }
-            return false
-        })
-    }
-
-    // Helper to find the submit button
-    function getSubmitButton() {
-        return document.querySelector('button[aria-label="Submit"]')
-    }
-
-    // Helper to click/trigger an element using pointer events (specifically for Radix)
-    function clickElementWithPointer(element) {
-        element.focus()
-
-        // Dispatch keydown/keyup Enter
-        const keydown = new KeyboardEvent('keydown', {
-            key: 'Enter',
-            code: 'Enter',
-            keyCode: 13,
-            bubbles: true,
-        })
-        const keyup = new KeyboardEvent('keyup', {
-            key: 'Enter',
-            code: 'Enter',
-            keyCode: 13,
-            bubbles: true,
-        })
-        element.dispatchEvent(keydown)
-        element.dispatchEvent(keyup)
-
-        // Dispatch pointerdown event
-        const pointerDown = new PointerEvent('pointerdown', {
-            bubbles: true,
-            cancelable: true,
-            pointerType: 'mouse',
-            button: 0,
-            buttons: 1,
-        })
-        element.dispatchEvent(pointerDown)
-
-        // Also trigger click just in case
-        element.click()
-    }
-
-    function changeModeToSearch(callback) {
-        if (isResetting) return
-
-        const modeBtn = getModeSelectorButton()
-        if (!modeBtn) {
-            if (callback) callback()
-            return
+        // Helper to select the mode selector button
+        function getModeSelectorButton() {
+            return document.querySelector(
+                'div:has(> [data-testid="ask-input-mode-toggle-indicator"]) button'
+            )
         }
 
-        if (modeBtn.innerText.includes('Learn step by step')) {
-            console.log(
-                `${PREFIX} Mode is "Learn step by step". Reverting back to "Search" before submit...`
-            )
-            isResetting = true
-
-            // Click the mode selector button to open the dropdown menu
-            clickElementWithPointer(modeBtn)
-
-            // Wait/poll for the "Search" mode button to appear in the opened dropdown menu
-            let attempts = 0
-            const pollInterval = setInterval(() => {
-                const searchBtn = getSearchModeButton()
-                if (searchBtn) {
-                    clearInterval(pollInterval)
-                    console.log(
-                        `${PREFIX} Found Search button in menu. Clicking...`
+        // Helper to select the "Search" mode button inside the opened Radix dropdown menu
+        function getSearchModeButton() {
+            return Array.from(
+                document.querySelectorAll('[role="menuitemradio"]')
+            ).find((el) => {
+                const text = el.textContent.trim()
+                if (text === 'Search') return true
+                // Fallback checking if it contains "Search" and the search icon
+                if (text.includes('Search')) {
+                    const hasSearchIcon = el.querySelector(
+                        'use[href*="search"], use[*|href*="search"]'
                     )
-                    clickElementWithPointer(searchBtn)
-
-                    // Reset the flag after a delay to let DOM stabilize
-                    setTimeout(() => {
-                        isResetting = false
-                        console.log(
-                            `${PREFIX} Successfully reverted mode to "Search".`
-                        )
-                        if (callback) callback()
-                    }, 500)
-                } else {
-                    attempts++
-                    if (attempts > 25) {
-                        // 500ms maximum wait
-                        clearInterval(pollInterval)
-                        isResetting = false
-                        console.warn(
-                            `${PREFIX} Failed to find "Search" button inside the open menu.`
-                        )
-                        if (callback) callback()
-                    }
+                    if (hasSearchIcon) return true
                 }
-            }, 20)
-        } else {
-            if (callback) callback()
-        }
-    }
-
-    function handleCaptureClick(e) {
-        if (isSubmittingProgrammatically) return
-
-        const btn = e.target.closest('button[aria-label="Submit"]')
-        if (!btn || btn.disabled) return
-
-        const modeBtn = getModeSelectorButton()
-        if (modeBtn && modeBtn.innerText.includes('Learn step by step')) {
-            e.preventDefault()
-            e.stopPropagation()
-
-            console.log(
-                `${PREFIX} Intercepted submit click. Reverting and submitting...`
-            )
-            changeModeToSearch(() => {
-                isSubmittingProgrammatically = true
-                clickElementWithPointer(btn)
-                isSubmittingProgrammatically = false
+                return false
             })
         }
-    }
 
-    function handleCaptureKeydown(e) {
-        if (isSubmittingProgrammatically) return
+        // Helper to find the submit button
+        function getSubmitButton() {
+            return document.querySelector('button[aria-label="Submit"]')
+        }
 
-        if (e.key === 'Enter' && !e.shiftKey) {
-            const target = e.target
-            if (
-                target &&
-                (target.id === 'ask-input' || target.tagName === 'TEXTAREA')
-            ) {
-                const modeBtn = getModeSelectorButton()
-                if (
-                    modeBtn &&
-                    modeBtn.innerText.includes('Learn step by step')
-                ) {
-                    e.preventDefault()
-                    e.stopPropagation()
+        // Helper to click/trigger an element using pointer events (specifically for Radix)
+        function clickElementWithPointer(element) {
+            element.focus()
 
-                    console.log(
-                        `${PREFIX} Intercepted Enter keydown. Reverting and submitting...`
-                    )
-                    changeModeToSearch(() => {
-                        const submitBtn = getSubmitButton()
-                        if (submitBtn) {
-                            isSubmittingProgrammatically = true
-                            clickElementWithPointer(submitBtn)
-                            isSubmittingProgrammatically = false
-                        } else {
-                            // Fallback: re-dispatch the Enter event
-                            isSubmittingProgrammatically = true
-                            const newEvent = new KeyboardEvent('keydown', {
-                                key: 'Enter',
-                                code: 'Enter',
-                                keyCode: 13,
-                                bubbles: true,
-                                cancelable: true,
-                            })
-                            target.dispatchEvent(newEvent)
-                            isSubmittingProgrammatically = false
+            // Dispatch keydown/keyup Enter
+            const keydown = new KeyboardEvent('keydown', {
+                key: 'Enter',
+                code: 'Enter',
+                keyCode: 13,
+                bubbles: true,
+            })
+            const keyup = new KeyboardEvent('keyup', {
+                key: 'Enter',
+                code: 'Enter',
+                keyCode: 13,
+                bubbles: true,
+            })
+            element.dispatchEvent(keydown)
+            element.dispatchEvent(keyup)
+
+            // Dispatch pointerdown event
+            const pointerDown = new PointerEvent('pointerdown', {
+                bubbles: true,
+                cancelable: true,
+                pointerType: 'mouse',
+                button: 0,
+                buttons: 1,
+            })
+            element.dispatchEvent(pointerDown)
+
+            // Also trigger click just in case
+            element.click()
+        }
+
+        function changeModeToSearch(callback) {
+            if (isResetting) return
+
+            const modeBtn = getModeSelectorButton()
+            if (!modeBtn) {
+                if (callback) callback()
+                return
+            }
+
+            if (modeBtn.innerText.includes('Learn step by step')) {
+                console.log(
+                    `${PREFIX} Mode is "Learn step by step". Reverting back to "Search" before submit...`
+                )
+                isResetting = true
+
+                // Click the mode selector button to open the dropdown menu
+                clickElementWithPointer(modeBtn)
+
+                // Wait/poll for the "Search" mode button to appear in the opened dropdown menu
+                let attempts = 0
+                const pollInterval = setInterval(() => {
+                    const searchBtn = getSearchModeButton()
+                    if (searchBtn) {
+                        clearInterval(pollInterval)
+                        console.log(
+                            `${PREFIX} Found Search button in menu. Clicking...`
+                        )
+                        clickElementWithPointer(searchBtn)
+
+                        // Reset the flag after a delay to let DOM stabilize
+                        setTimeout(() => {
+                            isResetting = false
+                            console.log(
+                                `${PREFIX} Successfully reverted mode to "Search".`
+                            )
+                            if (callback) callback()
+                        }, 500)
+                    } else {
+                        attempts++
+                        if (attempts > 25) {
+                            // 500ms maximum wait
+                            clearInterval(pollInterval)
+                            isResetting = false
+                            console.warn(
+                                `${PREFIX} Failed to find "Search" button inside the open menu.`
+                            )
+                            if (callback) callback()
                         }
-                    })
+                    }
+                }, 20)
+            } else {
+                if (callback) callback()
+            }
+        }
+
+        function handleCaptureClick(e) {
+            if (isSubmittingProgrammatically) return
+
+            const btn = e.target.closest('button[aria-label="Submit"]')
+            if (!btn || btn.disabled) return
+
+            const modeBtn = getModeSelectorButton()
+            if (modeBtn && modeBtn.innerText.includes('Learn step by step')) {
+                e.preventDefault()
+                e.stopPropagation()
+
+                console.log(
+                    `${PREFIX} Intercepted submit click. Reverting and submitting...`
+                )
+                changeModeToSearch(() => {
+                    isSubmittingProgrammatically = true
+                    clickElementWithPointer(btn)
+                    isSubmittingProgrammatically = false
+                })
+            }
+        }
+
+        function handleCaptureKeydown(e) {
+            if (isSubmittingProgrammatically) return
+
+            if (e.key === 'Enter' && !e.shiftKey) {
+                const target = e.target
+                if (
+                    target &&
+                    (target.id === 'ask-input' || target.tagName === 'TEXTAREA')
+                ) {
+                    const modeBtn = getModeSelectorButton()
+                    if (
+                        modeBtn &&
+                        modeBtn.innerText.includes('Learn step by step')
+                    ) {
+                        e.preventDefault()
+                        e.stopPropagation()
+
+                        console.log(
+                            `${PREFIX} Intercepted Enter keydown. Reverting and submitting...`
+                        )
+                        changeModeToSearch(() => {
+                            const submitBtn = getSubmitButton()
+                            if (submitBtn) {
+                                isSubmittingProgrammatically = true
+                                clickElementWithPointer(submitBtn)
+                                isSubmittingProgrammatically = false
+                            } else {
+                                // Fallback: re-dispatch the Enter event
+                                isSubmittingProgrammatically = true
+                                const newEvent = new KeyboardEvent('keydown', {
+                                    key: 'Enter',
+                                    code: 'Enter',
+                                    keyCode: 13,
+                                    bubbles: true,
+                                    cancelable: true,
+                                })
+                                target.dispatchEvent(newEvent)
+                                isSubmittingProgrammatically = false
+                            }
+                        })
+                    }
                 }
             }
         }
-    }
 
-    function init() {
-        console.log(`${PREFIX} Monitoring active (Submit Interception)...`)
-        document.addEventListener('click', handleCaptureClick, true)
-        document.addEventListener('keydown', handleCaptureKeydown, true)
-    }
+        function init() {
+            console.log(`${PREFIX} Monitoring active (Submit Interception)...`)
+            document.addEventListener('click', handleCaptureClick, true)
+            document.addEventListener('keydown', handleCaptureKeydown, true)
+        }
 
-    if (
-        document.readyState === 'complete' ||
-        document.readyState === 'interactive'
-    ) {
-        init()
-    } else {
-        window.addEventListener('DOMContentLoaded', init)
-    }
+        if (
+            document.readyState === 'complete' ||
+            document.readyState === 'interactive'
+        ) {
+            init()
+        } else {
+            window.addEventListener('DOMContentLoaded', init)
+        }
     })
 })()
 
-
 //!    11. Prose Styling Improvements
-;(function() {
+;(function () {
     const style = document.createElement('style')
     style.textContent = `
         /* Increase spacing between paragraphs */
         .prose p {
-            margin-top: 2rem !important;
+            margin-top: .5rem !important;
             margin-bottom: 2rem !important;
         }
 
         /* Make headings bigger and remove blue color */
         .prose h2 {
-            font-size: 2.25rem !important;
+            font-size: 1.3rem !important;
             color: currentColor !important; /* Inherits the standard text color */
         }
 
@@ -1579,5 +1656,69 @@
         }
     `
     document.head.appendChild(style)
-    console.log('Styles applied: Increased paragraph spacing, enlarged headings, and removed blue tints.')
+    console.log(
+        'Styles applied: Increased paragraph spacing, enlarged headings, and removed blue tints.'
+    )
 })()
+
+;(function() {
+    // 1. Clean up any previous attempts
+    const oldStyles = document.querySelectorAll('style[id*="pplx"]');
+    oldStyles.forEach(s => s.remove());
+
+    const style = document.createElement('style');
+    style.id = 'pplx-final-hover-fix';
+    style.textContent = `
+        body { counter-reset: cite-idx; }
+
+        /* Hide the annoying gaps between citations */
+        span.citation-nbsp { display: none !important; }
+
+        /* The main citation container */
+        span.citation.inline:not(span span) {
+            counter-increment: cite-idx;
+            position: relative !important;
+            display: inline-block !important;
+            width: .6em !important;
+            height: 1.2em !important;
+            vertical-align: super !important;
+            margin: 0 1px !important;
+            cursor: pointer !important;
+        }
+
+        /* The original badge (Invisible but hoverable) */
+        span.citation.inline:not(span span) > span {
+            opacity: 0 !important;
+            position: absolute !important;
+            inset: 0 !important;
+            width: 100% !important;
+            height: 100% !important;
+            z-index: 2 !important; /* On top to catch the mouse */
+            visibility: visible !important;
+            pointer-events: auto !important;
+        }
+
+        /* The new superscript number (Visible but below the hover trigger) */
+        span.citation.inline:not(span span)::after {
+            content: counter(cite-idx);
+            position: absolute !important;
+            inset: 0 !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            visibility: visible !important;
+            font-size: 10px !important;
+            font-weight: bold !important;
+            color: #666 !important;
+            z-index: 1 !important; /* Below the invisible trigger */
+            pointer-events: none !important;
+        }
+
+        /* Hover effect for the number */
+        span.citation.inline:hover::after {
+            color: #000 !important;
+            text-decoration: underline;
+        }
+    `;
+    document.head.appendChild(style);
+})();
