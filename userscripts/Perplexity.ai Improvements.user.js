@@ -1640,8 +1640,14 @@
     style.textContent = `
         /* Increase spacing between paragraphs */
         .prose p {
-            margin-top: .5rem !important;
+            margin-top: 0.5rem !important;
             margin-bottom: 2rem !important;
+        }
+        /* But not for ps nested in lists */
+        .prose ul p,
+        .prose ol p {
+            margin-top: 0 !important;
+            margin-bottom: 0 !important;
         }
 
         /* Make headings bigger and remove blue color */
@@ -1660,14 +1666,13 @@
         'Styles applied: Increased paragraph spacing, enlarged headings, and removed blue tints.'
     )
 })()
-
-;(function() {
+;(function () {
     // 1. Clean up any previous attempts
-    const oldStyles = document.querySelectorAll('style[id*="pplx"]');
-    oldStyles.forEach(s => s.remove());
+    const oldStyles = document.querySelectorAll('style[id*="pplx"]')
+    oldStyles.forEach((s) => s.remove())
 
-    const style = document.createElement('style');
-    style.id = 'pplx-final-hover-fix';
+    const style = document.createElement('style')
+    style.id = 'pplx-final-hover-fix'
     style.textContent = `
         body { counter-reset: cite-idx; }
 
@@ -1680,7 +1685,7 @@
             position: relative !important;
             display: inline-block !important;
             width: .6em !important;
-            height: 1.2em !important;
+            height: .7em !important;
             vertical-align: super !important;
             margin: 0 1px !important;
             cursor: pointer !important;
@@ -1708,8 +1713,8 @@
             justify-content: center !important;
             visibility: visible !important;
             font-size: 10px !important;
-            font-weight: bold !important;
-            color: #666 !important;
+            font-weight: normal !important;
+            color: #999 !important;
             z-index: 1 !important; /* Below the invisible trigger */
             pointer-events: none !important;
         }
@@ -1719,6 +1724,46 @@
             color: #000 !important;
             text-decoration: underline;
         }
-    `;
-    document.head.appendChild(style);
-})();
+    `
+    document.head.appendChild(style)
+})()
+
+//!    12. Remove "Put Computer to work" Ad
+;(function () {
+    // Get rid of another Computer ad
+    function removeComputerAd() {
+        // Option 1: Find the element by checking text content in descendants
+        const targetText = 'Put Computer to work'
+        const allDivs = document.querySelectorAll('.absolute.w-full')
+        let removed = false
+
+        for (const div of allDivs) {
+            if (div.innerText && div.innerText.includes(targetText)) {
+                div.remove()
+                removed = true
+                console.log(
+                    'Element containing "' + targetText + '" has been removed.'
+                )
+                break
+            }
+        }
+
+        if (!removed) {
+            console.log('Could not find the element with the specified text.')
+        }
+    }
+
+    removeComputerAd()
+
+    // Also watch for it being injected dynamically
+    const observer = new MutationObserver(removeComputerAd)
+    const root = document.body || document.documentElement
+    if (root) {
+        observer.observe(root, { childList: true, subtree: true })
+    } else {
+        document.addEventListener('DOMContentLoaded', () => {
+            observer.observe(document.body, { childList: true, subtree: true })
+            removeComputerAd()
+        })
+    }
+})()
