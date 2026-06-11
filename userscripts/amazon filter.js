@@ -118,13 +118,52 @@ function normalizeTitleText(text) {
 	return text.replace(/\s+/g, " ").trim().toLowerCase()
 }
 
+function makeTermRegex(term) {
+	term = term.trim()
+	if (!term) return null
+
+	// Check if it is a regex literal (e.g. /pattern/flags)
+	if (term.startsWith("/") && term.lastIndexOf("/") > 0) {
+		const lastSlash = term.lastIndexOf("/")
+		const pattern = term.substring(1, lastSlash)
+		const flags = term.substring(lastSlash + 1)
+		try {
+			return new RegExp(pattern, flags)
+		} catch (e) {
+			// Fallback to literal
+		}
+	}
+
+	const lowerTerm = term.toLowerCase()
+	const startsWithWildcard = lowerTerm.startsWith("*")
+	const endsWithWildcard = lowerTerm.endsWith("*")
+
+	let coreTerm = lowerTerm
+	if (startsWithWildcard) coreTerm = coreTerm.slice(1)
+	if (endsWithWildcard) coreTerm = coreTerm.slice(0, -1)
+
+	// Escape regex special characters in coreTerm
+	const escaped = coreTerm.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')
+
+	const startBoundary = startsWithWildcard ? "" : "\\b"
+	const endBoundary = endsWithWildcard ? "" : "\\b"
+
+	return new RegExp(startBoundary + escaped + endBoundary)
+}
+
+function matchTerm(title, term) {
+	const regex = makeTermRegex(term)
+	if (!regex) return false
+	return regex.test(title)
+}
+
 /** OR of AND-clauses; AND binds tighter. Plain text (no AND/OR) = single phrase match. */
 function titleMatchesMustHave(title, expression) {
 	const expr = expression.trim()
 	if (!expr) return true
 
 	if (!/\s+(?:and|or)\s+/i.test(expr)) {
-		return title.includes(expr.toLowerCase())
+		return matchTerm(title, expr)
 	}
 
 	const orClauses = expr
@@ -135,16 +174,16 @@ function titleMatchesMustHave(title, expression) {
 	return orClauses.some((clause) => {
 		const andTerms = clause
 			.split(/\s+and\s+/i)
-			.map((s) => s.trim().toLowerCase())
+			.map((s) => s.trim())
 			.filter(Boolean)
-		return andTerms.length > 0 && andTerms.every((term) => title.includes(term))
+		return andTerms.length > 0 && andTerms.every((term) => matchTerm(title, term))
 	})
 }
 
 function parseExcludeTerms(filterString) {
 	return filterString
 		.split(",")
-		.map((term) => term.trim().toLowerCase())
+		.map((term) => term.trim())
 		.filter((term) => term !== "")
 }
 
@@ -181,7 +220,7 @@ function applyAmazonFilters() {
 			return
 		}
 
-		const excluded = excludeTerms.some((term) => title.includes(term))
+		const excluded = excludeTerms.some((term) => matchTerm(title, term))
 		const missingRequired = mustActive && !titleMatchesMustHave(title, mustString)
 		const hide = excluded || missingRequired
 
