@@ -614,10 +614,34 @@
         return `[${date} ${hh}:${mm} ${tz}${off >= 0 ? '+' + off : off}]`
     }
 
+    function getSendButton(target) {
+        if (!target) return null
+        const btn = target.closest('button')
+        if (!btn) return null
+        const ariaLabel = (btn.getAttribute('aria-label') || '').toLowerCase()
+        const title = (btn.getAttribute('title') || '').toLowerCase()
+        const dataTestId = (btn.getAttribute('data-test-id') || btn.getAttribute('data-testid') || '').toLowerCase()
+        const hasSendClass = Array.from(btn.classList).some(c => c.toLowerCase().includes('send') || c.toLowerCase().includes('submit'))
+        
+        if (
+            ariaLabel.includes('send') || 
+            ariaLabel.includes('submit') || 
+            title.includes('send') || 
+            title.includes('submit') ||
+            dataTestId.includes('send') ||
+            dataTestId.includes('submit') ||
+            hasSendClass ||
+            btn.querySelector('mat-icon[fonticon="send"], mat-icon[fonticon="arrow_upward"], mat-icon[data-mat-icon-name="send"], mat-icon[data-mat-icon-name="arrow_upward"]')
+        ) {
+            return btn
+        }
+        return null
+    }
+
     document.addEventListener(
         'click',
         function (e) {
-            const btn = e.target.closest('button[aria-label="Send message"]')
+            const btn = getSendButton(e.target)
             if (!btn) return
             const editor = document.querySelector(
                 '.ql-editor[contenteditable="true"]'
@@ -646,10 +670,51 @@
 
             // Re-trigger click after a short delay
             setTimeout(() => {
-                const freshBtn = e.target.closest(
-                    'button[aria-label="Send message"]'
-                )
+                const freshBtn = getSendButton(e.target) || btn
                 if (freshBtn) freshBtn.click()
+            }, 80)
+        },
+        true
+    )
+
+    document.addEventListener(
+        'keydown',
+        function (e) {
+            if (e.key !== 'Enter' || e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return
+            
+            const editor = e.target.closest('.ql-editor[contenteditable="true"]')
+            if (!editor) return
+
+            const currentText = editor.innerText || ''
+            if (!currentText.trim() || EMBED_RE.test(currentText)) return
+
+            e.stopImmediatePropagation()
+            e.preventDefault()
+
+            // Prepend timestamp
+            editor.focus()
+            const sel = window.getSelection()
+            const range = document.createRange()
+            range.setStart(editor, 0)
+            range.collapse(true)
+            sel.removeAllRanges()
+            sel.addRange(range)
+
+            const timestamp = getNowTimestamp() + ' '
+            document.execCommand('insertText', false, timestamp)
+            console.log(`[GMT] keydown prepended: "${timestamp}"`)
+
+            // Dispatch enter key to trigger angular submission
+            setTimeout(() => {
+                const event = new KeyboardEvent('keydown', {
+                    key: 'Enter',
+                    code: 'Enter',
+                    keyCode: 13,
+                    which: 13,
+                    bubbles: true,
+                    cancelable: true
+                })
+                editor.dispatchEvent(event)
             }, 80)
         },
         true
