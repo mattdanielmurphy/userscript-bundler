@@ -801,6 +801,41 @@ body {
         }
     }
 
+    async function downloadAllVideos() {
+        const tabSelectors = [
+            'li.tab',
+            'li[data-type="video"]', 
+            '.video-tab', 
+            '[role="tab"][aria-label*="video" i]',
+            '.nav-link[href*="video"]'
+        ];
+        const tabs = Array.from(document.querySelectorAll(tabSelectors.join(',')));
+        const originalTab = document.querySelector('li.tab.selected, li.tab.active, .selected, .active');
+        
+        const captureAndDownload = async () => {
+            const video = getVisibleVideo();
+            if (video) {
+                const fullTitle = getCurrentTitle();
+                await downloadVideoFile(video, fullTitle, false);
+            }
+        };
+
+        if (tabs.length > 0) {
+            console.log(`[SF-LTX] Cycling through ${tabs.length} tabs to download videos...`);
+            for (const tab of tabs) {
+                tab.click();
+                await sleep(1000);
+                await captureAndDownload();
+            }
+            if (originalTab) {
+                originalTab.click();
+            }
+        } else {
+            console.log('[SF-LTX] No tabs found. Downloading video from current view.');
+            await captureAndDownload();
+        }
+    }
+
     // ── Styles + UI (button + modal + counter) ─────────────────────────
 
     const styles = `
@@ -942,6 +977,22 @@ body {
             border: none;
         }
         #sf-ltx-counter .btn:hover { background: rgba(255,255,255,0.3); }
+
+        #sf-ltx-all-btn {
+            position: fixed; bottom: 132px; right: 20px; z-index: 2147483647;
+            background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+            color: white; border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 24px; width: 48px; height: 48px;
+            display: flex; align-items: center; justify-content: center;
+            cursor: pointer; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+            transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            backdrop-filter: blur(10px); opacity: 0.9; overflow: hidden;
+            white-space: nowrap; font-family: -apple-system, sans-serif; font-weight: 600;
+        }
+        #sf-ltx-all-btn:hover { width: 180px; opacity: 1; border-radius: 12px; }
+        #sf-ltx-all-btn .icon { min-width: 48px; display: flex; align-items: center; justify-content: center; }
+        #sf-ltx-all-btn .text { opacity: 0; max-width: 0; transition: all 0.3s ease; font-size: 14px; }
+        #sf-ltx-all-btn:hover .text { opacity: 1; max-width: 120px; margin-right: 16px; }
     `
 
     const styleEl = document.createElement('style')
@@ -951,7 +1002,9 @@ body {
     function refreshCounter() {
         const isQuestion = /#Q\d+&open$/.test(window.location.href)
         const btn = document.getElementById('sf-ltx-btn')
+        const allBtn = document.getElementById('sf-ltx-all-btn')
         if (btn) btn.style.display = isQuestion ? 'none' : 'flex'
+        if (allBtn) allBtn.style.display = isQuestion ? 'none' : 'flex'
 
         const title = getCurrentTitle()
         const count = downloadCounts[title] || 0
@@ -971,6 +1024,29 @@ body {
         btn.addEventListener('click', async () => {
             await downloadStudyForgeFrame()
             refreshCounter()
+        })
+
+        const allBtn = document.createElement('button')
+        allBtn.id = 'sf-ltx-all-btn'
+        allBtn.innerHTML =
+            '<div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect><line x1="9" y1="10" x2="9" y2="14"></line><polyline points="7 12 9 14 11 12"></polyline></svg></div><div class="text">Download All</div>'
+        document.body.appendChild(allBtn)
+
+        allBtn.addEventListener('click', async () => {
+            allBtn.style.pointerEvents = 'none'
+            allBtn.style.opacity = '0.5'
+            const textEl = allBtn.querySelector('.text')
+            const originalText = textEl.textContent
+            textEl.textContent = 'Downloading...'
+            try {
+                await downloadAllVideos()
+            } catch (e) {
+                console.error('[SF-LTX] Error downloading all videos:', e)
+            } finally {
+                allBtn.style.pointerEvents = 'all'
+                allBtn.style.opacity = '0.9'
+                textEl.textContent = originalText
+            }
         })
 
         const counter = document.createElement('div')
