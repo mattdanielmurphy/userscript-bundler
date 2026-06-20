@@ -834,6 +834,50 @@ body {
             console.log('[SF-LTX] No tabs found. Downloading video from current view.');
             await captureAndDownload();
         }
+
+        // Download questions if any exist on the page
+        const questionsData = Array.from(document.querySelectorAll('.q-preview')).map(q => {
+            const subtitle = q.querySelector('.q-subtitle')?.innerText.trim() || 'No Subtitle';
+            const text = q.querySelector('.text')?.innerText.trim() || 'No Question Text';
+            
+            const nextEl = q.nextElementSibling;
+            let answer = 'Answer not found on page';
+            
+            if (nextEl && (nextEl.classList.contains('answer') || nextEl.classList.contains('solution'))) {
+                answer = nextEl.innerText.trim();
+            } else {
+                const potentialAnswer = q.querySelector('.answer, .solution, .q-answer');
+                if (potentialAnswer) {
+                    answer = potentialAnswer.innerText.trim();
+                }
+            }
+
+            return { subtitle, text, answer };
+        });
+
+        if (questionsData.length > 0) {
+            console.log(`[SF-LTX] Found ${questionsData.length} questions. Exporting to CSV...`);
+            const csvRows = [
+                "Subtitle,Question,Answer",
+                ...questionsData.map(q => `"${q.subtitle.replace(/"/g, '""')}","${q.text.replace(/"/g, '""')}","${q.answer.replace(/"/g, '""')}"`)
+            ];
+            const csvContent = csvRows.join("\n");
+            
+            const cleanTitle = getCurrentTitle().replace(/[<>:"/\\|?*]/g, '');
+            const csvFileName = `${cleanTitle} - Practice Questions.csv`;
+
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.setAttribute("href", url);
+            link.setAttribute("download", csvFileName);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+        } else {
+            console.log('[SF-LTX] No practice questions found on page.');
+        }
     }
 
     // ── Styles + UI (button + modal + counter) ─────────────────────────

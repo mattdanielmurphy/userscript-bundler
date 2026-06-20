@@ -10,7 +10,7 @@ This document tracks all features, capabilities, and enhancements implemented in
 - **Keyboard Shortcuts**:
   - `Opt+S` (`Alt+S`): Instantly download the current frame with no caption.
   - `Opt+V` (`Alt+V`): Instantly download the current video file.
-- **Download All Videos**: A floating action button (indigo gradient) that cycles through lesson video tabs, waits for loading, and downloads all videos sequentially. Uses the standard video naming scheme: `<Nav Parts> - <Video Title> (<Video Num>).mp4`.
+- **Download All Videos + Questions**: A floating action button (indigo gradient) that cycles through lesson video tabs, waits for loading, downloads all videos sequentially, and exports all practice questions on the page as a CSV (`<Lesson Header> - Practice Questions.csv`).
 
 ## YouTube Master Script
 - **Thumbnail Toggling**: Toggle visibility of thumbnails.
