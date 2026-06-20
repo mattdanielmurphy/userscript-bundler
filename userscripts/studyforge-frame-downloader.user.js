@@ -175,7 +175,7 @@
         }
     }
 
-    function downloadVideoFile(video, fullTitle) {
+    async function downloadVideoFile(video, fullTitle) {
         const src = video.currentSrc || video.src || video.querySelector('source')?.src
         if (!src) {
             console.warn('[SF-LTX] No video source found to download.')
@@ -190,14 +190,30 @@
         const videoFileName = `${fullTitle}.mp4`.replace(/[<>:"/\\|?*]/g, '')
         console.log('[SF-LTX] Downloading whole video:', src, 'as', videoFileName)
 
-        const link = document.createElement('a')
-        link.href = src
-        link.download = videoFileName
-        document.body.appendChild(link)
-        link.click()
-        document.body.removeChild(link)
+        try {
+            const response = await fetch(src)
+            const blob = await response.blob()
+            const blobUrl = URL.createObjectURL(blob)
 
-        markVideoDownloaded(src)
+            const link = document.createElement('a')
+            link.href = blobUrl
+            link.download = videoFileName
+            document.body.appendChild(link)
+            link.click()
+            document.body.removeChild(link)
+            URL.revokeObjectURL(blobUrl)
+
+            markVideoDownloaded(src)
+        } catch (e) {
+            console.warn('[SF-LTX] Fetch failed, falling back to direct link:', e)
+            const link = document.createElement('a')
+            link.href = src
+            link.download = videoFileName
+            document.body.appendChild(link)
+            link.click()
+            document.body.removeChild(link)
+            markVideoDownloaded(src)
+        }
     }
 
     function getVisibleVideo() {
