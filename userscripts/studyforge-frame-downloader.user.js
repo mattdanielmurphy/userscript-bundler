@@ -222,6 +222,86 @@
         }
     }
 
+    function hasDownloadedGeoGebra(filename) {
+        try {
+            const list = JSON.parse(localStorage.getItem('sf_downloaded_geogebra') || '[]')
+            return list.includes(filename)
+        } catch (e) {
+            return false
+        }
+    }
+
+    function markGeoGebraDownloaded(filename) {
+        try {
+            const list = JSON.parse(localStorage.getItem('sf_downloaded_geogebra') || '[]')
+            if (!list.includes(filename)) {
+                list.push(filename)
+                localStorage.setItem('sf_downloaded_geogebra', JSON.stringify(list))
+            }
+        } catch (e) {
+            console.warn('[SF-LTX] Failed to save downloaded geogebra state:', e)
+        }
+    }
+
+    function downloadGeoGebra(fullTitle, bypassCheck = false) {
+        const ggbElement = document.querySelector('[data-param-filename]');
+        if (!ggbElement) return false;
+
+        const fileName = `${fullTitle}.html`.replace(/[<>:"/\\|?*]/g, '');
+        if (!bypassCheck && hasDownloadedGeoGebra(fileName)) {
+            console.log('[SF-LTX] GeoGebra applet already downloaded, skipping:', fileName);
+            return true;
+        }
+
+        // 1. Extract parameters from the current element
+        const params = {};
+        Array.from(ggbElement.attributes).forEach(attr => {
+            if (attr.name.startsWith('data-param-')) {
+                const key = attr.name.replace('data-param-', '');
+                params[key] = attr.value;
+            }
+        });
+
+        // 2. Build the HTML content
+        const htmlContent = `
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Offline GeoGebra Applet</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <!-- Load GeoGebra Web Script -->
+    <script src="https://www.geogebra.org/apps/deployggb.js"></script>
+</head>
+<body style="margin:0; padding:0; display:flex; justify-content:center; align-items:center; height:100vh; background:#f0f0f0;">
+    <div id="ggb-applet"></div>
+
+    <script>
+        var parameters = ${JSON.stringify(params, null, 4)};
+        var applet = new GGBApplet(parameters, true);
+        window.onload = function() {
+            applet.inject('ggb-applet');
+        };
+    </script>
+</body>
+</html>`;
+
+        // 3. Trigger the download
+        const blob = new Blob([htmlContent], { type: 'text/html' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = fileName;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+
+        console.log(`[SF-LTX] Standalone HTML file generated for GeoGebra and download started: ${fileName}`);
+        markGeoGebraDownloaded(fileName);
+        return true;
+    }
+
     function getVisibleVideo() {
         const videos = Array.from(document.querySelectorAll('video'))
         return videos.find((v) => {
@@ -819,10 +899,12 @@ body {
         const originalTab = document.querySelector('li.tab.selected, li.tab.active, .selected, .active');
         
         const captureAndDownload = async () => {
+            const fullTitle = getCurrentTitle();
             const video = getVisibleVideo();
             if (video) {
-                const fullTitle = getCurrentTitle();
                 await downloadVideoFile(video, fullTitle, false);
+            } else {
+                downloadGeoGebra(fullTitle, false);
             }
         };
 
@@ -1161,11 +1243,11 @@ body {
                 e.preventDefault()
                 e.stopPropagation()
                 const video = getVisibleVideo()
+                const fullTitle = getCurrentTitle()
                 if (video) {
-                    const fullTitle = getCurrentTitle()
                     downloadVideoFile(video, fullTitle, true)
-                } else {
-                    console.error('[SF-LTX] Active video element not found.')
+                } else if (!downloadGeoGebra(fullTitle, true)) {
+                    console.error('[SF-LTX] Active video element or GeoGebra applet not found.')
                 }
             }
         })
