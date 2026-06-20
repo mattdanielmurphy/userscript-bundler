@@ -52,14 +52,13 @@
 
     // ── Title helper (for filenames + counter) ──────────────────────────
 
-    function getCurrentTitle() {
+    function getLessonTitle() {
         const nav = document.querySelector('nav.relative.mx-auto.my-0.flex')
         let lessonHeaderEl = document.querySelector('h1.lesson-header-number')
         if (!lessonHeaderEl) {
             const h1s = Array.from(document.querySelectorAll('h1'))
             lessonHeaderEl = h1s.find((h) => h.textContent.includes('Lesson'))
         }
-        const selectedTabEl = document.querySelector('li.tab.viewed.selected')
 
         let navParts = []
         if (nav) {
@@ -86,6 +85,19 @@
             ? lessonHeaderEl.textContent.trim()
             : ''
         const lessonNum = (lessonText.match(/\d+/) || ['1'])[0]
+
+        if (navParts.length > 0) {
+            navParts[navParts.length - 1] =
+                `${navParts[navParts.length - 1]} (${lessonNum})`
+        } else {
+            navParts.push(`(${lessonNum})`)
+        }
+
+        return navParts.join(' - ')
+    }
+
+    function getCurrentTitle() {
+        const selectedTabEl = document.querySelector('li.tab.viewed.selected')
 
         let videoNum = '1'
         let videoTitle = 'Unknown Video'
@@ -115,14 +127,8 @@
             }
         }
 
-        if (navParts.length > 0) {
-            navParts[navParts.length - 1] =
-                `${navParts[navParts.length - 1]} (${lessonNum})`
-        } else {
-            navParts.push(`(${lessonNum})`)
-        }
-
-        return [...navParts, `${videoTitle} (${videoNum})`].join(' - ')
+        const lessonTitle = getLessonTitle()
+        return [lessonTitle, `${videoTitle} (${videoNum})`].join(' - ')
     }
 
     // ── CC helpers ──────────────────────────────────────────────────────
@@ -863,7 +869,7 @@ body {
             ];
             const csvContent = csvRows.join("\n");
             
-            const cleanTitle = getCurrentTitle().replace(/[<>:"/\\|?*]/g, '');
+            const cleanTitle = getLessonTitle().replace(/[<>:"/\\|?*]/g, '');
             const csvFileName = `${cleanTitle} - Practice Questions.csv`;
 
             const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
