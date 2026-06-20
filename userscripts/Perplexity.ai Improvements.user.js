@@ -530,8 +530,9 @@
         style.id = STYLE_ID
         style.textContent = `
         button[aria-label="Computer"]:has(use[*|href*="custom-computer"]),
-        span:has(> span > span > button[aria-label="Computer"]:has(use[*|href*="custom-computer"])),
-        span:has(> span > button[aria-label="Computer"]:has(use[*|href*="custom-computer"])),
+        button:has(use[*|href*="custom-computer"]):not([aria-haspopup="menu"]),
+        span:has(> span > span > button:has(use[*|href*="custom-computer"])),
+        span:has(> span > button:has(use[*|href*="custom-computer"])),
         div:has(> a[href*="/discover"]):has(> a[href*="/finance"]):has(> a[href*="/patents"]),
         [data-testid="ask-input-mode-toggle-indicator"],
         .${COUNCIL_SUPPRESS_CLASS},
@@ -690,11 +691,14 @@
 
     function isComposerComputerToggle(btn) {
         if (!btn || btn.tagName !== 'BUTTON') return false
+        if (btn.closest('[role="menu"]')) return false
         if (!hasComposerComputerIcon(btn)) return false
         const label = (btn.getAttribute('aria-label') || '')
             .trim()
             .toLowerCase()
-        return label === 'computer'
+        if (label === 'computer') return true
+        const text = norm(btn.textContent)
+        return text === 'computer' || text.startsWith('computer ')
     }
 
     function hideComputerChip() {
@@ -710,6 +714,7 @@
         for (const btn of buttons) {
             if (!isComposerComputerToggle(btn)) continue
             const wrap =
+                btn.closest('span.relative.inline-flex') ||
                 btn.closest('span.relative') ||
                 btn.closest('span.inline-flex.rounded-full') ||
                 btn.closest('span[style*="width: 36px"]') ||
@@ -770,6 +775,7 @@
             suppressComputerModeMenuItem()
             suppressMaxOnlyModelMenuItems()
             hideAskInputModeToggleIndicator()
+            hideComputerChip()
         })
     }
 
@@ -797,6 +803,7 @@
         suppressComputerModeMenuItem()
         suppressMaxOnlyModelMenuItems()
         hideAskInputModeToggleIndicator()
+        hideComputerChip()
     }, 250)
 
     whenHome(() => {

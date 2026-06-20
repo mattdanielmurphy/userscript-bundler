@@ -740,6 +740,19 @@
     // OBSERVERS
     // ═══════════════════════════════════════════════════════════
 
+    function removeAdvUpsell(warnIfMissing = false) {
+        const upsellContainer = document.querySelector(
+            '.right-section > .buttons-container.adv-upsell'
+        )
+        if (upsellContainer) {
+            upsellContainer.remove()
+        } else if (warnIfMissing) {
+            console.warn(
+                'Element not found: .right-section > .buttons-container.adv-upsell'
+            )
+        }
+    }
+
     let lastUrl = location.href
 
     function startObservers() {
@@ -752,6 +765,7 @@
             processEmbeddedTimestamps()
             updateSidebarDOM()
             updateTabTitle()
+            removeAdvUpsell()
             const url = location.href
             if (url !== lastUrl) {
                 lastUrl = url
@@ -762,6 +776,7 @@
         processEmbeddedTimestamps()
         updateSidebarDOM()
         updateTabTitle()
+        removeAdvUpsell(true)
         console.log('[GMT] observers started')
     }
 

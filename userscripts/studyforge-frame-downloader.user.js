@@ -402,7 +402,7 @@ body {
             const editor = backdrop.querySelector('#sf-ltx-editor')
             const checked = new Set()
 
-            if (currentCueIdx >= 0) checked.add(currentCueIdx)
+            // "No caption" by default: do not pre-check the current cue index.
 
             function rebuildEditor() {
                 const lines = [...checked]
@@ -461,7 +461,19 @@ body {
                 })
             }
 
+            const onKeyDown = (e) => {
+                if (e.key === 'Escape') {
+                    e.preventDefault()
+                    dismiss(null)
+                } else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey || e.target !== editor)) {
+                    e.preventDefault()
+                    dismiss(editor.value)
+                }
+            }
+            window.addEventListener('keydown', onKeyDown)
+
             function dismiss(result) {
+                window.removeEventListener('keydown', onKeyDown)
                 backdrop.classList.remove('visible')
                 setTimeout(() => backdrop.remove(), 250)
                 resolve(result)
@@ -480,6 +492,9 @@ body {
             backdrop.addEventListener('click', (e) => {
                 if (e.target === backdrop) dismiss(null)
             })
+
+            const confirmBtn = backdrop.querySelector('#sf-ltx-confirm')
+            if (confirmBtn) confirmBtn.focus()
         })
     }
 
@@ -513,7 +528,19 @@ body {
 
             const editor = backdrop.querySelector('#sf-ltx-editor')
 
+            const onKeyDown = (e) => {
+                if (e.key === 'Escape') {
+                    e.preventDefault()
+                    dismiss(null)
+                } else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey || e.target !== editor)) {
+                    e.preventDefault()
+                    dismiss(editor.value)
+                }
+            }
+            window.addEventListener('keydown', onKeyDown)
+
             function dismiss(result) {
+                window.removeEventListener('keydown', onKeyDown)
                 backdrop.classList.remove('visible')
                 setTimeout(() => backdrop.remove(), 250)
                 resolve(result)
@@ -532,6 +559,9 @@ body {
             backdrop.addEventListener('click', (e) => {
                 if (e.target === backdrop) dismiss(null)
             })
+
+            const confirmBtn = backdrop.querySelector('#sf-ltx-confirm')
+            if (confirmBtn) confirmBtn.focus()
         })
     }
 
@@ -629,7 +659,7 @@ body {
 
     // ── Frame capture main flow ─────────────────────────────────────────
 
-    async function downloadStudyForgeFrame() {
+    async function downloadStudyForgeFrame(directNoCaption = false) {
         const container = document.querySelector('.video-wrapper')
         if (!container) {
             console.error('[SF-LTX] Video wrapper not found.')
@@ -660,6 +690,11 @@ body {
         )
 
         try {
+            if (directNoCaption) {
+                await composeFrameWithNotes(video, '', fileName)
+                return
+            }
+
             const cues = getAllCCCues(video)
 
             if (cues.length > 0) {
@@ -913,6 +948,25 @@ body {
 
         window.addEventListener('hashchange', refreshCounter)
         window.addEventListener('popstate', refreshCounter)
+
+        // Keybinding: Opt+S (Alt+S) saves frame directly with no caption
+        window.addEventListener('keydown', (e) => {
+            if (e.altKey && e.code === 'KeyS') {
+                if (
+                    e.target.tagName === 'INPUT' ||
+                    e.target.tagName === 'TEXTAREA' ||
+                    e.target.isContentEditable ||
+                    document.getElementById('sf-ltx-backdrop')
+                ) {
+                    return
+                }
+                e.preventDefault()
+                e.stopPropagation()
+                downloadStudyForgeFrame(true).then(() => {
+                    refreshCounter()
+                })
+            }
+        })
     }
 
     init()
