@@ -243,62 +243,91 @@
         }
     }
 
-    function downloadGeoGebra(fullTitle, bypassCheck = false) {
-        const ggbElement = document.querySelector('[data-param-filename]');
-        if (!ggbElement) return false;
-
-        const fileName = `${fullTitle}.html`.replace(/[<>:"/\\|?*]/g, '');
-        if (!bypassCheck && hasDownloadedGeoGebra(fileName)) {
-            console.log('[SF-LTX] GeoGebra applet already downloaded, skipping:', fileName);
-            return true;
+    async function downloadGeoGebra(fullTitle, bypassCheck = false) {
+        // 1. Expand the content if it's currently hidden
+        const expandBtn = document.querySelector('.expand');
+        const isHidden = document.querySelector('.reading-content[aria-hidden="true"]');
+        if (expandBtn && isHidden) {
+            console.log("[SF-LTX] Expanding reading content...");
+            expandBtn.click();
+            // Wait briefly for content to render / iframe to appear
+            await sleep(600); 
         }
 
-        // 1. Extract parameters from the current element
-        const params = {};
-        Array.from(ggbElement.attributes).forEach(attr => {
-            if (attr.name.startsWith('data-param-')) {
-                const key = attr.name.replace('data-param-', '');
-                params[key] = attr.value;
-            }
-        });
+        // 2. Find unique GeoGebra applets via their iframe sources
+        const ggbIframes = Array.from(document.querySelectorAll('iframe[src*="geogebra.org/m/"]'));
+        const materialIds = Array.from(new Set(ggbIframes.map(f => f.src.split('/').pop()).filter(Boolean)));
 
-        // 2. Build the HTML content
-        const htmlContent = `
-<!DOCTYPE html>
+        if (materialIds.length === 0) {
+            return false;
+        }
+
+        console.log(`[SF-LTX] Found ${materialIds.length} unique GeoGebra applet(s). Downloading...`);
+
+        for (let i = 0; i < materialIds.length; i++) {
+            const id = materialIds[i];
+            
+            // Name according to established scheme
+            let fileName = '';
+            if (materialIds.length === 1) {
+                fileName = `${fullTitle}.html`.replace(/[<>:"/\\|?*]/g, '');
+            } else {
+                fileName = `${fullTitle} - Applet ${i + 1}.html`.replace(/[<>:"/\\|?*]/g, '');
+            }
+
+            if (!bypassCheck && hasDownloadedGeoGebra(fileName)) {
+                console.log('[SF-LTX] GeoGebra applet already downloaded, skipping:', fileName);
+                continue;
+            }
+
+            const params = {
+                "material_id": id,
+                "width": 800,
+                "height": 600,
+                "showMenuBar": true,
+                "showAlgebraInput": true,
+                "showToolBar": true,
+                "showResetIcon": true,
+                "enableShiftDragZoom": true,
+                "enableRightClick": true,
+                "showZoomButtons": true
+            };
+
+            const htmlContent = `<!DOCTYPE html>
 <html>
 <head>
     <meta charset="utf-8">
-    <title>Offline GeoGebra Applet</title>
+    <title>GeoGebra Applet - ${id}</title>
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <!-- Load GeoGebra Web Script -->
     <script src="https://www.geogebra.org/apps/deployggb.js"></script>
 </head>
 <body style="margin:0; padding:0; display:flex; justify-content:center; align-items:center; height:100vh; background:#f0f0f0;">
     <div id="ggb-applet"></div>
-
     <script>
         var parameters = ${JSON.stringify(params, null, 4)};
         var applet = new GGBApplet(parameters, true);
         window.onload = function() {
-            applet.inject('ggb-applet');
+            applet.inject("ggb-applet");
         };
     </script>
 </body>
 </html>`;
 
-        // 3. Trigger the download
-        const blob = new Blob([htmlContent], { type: 'text/html' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = fileName;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        URL.revokeObjectURL(url);
+            const blob = new Blob([htmlContent], { type: 'text/html' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = fileName;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
 
-        console.log(`[SF-LTX] Standalone HTML file generated for GeoGebra and download started: ${fileName}`);
-        markGeoGebraDownloaded(fileName);
+            console.log(`[SF-LTX] Standalone HTML file generated for GeoGebra (ID: ${id}) and download started: ${fileName}`);
+            markGeoGebraDownloaded(fileName);
+        }
+
         return true;
     }
 
