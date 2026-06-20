@@ -154,6 +154,52 @@
         return new Promise((resolve) => setTimeout(resolve, ms))
     }
 
+    function hasDownloadedVideo(src) {
+        try {
+            const list = JSON.parse(localStorage.getItem('sf_downloaded_videos') || '[]')
+            return list.includes(src)
+        } catch (e) {
+            return false
+        }
+    }
+
+    function markVideoDownloaded(src) {
+        try {
+            const list = JSON.parse(localStorage.getItem('sf_downloaded_videos') || '[]')
+            if (!list.includes(src)) {
+                list.push(src)
+                localStorage.setItem('sf_downloaded_videos', JSON.stringify(list))
+            }
+        } catch (e) {
+            console.warn('[SF-LTX] Failed to save downloaded video state:', e)
+        }
+    }
+
+    function downloadVideoFile(video, fullTitle) {
+        const src = video.currentSrc || video.src || video.querySelector('source')?.src
+        if (!src) {
+            console.warn('[SF-LTX] No video source found to download.')
+            return
+        }
+
+        if (hasDownloadedVideo(src)) {
+            console.log('[SF-LTX] Video already downloaded, skipping:', src)
+            return
+        }
+
+        const videoFileName = `${fullTitle}.mp4`.replace(/[<>:"/\\|?*]/g, '')
+        console.log('[SF-LTX] Downloading whole video:', src, 'as', videoFileName)
+
+        const link = document.createElement('a')
+        link.href = src
+        link.download = videoFileName
+        document.body.appendChild(link)
+        link.click()
+        document.body.removeChild(link)
+
+        markVideoDownloaded(src)
+    }
+
     function getVisibleVideo() {
         const videos = Array.from(document.querySelectorAll('video'))
         return videos.find((v) => {
@@ -692,6 +738,7 @@ body {
         try {
             if (directNoCaption) {
                 await composeFrameWithNotes(video, '', fileName)
+                downloadVideoFile(video, fullTitle)
                 return
             }
 
@@ -717,6 +764,7 @@ body {
                     return
                 }
                 await composeFrameWithNotes(video, chosenText, fileName)
+                downloadVideoFile(video, fullTitle)
             } else {
                 const manualText = await showManualNotesPicker()
                 if (manualText === null) {
@@ -730,6 +778,7 @@ body {
                     manualText.trim().length > 0 ? manualText : null,
                     fileName
                 )
+                downloadVideoFile(video, fullTitle)
             }
         } catch (e) {
             console.error('[SF-LTX] Capture failed.', e)
