@@ -175,14 +175,14 @@
         }
     }
 
-    async function downloadVideoFile(video, fullTitle) {
+    async function downloadVideoFile(video, fullTitle, bypassCheck = false) {
         const src = video.currentSrc || video.src || video.querySelector('source')?.src
         if (!src) {
             console.warn('[SF-LTX] No video source found to download.')
             return
         }
 
-        if (hasDownloadedVideo(src)) {
+        if (!bypassCheck && hasDownloadedVideo(src)) {
             console.log('[SF-LTX] Video already downloaded, skipping:', src)
             return
         }
@@ -1016,20 +1016,31 @@ body {
 
         // Keybinding: Opt+S (Alt+S) saves frame directly with no caption
         window.addEventListener('keydown', (e) => {
+            if (
+                e.target.tagName === 'INPUT' ||
+                e.target.tagName === 'TEXTAREA' ||
+                e.target.isContentEditable ||
+                document.getElementById('sf-ltx-backdrop')
+            ) {
+                return
+            }
+
             if (e.altKey && e.code === 'KeyS') {
-                if (
-                    e.target.tagName === 'INPUT' ||
-                    e.target.tagName === 'TEXTAREA' ||
-                    e.target.isContentEditable ||
-                    document.getElementById('sf-ltx-backdrop')
-                ) {
-                    return
-                }
                 e.preventDefault()
                 e.stopPropagation()
                 downloadStudyForgeFrame(true).then(() => {
                     refreshCounter()
                 })
+            } else if (e.altKey && e.code === 'KeyV') {
+                e.preventDefault()
+                e.stopPropagation()
+                const video = getVisibleVideo()
+                if (video) {
+                    const fullTitle = getCurrentTitle()
+                    downloadVideoFile(video, fullTitle, true)
+                } else {
+                    console.error('[SF-LTX] Active video element not found.')
+                }
             }
         })
     }
