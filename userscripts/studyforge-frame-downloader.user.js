@@ -50,6 +50,44 @@
         document.head.appendChild(styleEl)
     })()
 
+    // ── Toast notifications helper ─────────────────────────────────────
+
+    function showToast(message, duration = 3000) {
+        const toast = document.createElement("div")
+        toast.textContent = message
+        Object.assign(toast.style, {
+            position: "fixed",
+            bottom: "30px",
+            left: "50%",
+            transform: "translateX(-50%) translateY(20px)",
+            background: "linear-gradient(135deg, #1e3c72 0%, #2a5298 100%)",
+            color: "#fff",
+            padding: "12px 24px",
+            borderRadius: "12px",
+            boxShadow: "0 10px 25px rgba(0, 0, 0, 0.3)",
+            border: "1px solid rgba(255, 255, 255, 0.1)",
+            zIndex: "2147483647",
+            transition: "all 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275)",
+            opacity: "0",
+            fontSize: "14px",
+            fontWeight: "600",
+            fontFamily: "-apple-system, sans-serif"
+        })
+        document.body.appendChild(toast)
+        
+        // Force reflow
+        toast.offsetHeight
+        
+        toast.style.opacity = "1"
+        toast.style.transform = "translateX(-50%) translateY(0)"
+        
+        setTimeout(() => {
+            toast.style.opacity = "0"
+            toast.style.transform = "translateX(-50%) translateY(20px)"
+            setTimeout(() => toast.remove(), 350)
+        }, duration)
+    }
+
     // ── Title helper (for filenames + counter) ──────────────────────────
 
     function getLessonTitle() {
@@ -1201,8 +1239,10 @@ body {
             textEl.textContent = 'Downloading...'
             try {
                 await downloadAllVideos()
+                showToast('All downloads completed successfully!')
             } catch (e) {
                 console.error('[SF-LTX] Error downloading all videos:', e)
+                showToast('An error occurred during downloads.')
             } finally {
                 allBtn.style.pointerEvents = 'all'
                 allBtn.style.opacity = '0.9'
