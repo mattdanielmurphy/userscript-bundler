@@ -998,7 +998,7 @@ body {
             const fullTitle = getCurrentTitle(tab);
             
             // Find the specific container element for this tab
-            const container = document.querySelector(`.element[data-id="${id}"][data-type="${type}"], [data-id="${id}"][data-type="${type}"]`);
+            const container = document.querySelector(`.element[data-id="${id}"][data-type="${type}"], section[data-id="${id}"][data-type="${type}"]`);
             if (!container) {
                 console.warn(`[SF-LTX] Content container not found for tab ID ${id}, type ${type}`);
                 return;
@@ -1395,7 +1395,7 @@ body {
                         const id = associatedTab.getAttribute('data-id')
                         const type = associatedTab.getAttribute('data-type')
                         if (id && type) {
-                            const match = document.querySelector(`.element[data-id="${id}"][data-type="${type}"], [data-id="${id}"][data-type="${type}"]`)
+                            const match = document.querySelector(`.element[data-id="${id}"][data-type="${type}"], section[data-id="${id}"][data-type="${type}"]`)
                             if (match) container = match
                         }
                     }
