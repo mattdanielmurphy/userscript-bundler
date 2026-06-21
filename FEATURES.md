@@ -10,8 +10,9 @@ This document tracks all features, capabilities, and enhancements implemented in
 - **Keyboard Shortcuts**:
   - `Opt+S` (`Alt+S`): Instantly download the current frame with no caption.
   - `Opt+V` (`Alt+V`): Instantly download the current video file.
-- **Download All Videos + Questions**: A floating action button (indigo gradient) that cycles through lesson video tabs, waits for loading, downloads all videos sequentially (including embedding any GeoGebra interactives as offline HTML files if no video is present), and exports all practice questions on the page as a CSV (`<Lesson Header> - Practice Questions.csv`).
-- **GeoGebra Interactive Applet Downloader**: Downloads standalone offline HTML files for GeoGebra interactives on the page/tabs when calling the downloader. Uses tracking in localStorage (`sf_downloaded_geogebra`) to prevent duplicate downloads.
+- **Download All Videos + Questions**: A floating action button (indigo gradient) that cycles through lesson video tabs, waits for loading, downloads all videos sequentially (including embedding any GeoGebra interactives as offline HTML files if no video is present), and exports all practice questions on the page as a CSV (`<Lesson Header> - Practice Questions.csv`). Fully supports lessons containing multiple distinct sections or `lo-group` tab widgets, automatically prefixing titles with section/part numbers to prevent collisions.
+- **Enhanced Practice Questions Extraction**: Scrapes question titles from `aria-label` tags or `.q-title` headers for accurate classification in the exported CSV.
+- **GeoGebra Interactive Applet Downloader**: Downloads standalone offline HTML files for GeoGebra interactives on the page/tabs when calling the downloader. Uses tracking in localStorage (`sf_downloaded_geogebra`) to prevent duplicate downloads. Scopes element selection to the active tab container.
 - **Toast Notifications**: Provides beautiful, non-blocking toast notifications (using a premium blue gradient) to signal successful completion or errors on download operations.
 
 ## YouTube Master Script

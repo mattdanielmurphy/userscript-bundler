@@ -134,8 +134,8 @@
         return navParts.join(' - ')
     }
 
-    function getCurrentTitle() {
-        const selectedTabEl = document.querySelector('li.tab.viewed.selected')
+    function getCurrentTitle(associatedTab = null) {
+        const selectedTabEl = associatedTab || document.querySelector('li.tab.viewed.selected')
 
         let videoNum = '1'
         let videoTitle = 'Unknown Video'
@@ -166,7 +166,19 @@
         }
 
         const lessonTitle = getLessonTitle()
-        return [lessonTitle, `${videoTitle} (${videoNum})`].join(' - ')
+
+        // Add part/group index prefix if multiple groups exist
+        const groups = Array.from(document.querySelectorAll('.lo-group'))
+        let groupSuffix = ''
+        if (groups.length > 1 && selectedTabEl) {
+            const groupEl = selectedTabEl.closest('.lo-group')
+            if (groupEl) {
+                const groupIdx = groups.indexOf(groupEl) + 1
+                groupSuffix = `Part ${groupIdx} - `
+            }
+        }
+
+        return [lessonTitle, `${groupSuffix}${videoTitle} (${videoNum})`].join(' - ')
     }
 
     // ── CC helpers ──────────────────────────────────────────────────────
@@ -281,10 +293,10 @@
         }
     }
 
-    async function downloadGeoGebra(fullTitle, bypassCheck = false) {
+    async function downloadGeoGebra(fullTitle, bypassCheck = false, container = document) {
         // 1. Expand the content if it's currently hidden
-        const expandBtn = document.querySelector('.expand');
-        const isHidden = document.querySelector('.reading-content[aria-hidden="true"]');
+        const expandBtn = container.querySelector ? container.querySelector('.expand') : document.querySelector('.expand');
+        const isHidden = container.querySelector ? container.querySelector('.reading-content[aria-hidden="true"]') : document.querySelector('.reading-content[aria-hidden="true"]');
         if (expandBtn && isHidden) {
             console.log("[SF-LTX] Expanding reading content...");
             expandBtn.click();
@@ -293,7 +305,7 @@
         }
 
         // 2. Find unique GeoGebra applets via their iframe sources
-        const ggbIframes = Array.from(document.querySelectorAll('iframe[src*="geogebra.org/m/"]'));
+        const ggbIframes = Array.from(container.querySelectorAll('iframe[src*="geogebra.org/m/"]'));
         const materialIds = Array.from(new Set(ggbIframes.map(f => f.src.split('/').pop()).filter(Boolean)));
 
         if (materialIds.length === 0) {
@@ -889,7 +901,20 @@ body {
             return
         }
 
-        const fullTitle = getCurrentTitle()
+        // Find matching tab for this video to get the correct title
+        const videoWrapper = video.closest('.element, .video-container')
+        let associatedTab = null
+        if (videoWrapper) {
+            const id = videoWrapper.getAttribute('data-id')
+            const type = videoWrapper.getAttribute('data-type') || 'video'
+            if (id) {
+                associatedTab = document.querySelector(
+                    `li.tab[data-id="${id}"][data-type="${type}"]`
+                )
+            }
+        }
+
+        const fullTitle = getCurrentTitle(associatedTab)
 
         let countSuffix = ''
         if (downloadCounts[fullTitle]) {
@@ -963,15 +988,31 @@ body {
             '.nav-link[href*="video"]'
         ];
         const tabs = Array.from(document.querySelectorAll(tabSelectors.join(',')));
-        const originalTab = document.querySelector('li.tab.selected, li.tab.active, .selected, .active');
+        const originalTabs = Array.from(document.querySelectorAll('li.tab.selected, li.tab.active, .selected, .active'));
         
-        const captureAndDownload = async () => {
-            const fullTitle = getCurrentTitle();
-            const video = getVisibleVideo();
-            if (video) {
-                await downloadVideoFile(video, fullTitle, false);
-            } else {
-                downloadGeoGebra(fullTitle, false);
+        const captureAndDownload = async (tab) => {
+            const id = tab.getAttribute('data-id');
+            const type = tab.getAttribute('data-type');
+            if (!id || !type) return;
+
+            const fullTitle = getCurrentTitle(tab);
+            
+            // Find the specific container element for this tab
+            const container = document.querySelector(`.element[data-id="${id}"][data-type="${type}"], [data-id="${id}"][data-type="${type}"]`);
+            if (!container) {
+                console.warn(`[SF-LTX] Content container not found for tab ID ${id}, type ${type}`);
+                return;
+            }
+
+            if (type === 'video') {
+                const video = container.querySelector('video');
+                if (video) {
+                    await downloadVideoFile(video, fullTitle, false);
+                } else {
+                    console.warn(`[SF-LTX] Video element not found inside container for tab ID ${id}`);
+                }
+            } else if (type === 'reading') {
+                await downloadGeoGebra(fullTitle, false, container);
             }
         };
 
@@ -980,19 +1021,35 @@ body {
             for (const tab of tabs) {
                 tab.click();
                 await sleep(1000);
-                await captureAndDownload();
+                await captureAndDownload(tab);
             }
-            if (originalTab) {
-                originalTab.click();
+            // Restore original tabs
+            for (const tab of originalTabs) {
+                tab.click();
             }
         } else {
             console.log('[SF-LTX] No tabs found. Downloading video from current view.');
-            await captureAndDownload();
+            const video = getVisibleVideo();
+            if (video) {
+                await downloadVideoFile(video, getCurrentTitle(), false);
+            }
         }
 
         // Download questions if any exist on the page
         const questionsData = Array.from(document.querySelectorAll('.q-preview')).map(q => {
-            const subtitle = q.querySelector('.q-subtitle')?.innerText.trim() || 'No Subtitle';
+            const questionEl = q.closest('.question');
+            const ariaLabel = questionEl ? questionEl.getAttribute('aria-label') : '';
+            let subtitle = '';
+            if (ariaLabel) {
+                const match = ariaLabel.match(/question \d+:\s*(.*)/i);
+                if (match && match[1] && match[1] !== 'null') {
+                    subtitle = match[1].trim();
+                }
+            }
+            if (!subtitle) {
+                const titleEl = q.closest('.q-info')?.querySelector('.q-title');
+                subtitle = titleEl ? titleEl.innerText.trim() : (q.querySelector('.q-subtitle')?.innerText.trim() || 'No Subtitle');
+            }
             const text = q.querySelector('.text')?.innerText.trim() || 'No Question Text';
             
             const nextEl = q.nextElementSibling;
@@ -1312,11 +1369,39 @@ body {
                 e.preventDefault()
                 e.stopPropagation()
                 const video = getVisibleVideo()
-                const fullTitle = getCurrentTitle()
+
+                let associatedTab = null
+                if (video) {
+                    const videoWrapper = video.closest('.element, .video-container')
+                    if (videoWrapper) {
+                        const id = videoWrapper.getAttribute('data-id')
+                        const type = videoWrapper.getAttribute('data-type') || 'video'
+                        if (id) {
+                            associatedTab = document.querySelector(
+                                `li.tab[data-id="${id}"][data-type="${type}"]`
+                            )
+                        }
+                    }
+                } else {
+                    associatedTab = document.querySelector('li.tab.viewed.selected')
+                }
+
+                const fullTitle = getCurrentTitle(associatedTab)
                 if (video) {
                     downloadVideoFile(video, fullTitle, true)
-                } else if (!downloadGeoGebra(fullTitle, true)) {
-                    console.error('[SF-LTX] Active video element or GeoGebra applet not found.')
+                } else {
+                    let container = document
+                    if (associatedTab) {
+                        const id = associatedTab.getAttribute('data-id')
+                        const type = associatedTab.getAttribute('data-type')
+                        if (id && type) {
+                            const match = document.querySelector(`.element[data-id="${id}"][data-type="${type}"], [data-id="${id}"][data-type="${type}"]`)
+                            if (match) container = match
+                        }
+                    }
+                    if (!downloadGeoGebra(fullTitle, true, container)) {
+                        console.error('[SF-LTX] Active video element or GeoGebra applet not found.')
+                    }
                 }
             }
         })
