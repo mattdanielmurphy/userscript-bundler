@@ -165,20 +165,25 @@
             }
         }
 
-        const lessonTitle = getLessonTitle()
+        let lessonTitle = getLessonTitle()
 
-        // Add part/group index prefix if multiple groups exist
+        // Handle multiple groups: secondary blocks are AP-only
         const groups = Array.from(document.querySelectorAll('.lo-group'))
-        let groupSuffix = ''
         if (groups.length > 1 && selectedTabEl) {
             const groupEl = selectedTabEl.closest('.lo-group')
             if (groupEl) {
                 const groupIdx = groups.indexOf(groupEl) + 1
-                groupSuffix = `Part ${groupIdx} - `
+                if (groupIdx > 1) {
+                    if (lessonTitle.startsWith('Calculus')) {
+                        lessonTitle = lessonTitle.replace(/^Calculus/, 'Calculus [AP]')
+                    } else {
+                        lessonTitle = `[AP] ${lessonTitle}`
+                    }
+                }
             }
         }
 
-        return [lessonTitle, `${groupSuffix}${videoTitle} (${videoNum})`].join(' - ')
+        return [lessonTitle, `${videoTitle} (${videoNum})`].join(' - ')
     }
 
     // ── CC helpers ──────────────────────────────────────────────────────
@@ -1075,7 +1080,10 @@ body {
             ];
             const csvContent = csvRows.join("\n");
             
-            const cleanTitle = getLessonTitle().replace(/[<>:"/\\|?*]/g, '');
+            let cleanTitle = getLessonTitle().replace(/[<>:"/\\|?*]/g, '');
+            if (document.querySelectorAll('.lo-group').length > 1 && cleanTitle.startsWith('Calculus')) {
+                cleanTitle = cleanTitle.replace(/^Calculus/, 'Calculus [AP]');
+            }
             const csvFileName = `${cleanTitle} - Practice Questions.csv`;
 
             const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
