@@ -18,29 +18,65 @@
     const SYNC_URL = `http://127.0.0.1:${API_PORT}/api/context/sync`
 
     function getThreadId() {
-        let title = document.title.replace(' - Gemini', '').trim()
-        if (title === 'Gemini' || !title) {
-            title = 'default_thread'
+        const pathParts = window.location.pathname.split('/');
+        let id = pathParts[pathParts.length - 1];
+        if (id === 'app' || !id || id === '') {
+            const threadTitle = Array.from(document.querySelectorAll('h1'))
+                .find(h1 => h1.innerText.trim() !== "Conversation with Gemini" && h1.innerText.trim() !== "")
+                ?.innerText.trim();
+
+            if (threadTitle) {
+                window._aiOsThreadId = threadTitle;
+                return threadTitle;
+            }
+
+            if (!window._aiOsThreadId) {
+                window._aiOsThreadId = Math.random().toString(36).substring(2, 8);
+            }
+            id = window._aiOsThreadId;
         } else {
-            title = title.replace(/[^a-zA-Z0-9_-]/g, '_')
+            window._aiOsThreadId = id; 
         }
-        const urlParams = new URLSearchParams(window.location.search)
-        const id = urlParams.get('thread_id') ||
-            window.location.pathname.split('/').pop() ||
-            'unknown'
-        return `${title}_${id}`
+        return id;
+    }
+
+    function showSyncedIcon() {
+        let icon = document.getElementById('ai-os-synced-icon')
+        if (!icon) {
+            icon = document.createElement('div')
+            icon.id = 'ai-os-synced-icon'
+            icon.innerHTML = '✓ Synced'
+            icon.style.position = 'fixed'
+            icon.style.bottom = '16px'
+            icon.style.right = '16px'
+            icon.style.padding = '4px 8px'
+            icon.style.background = 'rgba(100, 255, 100, 0.2)'
+            icon.style.border = '1px solid rgba(100, 255, 100, 0.4)'
+            icon.style.color = '#0f0'
+            icon.style.borderRadius = '6px'
+            icon.style.fontSize = '12px'
+            icon.style.fontFamily = 'monospace'
+            icon.style.zIndex = '9999'
+            icon.style.opacity = '0'
+            icon.style.transition = 'opacity 0.3s ease-in-out'
+            icon.style.pointerEvents = 'none'
+            document.body.appendChild(icon)
+        }
+        
+        icon.style.opacity = '1'
+        if (window._syncIconTimeout) clearTimeout(window._syncIconTimeout)
+        window._syncIconTimeout = setTimeout(() => {
+            icon.style.opacity = '0'
+        }, 2000)
     }
 
     function exportThreadWithTimestamps() {
-        console.log('[AI-OS SYNC] exportThreadWithTimestamps called')
         // Select all user queries and model responses
         const messages = Array.from(
             document.querySelectorAll('user-query, model-response')
         )
-        console.log(`[AI-OS SYNC] Found ${messages.length} messages:`, messages)
 
         if (messages.length === 0) {
-            console.log('[AI-OS SYNC] No messages found, aborting export')
             return
         }
 
@@ -56,6 +92,15 @@
 
             // Extract text and convert basic html to markdown
             const clone = msg.cloneNode(true)
+
+            // Attach clone to DOM to compute proper innerText newlines
+            const hidden = document.createElement('div')
+            hidden.style.display = 'block'
+            hidden.style.position = 'absolute'
+            hidden.style.left = '-9999px'
+            hidden.appendChild(clone)
+            document.body.appendChild(hidden)
+
             clone.querySelectorAll('pre').forEach(pre => {
                 pre.innerText = '\n```\n' + pre.innerText + '\n```\n'
             })
@@ -70,6 +115,8 @@
             })
             
             let text = clone.innerText.trim()
+            document.body.removeChild(hidden)
+
             text = text.replace(/^(You said|Gemini said)\s*/i, '')
 
             return { role, text, timestamp }
@@ -81,7 +128,6 @@
             .join('\n---\n\n')
 
         if (window._lastSentContextSync === formattedText) {
-            console.log('[AI-OS SYNC] Payload unchanged, aborting export')
             return
         }
         window._lastSentContextSync = formattedText
@@ -90,7 +136,6 @@
             thread_id: getThreadId(),
             content: formattedText,
         }
-        console.log('[AI-OS SYNC] Sending payload to bridge:', payload)
 
         GM_xmlhttpRequest({
             method: 'POST',
@@ -101,6 +146,7 @@
             },
             onload: function (response) {
                 console.log(`[AI-OS SYNC] Success:`, response.responseText)
+                showSyncedIcon()
             },
             onerror: function (error) {
                 console.error(
@@ -115,23 +161,29 @@
     const observer = new MutationObserver((mutations) => {
         let shouldExport = false
         for (const mutation of mutations) {
-            if (
-                mutation.addedNodes.length > 0 ||
-                mutation.type === 'characterData'
-            ) {
+            if (mutation.target && mutation.target.nodeType === Node.ELEMENT_NODE && mutation.target.closest('model-response, user-query')) {
                 shouldExport = true
                 break
+            }
+            if (mutation.addedNodes) {
+                for (const node of mutation.addedNodes) {
+                    if (node.nodeType === Node.ELEMENT_NODE) {
+                        const tag = node.tagName.toLowerCase()
+                        if (tag === 'model-response' || tag === 'user-query' || node.querySelector?.('model-response, user-query')) {
+                            shouldExport = true
+                            break
+                        }
+                    }
+                }
+                if (shouldExport) break
             }
         }
 
         if (shouldExport) {
-            console.log(
-                '[AI-OS SYNC] Mutation detected, scheduling export in 2s'
-            )
             if (timeout) clearTimeout(timeout)
             timeout = setTimeout(() => {
                 exportThreadWithTimestamps()
-            }, 2000) // Debounce by 2 seconds
+            }, 500) // Debounce by 500 milliseconds
         }
     })
 
