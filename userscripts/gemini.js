@@ -236,6 +236,7 @@
         const stamp = document.createElement('span')
         stamp.className = 'gm-timestamp'
         stamp.innerText = buildMessageDisplay(unix, isEstimate)
+        stamp.setAttribute('data-timestamp', formatAbsoluteTime(new Date(unix * 1000)))
         stamp.style.cssText = `
       font-size: 1rem;
       color: #555;
@@ -260,6 +261,18 @@
         return url.includes('batchexecute') && url.includes('rpcids=MaZiqc')
     }
 
+    function syncToAiOs(url, payload) {
+        // Only sync actual response data, avoid sending tiny parts repeatedly if not complete
+        if (!payload || payload.length < 10) return
+        try {
+            fetch('http://127.0.0.1:3030/api/gemini/sync', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url: url, body: payload })
+            }).catch(() => {})
+        } catch(e) {}
+    }
+
     const _xhrOpen = XMLHttpRequest.prototype.open
     XMLHttpRequest.prototype.open = function (method, url) {
         this._url = url
@@ -282,10 +295,16 @@
             }
             if (!res) return
             if (isSidebarUrl(url)) {
-                if (this.readyState === 4) extractSidebarTimestamps(res)
+                if (this.readyState === 4) {
+                    extractSidebarTimestamps(res)
+                    syncToAiOs(url, res)
+                }
             } else {
                 if (this.readyState >= 3 && res.length > 500)
                     extractMessageTimestamps(res)
+                if (this.readyState === 4) {
+                    syncToAiOs(url, res)
+                }
             }
         })
         return _xhrSend.apply(this, arguments)
@@ -294,11 +313,18 @@
     const _fetch = window.fetch
     window.fetch = function (input, init) {
         const url = (typeof input === 'string' ? input : input?.url) || ''
-        if (!isSidebarUrl(url)) return _fetch.apply(this, arguments)
+        if (!url.includes('batchexecute')) return _fetch.apply(this, arguments)
         return _fetch.apply(this, arguments).then((res) => {
             res.clone()
                 .text()
-                .then(extractSidebarTimestamps)
+                .then((text) => {
+                    if (isSidebarUrl(url)) {
+                        extractSidebarTimestamps(text)
+                    } else if (text.length > 500) {
+                        extractMessageTimestamps(text)
+                    }
+                    syncToAiOs(url, text)
+                })
                 .catch(() => {})
             return res
         })
