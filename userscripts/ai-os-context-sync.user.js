@@ -18,26 +18,26 @@
     const SYNC_URL = `http://127.0.0.1:${API_PORT}/api/context/sync`
 
     function getThreadId() {
+        const threadTitle = Array.from(document.querySelectorAll('h1'))
+            .find(h1 => h1.innerText.trim() !== "Conversation with Gemini" && h1.innerText.trim() !== "")
+            ?.innerText.trim();
+
+        if (threadTitle) {
+            window._aiOsThreadId = threadTitle;
+            return threadTitle;
+        }
+
         const pathParts = window.location.pathname.split('/');
         let id = pathParts[pathParts.length - 1];
-        if (id === 'app' || !id || id === '') {
-            const threadTitle = Array.from(document.querySelectorAll('h1'))
-                .find(h1 => h1.innerText.trim() !== "Conversation with Gemini" && h1.innerText.trim() !== "")
-                ?.innerText.trim();
-
-            if (threadTitle) {
-                window._aiOsThreadId = threadTitle;
-                return threadTitle;
-            }
-
-            if (!window._aiOsThreadId) {
-                window._aiOsThreadId = Math.random().toString(36).substring(2, 8);
-            }
-            id = window._aiOsThreadId;
-        } else {
-            window._aiOsThreadId = id; 
+        if (id !== 'app' && id) {
+            window._aiOsThreadId = id;
+            return id;
         }
-        return id;
+
+        if (!window._aiOsThreadId) {
+            window._aiOsThreadId = Math.random().toString(36).substring(2, 8);
+        }
+        return window._aiOsThreadId;
     }
 
     function showSyncedIcon() {
