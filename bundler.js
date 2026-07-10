@@ -170,6 +170,7 @@ const __BUILD_ID__ = "${buildId}";
 		// Step 3: Iterative wrapping - process each manifest entry
 		const processedManifest = []
 		const allGrants = new Set()
+		const allConnects = new Set()
 
 		for (let i = 0; i < manifest.length; i++) {
 			const entry = manifest[i]
@@ -190,13 +191,32 @@ const __BUILD_ID__ = "${buildId}";
 			}
 
 			const sourceContent = fs.readFileSync(sourcePath, "utf8")
-			
-			// Enhanced parsing for grants and run-at
-			const grantMatches = sourceContent.match(/\/\/\s*@grant\s+(.+)$/gm) || []
-			grantMatches.forEach(m => {
-				const grant = m.match(/\/\/\s*@grant\s+(.+)$/)[1].trim()
-				if (grant !== 'none') allGrants.add(grant)
-			})
+
+			// Enhanced parsing for grants, connects and run-at
+			const headerLines = sourceContent.split('\n')
+			let inSourceHeader = false
+			for (const line of headerLines) {
+				const trimmed = line.trim()
+				if (trimmed === '// ==UserScript==') {
+					inSourceHeader = true
+					continue
+				}
+				if (trimmed === '// ==/UserScript==') {
+					break
+				}
+				if (inSourceHeader) {
+					const grantMatch = trimmed.match(/^\/\/\s*@grant\s+(.+)$/)
+					if (grantMatch) {
+						const grant = grantMatch[1].trim()
+						if (grant !== 'none') allGrants.add(grant)
+					}
+					const connectMatch = trimmed.match(/^\/\/\s*@connect\s+(.+)$/)
+					if (connectMatch) {
+						const connect = connectMatch[1].trim()
+						allConnects.add(connect)
+					}
+				}
+			}
 
 			const runAtMatch = sourceContent.match(/\/\/\s*@run-at\s+(.+)$/m)
 			const runAt = runAtMatch ? runAtMatch[1].trim() : 'document-idle'
@@ -247,27 +267,191 @@ ${sourceContent}
 		// Step 4: Append execution logic (Dispatcher)
 		console.log("🔧 Adding execution dispatcher...")
 
+		// Check README.md for matching grants and connects to warn the user
+		let buildTimeMissingGrants = []
+		let buildTimeMissingConnects = []
+		const readmePath = path.join(__dirname, "README.md")
+		if (fs.existsSync(readmePath)) {
+			const readmeContent = fs.readFileSync(readmePath, "utf8")
+			const masterBlockMatch = readmeContent.match(/\/\/ ==UserScript==[\s\S]*?\/\/ ==\/UserScript==/)
+			if (masterBlockMatch) {
+				const masterBlock = masterBlockMatch[0]
+				const readmeGrants = new Set(
+					(masterBlock.match(/\/\/\s*@grant\s+[^\r\n]+/g) || []).map(m => m.match(/\/\/\s*@grant\s+(.+)$/)[1].trim())
+				)
+				const readmeConnects = new Set(
+					(masterBlock.match(/\/\/\s*@connect\s+[^\r\n]+/g) || []).map(m => m.match(/\/\/\s*@connect\s+(.+)$/)[1].trim())
+				)
+				const normalizeGrant = (g) => g.replace('GM.', 'GM_');
+				
+				allGrants.forEach(grant => {
+					const normalized = normalizeGrant(grant);
+					let found = false;
+					readmeGrants.forEach(rg => {
+						if (normalizeGrant(rg) === normalized) found = true;
+					});
+					if (!found) buildTimeMissingGrants.push(grant);
+				});
+
+				allConnects.forEach(connect => {
+					if (!readmeConnects.has(connect)) {
+						buildTimeMissingConnects.push(connect);
+					}
+				});
+			}
+		}
+
 		const dispatcherCode = `
 // Execution Dispatcher
 (function() {
     'use strict';
     
+    // Inject runtime verification of grants/connects
+    const expectedGrants = ${JSON.stringify(Array.from(allGrants))};
+    const expectedConnects = ${JSON.stringify(Array.from(allConnects))};
+    const buildTimeMissingGrants = ${JSON.stringify(buildTimeMissingGrants)};
+    const buildTimeMissingConnects = ${JSON.stringify(buildTimeMissingConnects)};
+
+    function checkGrantsAndConnects() {
+        const missingGrants = [];
+        expectedGrants.forEach(grant => {
+            if (grant === 'none' || grant === 'unsafeWindow') return;
+            if (grant.startsWith('GM_') || grant.startsWith('GM.')) {
+                const apiName = grant.replace('GM.', 'GM_');
+                // Check in global scope, globalThis, and GM object
+                const hasAPI = (typeof globalThis !== 'undefined' && globalThis[apiName] !== undefined) ||
+                               (typeof window !== 'undefined' && window[apiName] !== undefined) ||
+                               (typeof GM !== 'undefined' && GM[grant.replace('GM.', '')] !== undefined) ||
+                               (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.grant && GM_info.script.grant.includes(grant));
+                if (!hasAPI) {
+                    missingGrants.push(grant);
+                }
+            }
+        });
+
+        // Also check if any grants or connects were flagged as missing from the README master block at compile time
+        const combinedMissingGrants = Array.from(new Set(missingGrants.concat(buildTimeMissingGrants)));
+
+        if (combinedMissingGrants.length > 0 || buildTimeMissingConnects.length > 0) {
+            console.log(
+                "%c 🚨 WARNING: MASTER USERSCRIPT CONFIGURATION IS OUT OF SYNC! 🚨 %c\\n" +
+                "The compiled bundle requires configurations that are missing from your Tampermonkey loader or README.md:\\n" +
+                (combinedMissingGrants.length > 0 ? "\\n%cMissing @grant(s):%c\\n" + combinedMissingGrants.map(function(g) { return " - @grant " + g; }).join('\\n') : "") +
+                (buildTimeMissingConnects.length > 0 ? "\\n%cMissing @connect(s):%c\\n" + buildTimeMissingConnects.map(function(c) { return " - @connect " + c; }).join('\\n') : "") +
+                "\\n\\n%c👉 Please update the Master Userscript block in README.md and copy the updated version to Tampermonkey!",
+                "background: #aa0000; color: #ffffff; font-weight: bold; padding: 4px 8px; font-size: 13px; border-radius: 4px;",
+                "color: #ff5555; font-weight: bold;",
+                // Style variables for log replacement
+                "color: #ff9999; font-weight: bold;", "color: #ff5555;",
+                "color: #ff9999; font-weight: bold;", "color: #ff5555;",
+                "color: #ffcc00; font-weight: bold;"
+            );
+        }
+    }
+
+    // --- Menu Settings logic ---
+    let isMenuExpanded = false;
+    try {
+        if (typeof GM_getValue !== 'undefined') {
+            isMenuExpanded = GM_getValue('us_menu_expanded', false);
+        }
+    } catch (e) {}
+
+    let menuIds = [];
+
+    function refreshMenu() {
+        if (typeof GM_unregisterMenuCommand === 'undefined' || typeof GM_registerMenuCommand === 'undefined') return;
+        
+        menuIds.forEach(id => {
+            try {
+                GM_unregisterMenuCommand(id);
+            } catch (e) {}
+        });
+        menuIds = [];
+        
+        const processedManifest = ${JSON.stringify(processedManifest, null, 4)};
+        const opts = { autoClose: false };
+        
+        try {
+            const toggleText = \`⚙️ Manage Bundled Scripts (\${isMenuExpanded ? 'Click to collapse ⬆️' : 'Click to expand ⬇️'})\`;
+            menuIds.push(
+                GM_registerMenuCommand(toggleText, () => {
+                    isMenuExpanded = !isMenuExpanded;
+                    try {
+                        GM_setValue('us_menu_expanded', isMenuExpanded);
+                    } catch (e) {}
+                    refreshMenu();
+                }, opts)
+            );
+            
+            if (isMenuExpanded) {
+                processedManifest.forEach(entry => {
+                    const key = 'us_enabled_' + entry.originalFile;
+                    let isEnabled = true;
+                    try {
+                        if (typeof GM_getValue !== 'undefined') {
+                            isEnabled = GM_getValue(key, true);
+                        }
+                    } catch (e) {}
+                    
+                    const itemText = \` ├─ \${isEnabled ? '🟢' : '🔴'} \${entry.name}\`;
+                    menuIds.push(
+                        GM_registerMenuCommand(itemText, () => {
+                            try {
+                                if (typeof GM_setValue !== 'undefined') {
+                                    GM_setValue(key, !isEnabled);
+                                }
+                            } catch (e) {}
+                            refreshMenu();
+                        }, opts)
+                    );
+                });
+            }
+        } catch (e) {
+            console.error("Error building userscript settings menu:", e);
+        }
+    }
+
+    try {
+        refreshMenu();
+    } catch (e) {
+        console.error("Error initializing settings menu:", e);
+    }
+
     function matchesPattern(matchPatterns) {
         if (!Array.isArray(matchPatterns)) matchPatterns = [matchPatterns];
         const currentUrl = window.location.href;
         return matchPatterns.some(pattern => {
             if (pattern === '*') return true;
-            // Simple match: check if pattern exists in URL
-            // This could be improved to handle proper userscript wildcards
             return currentUrl.includes(pattern);
         });
     }
     
     function executeDispatcher() {
+        // Run the check on load
+        try {
+            checkGrantsAndConnects();
+        } catch (e) {
+            console.error("Error verifying grants:", e);
+        }
+
         const processedManifest = ${JSON.stringify(processedManifest, null, 4)};
         
         processedManifest.forEach((entry) => {
             try {
+                // Check if this script is enabled in menu settings
+                let isEnabled = true;
+                try {
+                    if (typeof GM_getValue !== 'undefined') {
+                        isEnabled = GM_getValue('us_enabled_' + entry.originalFile, true);
+                    }
+                } catch (e) {}
+
+                if (!isEnabled) {
+                    console.log(\`🔌 [Bundler] \${entry.name} is disabled via menu settings.\`);
+                    return;
+                }
+
                 if (matchesPattern(entry.matches)) {
                     if (typeof window[entry.functionName] === 'function') {
                         window[entry.functionName]();
@@ -316,6 +500,19 @@ ${sourceContent}
 		console.log("---------------------------------------")
 		console.log("⚠️ Make sure to update your loader script in Tampermonkey with the grants above!")
 		console.log("3. The bundle will automatically detect the current page URL and execute the appropriate scripts")
+
+		if (buildTimeMissingGrants.length > 0 || buildTimeMissingConnects.length > 0) {
+			console.log("\n\x1b[41m\x1b[37m\x1b[1m 🚨 WARNING: MASTER USERSCRIPT CONFIGURATION IS OUT OF SYNC! 🚨 \x1b[0m")
+			if (buildTimeMissingGrants.length > 0) {
+				console.log(`\x1b[31m\x1b[1mMissing @grant(s) in README.md Master Userscript:\x1b[0m`)
+				buildTimeMissingGrants.forEach(g => console.log(`  \x1b[31m- @grant ${g}\x1b[0m`))
+			}
+			if (buildTimeMissingConnects.length > 0) {
+				console.log(`\x1b[31m\x1b[1mMissing @connect(s) in README.md Master Userscript:\x1b[0m`)
+				buildTimeMissingConnects.forEach(c => console.log(`  \x1b[31m- @connect ${c}\x1b[0m`))
+			}
+			console.log("\x1b[33m👉 Please update the Master Userscript block in README.md and copy the updated version to Tampermonkey!\x1b[0m\n")
+		}
 	} catch (error) {
 		console.error("❌ Bundling failed:", error.message)
 		process.exit(1)

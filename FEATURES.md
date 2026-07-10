@@ -44,3 +44,7 @@ This document tracks all features, capabilities, and enhancements implemented in
 
 ## Forbes Paywall Bypass
 - Restores scrolling and removes article overlay/paywall modals.
+## GMT Archive (Gemini Improvements)
+- **Local Markdown Archiving**: Automatically serializes and archives conversations locally in Markdown format with timestamps.
+- **Smart Autosave Synchronization**: Debounces and triggers local backup synchronizations only after the Gemini model has completely finished generating the response, avoiding partial backups and redundant requests during active output generation.
+- **Title Synchronization**: Syncs the document tab title with the conversation thread title using `MutationObserver`.

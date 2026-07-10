@@ -23,11 +23,15 @@ You install one master userscript in Tampermonkey that loads the bundled file:
 // @description  Loads local userscripts from bundle in ~/projects/userscript-bundler
 // @match        *://*/*
 // @run-at       document-start
-// @require      file:///Users/matthewmurphy/projects/userscript-bundler/userscript_bundle.js
+// @require      file:///Users/matt/projects/userscript-bundler/userscript_bundle.js
+// @grant        GM_xmlhttpRequest
 // @grant        GM_setValue
 // @grant        GM_getValue
+// @grant        GM_addStyle
 // @grant        GM_registerMenuCommand
 // @grant        GM_unregisterMenuCommand
+// @grant        unsafeWindow
+// @connect      127.0.0.1
 // ==/UserScript==
 ```
 
