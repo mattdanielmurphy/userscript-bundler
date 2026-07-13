@@ -13,6 +13,17 @@
 // @run-at       document-start
 // ==/UserScript==
 
+/**
+ * Gemini Thread Saver Userscript
+ * 
+ * To modify this script, take advantage of the chrome MCP server!
+ * If you update the userscript, all you have to do is reload the Chrome
+ * debug tab to get the latest changes loaded.
+ *
+ * If you need to modify the gemini-thread-saver server, you can do so
+ * and then run `la restart gemini-thread-saver` in your terminal to restart it.
+ */
+
 // Token Counter
 /**
  * Highly accurate, self-contained token estimator using the official
@@ -2488,28 +2499,23 @@ const estimateTokensAccurate = (text) => {
 			pre.dataset.runButtonInjected = "true";
 
 			const runBtn = document.createElement("button");
-			runBtn.innerText = "Run 🚀";
-			runBtn.title = "Run this command on your local system";
+			runBtn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>`;
+			runBtn.title = "Run this command locally";
 			runBtn.style.cssText = `
-				background: #a6e3a1;
-				color: #1e1e2e;
+				background: transparent;
+				color: #c4c7c5;
 				border: none;
-				border-radius: 4px;
-				padding: 4px 12px;
-				margin-right: 8px;
-				font-family: "Google Sans", sans-serif;
-				font-size: 13px;
+				border-radius: 50%;
+				padding: 6px;
+				margin-right: 4px;
 				cursor: pointer;
-				font-weight: bold;
 				transition: all 0.2s;
 				display: inline-flex;
 				align-items: center;
 				justify-content: center;
-				height: 32px;
-				vertical-align: middle;
 			`;
-			runBtn.onmouseover = () => runBtn.style.opacity = 0.8;
-			runBtn.onmouseout = () => runBtn.style.opacity = 1;
+			runBtn.onmouseover = () => { runBtn.style.background = "rgba(255,255,255,0.1)"; runBtn.style.color = "#e3e3e3"; };
+			runBtn.onmouseout = () => { runBtn.style.background = "transparent"; runBtn.style.color = "#c4c7c5"; };
 			
 			runBtn.onclick = (e) => {
 				e.preventDefault();
@@ -2522,7 +2528,7 @@ const estimateTokensAccurate = (text) => {
 					return;
 				}
 				
-				runBtn.innerText = "Running...";
+				runBtn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>`;
 				
 				if (typeof GM_xmlhttpRequest === 'function') {
 					GM_xmlhttpRequest({
@@ -2537,28 +2543,25 @@ const estimateTokensAccurate = (text) => {
 							try {
 								const data = JSON.parse(res.responseText);
 								if (data.ok) {
-									runBtn.innerText = `tmux: ${data.session}`;
-									runBtn.style.background = "#89b4fa";
-									if (typeof terminalUi !== 'undefined') terminalUi.start(data.session);
+									runBtn.style.color = "#89b4fa";
+									runBtn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
+									if (typeof terminalManager !== 'undefined') terminalManager.startInline(pre, data.session);
 								} else {
-									runBtn.innerText = "Error";
-									runBtn.style.background = "#f38ba8";
+									runBtn.style.color = "#f38ba8";
 								}
 							} catch(err) {
-								runBtn.innerText = "Error";
-								runBtn.style.background = "#f38ba8";
+								runBtn.style.color = "#f38ba8";
 							}
 							setTimeout(() => {
-								runBtn.innerText = "Run 🚀";
-								runBtn.style.background = "#a6e3a1";
+								runBtn.style.color = "#c4c7c5";
+								runBtn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>`;
 							}, 8000);
 						},
 						onerror: () => {
-							runBtn.innerText = "Failed";
-							runBtn.style.background = "#f38ba8";
+							runBtn.style.color = "#f38ba8";
 							setTimeout(() => {
-								runBtn.innerText = "Run 🚀";
-								runBtn.style.background = "#a6e3a1";
+								runBtn.style.color = "#c4c7c5";
+								runBtn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>`;
 							}, 5000);
 						}
 					});
@@ -2582,176 +2585,82 @@ const estimateTokensAccurate = (text) => {
 	// ═══════════════════════════════════════════════════════════
 	// TERMINAL OUTPUT ATTACHMENT
 	// ═══════════════════════════════════════════════════════════
-	const terminalUi = {
-		activeSession: null,
-		pollTimer: null,
-		box: null,
-		outputEl: null,
+	const terminalManager = {
+		pollers: {},
+		contexts: {},
 		
-		init() {
-			if (this.box) return;
-			this.box = document.createElement("div");
-			this.box.id = "gmt-terminal-box";
-			this.box.style.cssText = `
-				position: fixed;
-				bottom: 80px;
-				left: 20px;
-				width: 450px;
-				max-height: 350px;
-				background: rgba(30, 30, 46, 0.85);
-				backdrop-filter: blur(12px) saturate(180%);
-				-webkit-backdrop-filter: blur(12px) saturate(180%);
-				border: 1px solid rgba(255, 255, 255, 0.08);
-				border-radius: 12px;
-				display: none;
-				flex-direction: column;
-				z-index: 99990;
-				font-family: monospace;
-				box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-				overflow: hidden;
-			`;
+		startInline(pre, session) {
+			let container = pre.nextElementSibling;
+			if (!container || !container.classList.contains("gmt-inline-output")) {
+				container = document.createElement("div");
+				container.className = "gmt-inline-output";
+				container.style.cssText = `
+					background: rgba(30, 30, 46, 0.85);
+					border: 1px solid rgba(255, 255, 255, 0.08);
+					border-radius: 8px;
+					margin-top: 8px;
+					padding: 12px;
+					font-family: monospace;
+					font-size: 12px;
+					color: #a6adc8;
+					max-height: 400px;
+					overflow-y: auto;
+					position: relative;
+				`;
+				pre.parentNode.insertBefore(container, pre.nextSibling);
+			}
 
-			const header = document.createElement("div");
-			header.style.cssText = `
-				padding: 8px 12px;
-				background: rgba(0,0,0,0.2);
-				border-bottom: 1px solid rgba(255,255,255,0.05);
-				display: flex;
-				justify-content: space-between;
-				align-items: center;
-				color: #e2e2f0;
-				font-size: 13px;
-				font-family: "Google Sans", sans-serif;
-			`;
+			container.innerHTML = "";
 			
-			const title = document.createElement("div");
-			title.innerText = "Attached Context: tmux";
-			this.titleEl = title;
+			const header = document.createElement("div");
+			header.style.cssText = "display: flex; justify-content: space-between; margin-bottom: 8px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 4px; color: #89b4fa; font-weight: bold;";
+			header.innerText = `Terminal Output (tmux: ${session})`;
+			
+			const outputEl = document.createElement("pre");
+			outputEl.style.cssText = "margin: 0; white-space: pre-wrap; word-wrap: break-word;";
+			outputEl.innerText = "Loading...";
 
-			const actions = document.createElement("div");
-			actions.style.display = "flex";
-			actions.style.gap = "8px";
-
-			const injectBtn = document.createElement("button");
-			injectBtn.innerText = "Inject to Chat";
-			injectBtn.style.cssText = `
-				background: #a6e3a1;
-				color: #11111b;
-				border: none;
-				border-radius: 4px;
-				padding: 4px 8px;
-				font-size: 11px;
-				cursor: pointer;
-				font-weight: bold;
-			`;
-			injectBtn.onclick = () => this.injectToChat();
-
-			const closeBtn = document.createElement("button");
-			closeBtn.innerText = "×";
-			closeBtn.style.cssText = `
-				background: transparent;
-				color: #f38ba8;
-				border: none;
-				font-size: 16px;
-				cursor: pointer;
-				line-height: 1;
-				padding: 0 4px;
-			`;
-			closeBtn.onclick = () => this.stop();
-
-			const sendInputForm = document.createElement("form");
-			sendInputForm.style.cssText = "display: flex; gap: 4px; margin-right: 8px;";
-			sendInputForm.onsubmit = (e) => {
-				e.preventDefault();
-				this.sendInput(this.inputField.value);
-				this.inputField.value = "";
-			};
-
-			this.inputField = document.createElement("input");
-			this.inputField.type = "password";
-			this.inputField.placeholder = "Sudo pwd or input...";
-			this.inputField.style.cssText = `
-				background: rgba(0,0,0,0.3);
-				border: 1px solid rgba(255,255,255,0.1);
-				border-radius: 4px;
-				color: #e2e2f0;
-				padding: 2px 6px;
-				font-size: 11px;
-				width: 120px;
-			`;
-
+			const inputForm = document.createElement("form");
+			inputForm.style.cssText = "display: flex; gap: 8px; margin-top: 8px;";
+			const inputField = document.createElement("input");
+			inputField.type = "text";
+			inputField.placeholder = "Sudo pwd or input...";
+			inputField.style.cssText = "flex-grow: 1; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; color: #e2e2f0; padding: 4px 8px; font-size: 12px;";
 			const sendBtn = document.createElement("button");
 			sendBtn.innerText = "Send";
 			sendBtn.type = "submit";
-			sendBtn.style.cssText = `
-				background: #89b4fa;
-				color: #11111b;
-				border: none;
-				border-radius: 4px;
-				padding: 2px 8px;
-				font-size: 11px;
-				cursor: pointer;
-				font-weight: bold;
-			`;
-			sendInputForm.appendChild(this.inputField);
-			sendInputForm.appendChild(sendBtn);
-
-			actions.appendChild(sendInputForm);
-			actions.appendChild(injectBtn);
-			actions.appendChild(closeBtn);
-			header.appendChild(title);
-			header.appendChild(actions);
-
-			this.outputEl = document.createElement("pre");
-			this.outputEl.style.cssText = `
-				padding: 12px;
-				margin: 0;
-				color: #a6adc8;
-				font-size: 12px;
-				overflow-y: auto;
-				flex-grow: 1;
-				white-space: pre-wrap;
-				word-wrap: break-word;
-			`;
-
-			this.box.appendChild(header);
-			this.box.appendChild(this.outputEl);
-			document.body.appendChild(this.box);
-		},
-
-		start(session) {
-			this.init();
-			this.activeSession = session;
-			this.titleEl.innerText = `Terminal: ${session}`;
-			this.box.style.display = "flex";
-			this.outputEl.innerText = "Loading...";
+			sendBtn.style.cssText = "background: #89b4fa; color: #11111b; border: none; border-radius: 4px; padding: 4px 12px; font-size: 12px; cursor: pointer; font-weight: bold;";
 			
-			if (this.pollTimer) clearInterval(this.pollTimer);
-			this.pollTimer = setInterval(() => this.poll(), 2000);
-			this.poll();
+			inputForm.appendChild(inputField);
+			inputForm.appendChild(sendBtn);
+			
+			inputForm.onsubmit = (e) => {
+				e.preventDefault();
+				this.sendInput(session, inputField.value);
+				inputField.value = "";
+			};
+
+			container.appendChild(header);
+			container.appendChild(outputEl);
+			container.appendChild(inputForm);
+
+			if (this.pollers[session]) clearInterval(this.pollers[session]);
+			this.pollers[session] = setInterval(() => this.poll(session, outputEl), 2000);
+			this.poll(session, outputEl);
 		},
 
-		stop() {
-			this.activeSession = null;
-			this.box.style.display = "none";
-			if (this.pollTimer) {
-				clearInterval(this.pollTimer);
-				this.pollTimer = null;
-			}
-		},
-
-		poll() {
-			if (!this.activeSession) return;
+		poll(session, outputEl) {
 			if (typeof GM_xmlhttpRequest === 'function') {
 				GM_xmlhttpRequest({
 					method: "GET",
-					url: `http://127.0.0.1:3033/session-output?session=${this.activeSession}`,
+					url: `http://127.0.0.1:3033/session-output?session=${session}`,
 					onload: (res) => {
 						try {
 							const data = JSON.parse(res.responseText);
 							if (data.ok && typeof data.output === 'string') {
-								this.outputEl.innerText = data.output || "(empty output)";
-								this.outputEl.scrollTop = this.outputEl.scrollHeight;
+								outputEl.innerText = data.output || "(empty output)";
+								outputEl.scrollTop = outputEl.scrollHeight;
+								this.updateContextPill(session, data.output);
 							}
 						} catch(e) {}
 					}
@@ -2759,8 +2668,7 @@ const estimateTokensAccurate = (text) => {
 			}
 		},
 
-		sendInput(text) {
-			if (!this.activeSession) return;
+		sendInput(session, text) {
 			if (typeof GM_xmlhttpRequest === 'function') {
 				GM_xmlhttpRequest({
 					method: "POST",
@@ -2769,27 +2677,162 @@ const estimateTokensAccurate = (text) => {
 						"Content-Type": "application/json",
 						"x-gemini-thread-saver-key": typeof GM_getValue === 'function' ? GM_getValue("gmt_archive_secret") : ""
 					},
-					data: JSON.stringify({ session: this.activeSession, text: text }),
-					onload: () => {
-						setTimeout(() => this.poll(), 200);
-					}
+					data: JSON.stringify({ session: session, text: text })
 				});
 			}
 		},
 
-		injectToChat() {
-			const text = this.outputEl.innerText;
+		updateContextPill(session, output) {
+			this.contexts[session] = { active: true, output: output };
+			this.renderContextPills();
+		},
+
+		renderContextPills() {
+			const inputArea = document.querySelector('rich-textarea[aria-label="Message Gemini"]') || document.querySelector('.ql-editor');
+			if (!inputArea) return;
+
+			let container = document.getElementById("gmt-context-pills-container");
+			if (!container) {
+				container = document.createElement("div");
+				container.id = "gmt-context-pills-container";
+				container.style.cssText = "display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px;";
+				
+				// Insert right before the input area or as its previous sibling
+				const wrapper = inputArea.closest('rich-textarea') || inputArea;
+				if (wrapper && wrapper.parentNode) {
+					wrapper.parentNode.insertBefore(container, wrapper);
+				}
+			}
+
+			container.innerHTML = "";
+			Object.entries(this.contexts).forEach(([session, ctx]) => {
+				if (!ctx.active) return;
+				
+				const pill = document.createElement("div");
+				pill.style.cssText = `
+					background: rgba(137, 180, 250, 0.15);
+					border: 1px solid rgba(137, 180, 250, 0.3);
+					color: #89b4fa;
+					border-radius: 16px;
+					padding: 4px 12px;
+					font-size: 12px;
+					font-family: "Google Sans", sans-serif;
+					display: flex;
+					align-items: center;
+					gap: 6px;
+					cursor: pointer;
+					position: relative;
+				`;
+				
+				const textNode = document.createElement("span");
+				textNode.innerText = `Terminal: ${session}`;
+				pill.appendChild(textNode);
+
+				const removeBtn = document.createElement("span");
+				removeBtn.innerHTML = "&times;";
+				removeBtn.style.cssText = "font-size: 14px; font-weight: bold; opacity: 0.7; cursor: pointer;";
+				removeBtn.onclick = (e) => {
+					e.stopPropagation();
+					ctx.active = false;
+					this.renderContextPills();
+				};
+				pill.appendChild(removeBtn);
+
+				// Hover tooltip
+				pill.onmouseover = (e) => {
+					let tooltip = document.getElementById("gmt-context-tooltip");
+					if (!tooltip) {
+						tooltip = document.createElement("div");
+						tooltip.id = "gmt-context-tooltip";
+						tooltip.style.cssText = `
+							position: absolute;
+							bottom: 100%;
+							left: 0;
+							margin-bottom: 8px;
+							background: #1e1e2e;
+							border: 1px solid rgba(255,255,255,0.1);
+							border-radius: 8px;
+							padding: 8px;
+							color: #cdd6f4;
+							font-family: monospace;
+							font-size: 11px;
+							max-width: 400px;
+							max-height: 200px;
+							overflow: hidden;
+							text-overflow: ellipsis;
+							white-space: pre-wrap;
+							box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+							z-index: 99999;
+							pointer-events: none;
+						`;
+						pill.appendChild(tooltip);
+					}
+					// Show the last 500 chars roughly
+					const snippet = ctx.output.length > 500 ? "..." + ctx.output.slice(-500) : ctx.output;
+					tooltip.innerText = snippet;
+				};
+				pill.onmouseout = (e) => {
+					const tooltip = document.getElementById("gmt-context-tooltip");
+					if (tooltip) tooltip.remove();
+				};
+                
+                // Clicking the pill itself toggles insertion manually
+                pill.onclick = () => {
+                    this.injectToChat(ctx.output);
+                };
+
+				container.appendChild(pill);
+			});
+		},
+        
+        injectToChat(text) {
 			if (!text) return;
 			const input = document.querySelector('rich-textarea[aria-label="Message Gemini"]') || document.querySelector('.ql-editor');
 			if (input) {
 				input.focus();
-				const p = document.createElement('p');
-				p.innerText = `\n\n\`\`\`text\n${text}\n\`\`\``;
-				input.appendChild(p);
-				input.dispatchEvent(new Event('input', { bubbles: true }));
+                // Fix newline issue by using execCommand insertText
+                // We format it as a markdown code block
+                const formatted = `
+
+\`\`\`text
+${text}
+\`\`\`
+`;
+                document.execCommand('insertText', false, formatted);
 			}
 		}
 	};
+    
+    // Auto-inject context on enter/submit logic
+    document.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" && !e.shiftKey) {
+            const input = document.querySelector('rich-textarea[aria-label="Message Gemini"]') || document.querySelector('.ql-editor');
+            if (input && input.contains(e.target)) {
+                // If there are active contexts, inject them right before sending
+                let allContext = "";
+                Object.entries(terminalManager.contexts).forEach(([session, ctx]) => {
+                    if (ctx.active) {
+                        allContext += `
+
+[Attached Context: ${session}]
+\`\`\`text
+${ctx.output}
+\`\`\`
+`;
+                        // Auto-detach after injection
+                        ctx.active = false;
+                    }
+                });
+                
+                if (allContext) {
+                    // Inject gracefully
+                    input.focus();
+                    document.execCommand('insertText', false, allContext);
+                    terminalManager.renderContextPills();
+                }
+            }
+        }
+    }, true);
 
 	// ═══════════════════════════════════════════════════════════
 	// PRIVATE LOCAL MARKDOWN ARCHIVE

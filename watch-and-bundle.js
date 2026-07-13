@@ -78,10 +78,20 @@ function runBundler() {
 			}
 		} else {
 			log(`❌ Bundler failed with exit code ${code}`, true)
+			let fullError = `Bundler failed with exit code ${code}\n`;
 			if (errorOutput.trim()) {
 				const lines = errorOutput.trim().split("\n")
 				lines.forEach((line) => log(`  ${line}`, true))
+				fullError += errorOutput.trim();
 			}
+
+			// Copy error log to clipboard
+			const pbcopy = spawn("pbcopy");
+			pbcopy.stdin.write(fullError);
+			pbcopy.stdin.end();
+
+			// Send macOS notification
+			spawn("osascript", ["-e", `display notification "Bundle failed. Log copied to clipboard." with title "Userscript Bundler"`]);
 		}
 	})
 
