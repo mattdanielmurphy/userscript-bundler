@@ -48,3 +48,4 @@ This document tracks all features, capabilities, and enhancements implemented in
 - **Local Markdown Archiving**: Automatically serializes and archives conversations locally in Markdown format with timestamps.
 - **Smart Autosave Synchronization**: Debounces and triggers local backup synchronizations only after the Gemini model has completely finished generating the response, avoiding partial backups and redundant requests during active output generation.
 - **Title Synchronization**: Syncs the document tab title with the conversation thread title using `MutationObserver`.
+- **Run Bash Commands**: Adds a "Run 🚀" button next to Gemini's native copy button on bash code blocks. Uses the local backend to spawn a detached `tmux` session, executing commands seamlessly on your host system.
