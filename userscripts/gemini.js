@@ -2536,7 +2536,15 @@ const estimateTokensAccurate = (text) => {
 			pre.dataset.runButtonInjected = "true"
 
 			const runBtn = document.createElement("button")
-			runBtn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>`
+			if (window.trustedTypes && window.trustedTypes.createPolicy) {
+				if (!window.gmtPolicy) {
+					try { window.gmtPolicy = window.trustedTypes.createPolicy("gmt-svg", { createHTML: s => s }); }
+					catch(e) { window.gmtPolicy = { createHTML: s => s }; }
+				}
+				runBtn.innerHTML = window.gmtPolicy.createHTML(`<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>`)
+			} else {
+				runBtn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>`
+			}
 			runBtn.title = "Run this command locally"
 			runBtn.style.cssText = `
 				background: transparent;
@@ -2574,7 +2582,11 @@ const estimateTokensAccurate = (text) => {
 					return
 				}
 
-				runBtn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>`
+				if (window.gmtPolicy) {
+					runBtn.innerHTML = window.gmtPolicy.createHTML(`<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>`)
+				} else {
+					runBtn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>`
+				}
 
 				if (typeof GM_xmlhttpRequest === "function") {
 					GM_xmlhttpRequest({
@@ -2590,7 +2602,11 @@ const estimateTokensAccurate = (text) => {
 								const data = JSON.parse(res.responseText)
 								if (data.ok) {
 									runBtn.style.color = "#89b4fa"
-									runBtn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`
+									if (window.gmtPolicy) {
+										runBtn.innerHTML = window.gmtPolicy.createHTML(`<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`)
+									} else {
+										runBtn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`
+									}
 									if (typeof terminalManager !== "undefined")
 										terminalManager.startInline(pre, data.session)
 								} else {
@@ -2601,14 +2617,22 @@ const estimateTokensAccurate = (text) => {
 							}
 							setTimeout(() => {
 								runBtn.style.color = "#c4c7c5"
-								runBtn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>`
+								if (window.gmtPolicy) {
+									runBtn.innerHTML = window.gmtPolicy.createHTML(`<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>`)
+								} else {
+									runBtn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>`
+								}
 							}, 8000)
 						},
 						onerror: () => {
 							runBtn.style.color = "#f38ba8"
 							setTimeout(() => {
 								runBtn.style.color = "#c4c7c5"
-								runBtn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>`
+								if (window.gmtPolicy) {
+									runBtn.innerHTML = window.gmtPolicy.createHTML(`<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>`)
+								} else {
+									runBtn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>`
+								}
 							}, 5000)
 						},
 					})
@@ -2657,7 +2681,7 @@ const estimateTokensAccurate = (text) => {
 				pre.parentNode.insertBefore(container, pre.nextSibling)
 			}
 
-			container.innerHTML = ""
+			container.textContent = ""
 
 			const header = document.createElement("div")
 			header.style.cssText =
@@ -2764,7 +2788,7 @@ const estimateTokensAccurate = (text) => {
 				}
 			}
 
-			container.innerHTML = ""
+			container.textContent = ""
 			Object.entries(this.contexts).forEach(([session, ctx]) => {
 				if (!ctx.active) return
 
@@ -2789,7 +2813,7 @@ const estimateTokensAccurate = (text) => {
 				pill.appendChild(textNode)
 
 				const removeBtn = document.createElement("span")
-				removeBtn.innerHTML = "&times;"
+				removeBtn.textContent = "\u00D7"
 				removeBtn.style.cssText =
 					"font-size: 14px; font-weight: bold; opacity: 0.7; cursor: pointer;"
 				removeBtn.onclick = (e) => {
