@@ -225,6 +225,9 @@ const __BUILD_ID__ = "${buildId}";`)
 		const processedManifest = []
 		const allGrants = new Set()
 		const allConnects = new Set()
+		
+		allGrants.add("GM_setClipboard")
+		allGrants.add("GM_notification")
 
 		for (let i = 0; i < manifest.length; i++) {
 			const entry = manifest[i]
@@ -546,10 +549,48 @@ window.${functionName} = ${functionName};
                 }
             } catch (error) {
                 console.error(\`❌ Error in \${entry.name}:\`, error);
+                try {
+                    const stack = error.stack || error.toString();
+                    if (typeof GM_setClipboard !== 'undefined') GM_setClipboard(stack);
+                    if (typeof GM_notification !== 'undefined') {
+                        GM_notification({
+                            title: \`❌ \${entry.name} Error\`,
+                            text: "Copied to clipboard: " + error.message,
+                            timeout: 5000
+                        });
+                    }
+                } catch(e) {}
             }
         });
     }
     
+    // Set up global error reporting for async/runtime userscript errors
+    function handleGlobalError(type, message, errorObj) {
+        try {
+            const stack = errorObj && errorObj.stack ? errorObj.stack : String(errorObj);
+            // Only report if it looks like it originated from our bundle/userscript context
+            if (stack && (stack.includes('userscript.html') || stack.includes('userscript_bundle') || stack.includes('eval'))) {
+                if (typeof GM_setClipboard !== 'undefined') GM_setClipboard(stack);
+                if (typeof GM_notification !== 'undefined') {
+                    GM_notification({
+                        title: "Bundler: " + type,
+                        text: "Copied to clipboard: " + message,
+                        timeout: 5000
+                    });
+                }
+            }
+        } catch (e) {}
+    }
+
+    window.addEventListener('error', function(event) {
+        handleGlobalError("Runtime Error", event.message, event.error);
+    });
+
+    window.addEventListener('unhandledrejection', function(event) {
+        const reason = event.reason;
+        handleGlobalError("Unhandled Promise Rejection", reason ? reason.message : "Unknown", reason);
+    });
+
     // Dispatcher itself should run early to catch document-start scripts
     executeDispatcher();
 })();`
