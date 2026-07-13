@@ -24,12 +24,16 @@ You install one master userscript in Tampermonkey that loads the bundled file:
 // @match        *://*/*
 // @run-at       document-start
 // @require      file:///Users/matt/projects/userscript-bundler/userscript_bundle.js
-// @grant        GM_xmlhttpRequest
-// @grant        GM_setValue
-// @grant        GM_getValue
+// @grant        GM.getValue
+// @grant        GM.setValue
 // @grant        GM_addStyle
+// @grant        GM_getValue
+// @grant        GM_notification
 // @grant        GM_registerMenuCommand
+// @grant        GM_setClipboard
+// @grant        GM_setValue
 // @grant        GM_unregisterMenuCommand
+// @grant        GM_xmlhttpRequest
 // @grant        unsafeWindow
 // @connect      127.0.0.1
 // ==/UserScript==
