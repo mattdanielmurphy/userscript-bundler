@@ -15,7 +15,7 @@
 
 /**
  * Gemini Thread Saver Userscript
- * 
+ *
  * To modify this script, take advantage of the chrome MCP server!
  * If you update the userscript, all you have to do is reload the Chrome
  * debug tab to get the latest changes loaded.
@@ -33,6 +33,7 @@
  * @param {string} text - The input text to estimate.
  * @returns {number} Estimated token count.
  */
+
 const estimateTokensAccurate = (text) => {
 	if (!text) return 0
 
@@ -2181,7 +2182,10 @@ const estimateTokensAccurate = (text) => {
 
 		const btnSpan = document.createElement("span")
 		if (currentPhase === null) {
-			const planSvg = document.createElementNS("http://www.w3.org/2000/svg", "svg")
+			const planSvg = document.createElementNS(
+				"http://www.w3.org/2000/svg",
+				"svg",
+			)
 			planSvg.setAttribute("width", "14")
 			planSvg.setAttribute("height", "14")
 			planSvg.setAttribute("viewBox", "0 0 24 24")
@@ -2193,25 +2197,43 @@ const estimateTokensAccurate = (text) => {
 			planSvg.style.marginRight = "4px"
 			planSvg.style.verticalAlign = "-2px"
 
-			const planPath = document.createElementNS("http://www.w3.org/2000/svg", "path")
-			planPath.setAttribute("d", "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z")
-			
-			const planPoly1 = document.createElementNS("http://www.w3.org/2000/svg", "polyline")
+			const planPath = document.createElementNS(
+				"http://www.w3.org/2000/svg",
+				"path",
+			)
+			planPath.setAttribute(
+				"d",
+				"M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z",
+			)
+
+			const planPoly1 = document.createElementNS(
+				"http://www.w3.org/2000/svg",
+				"polyline",
+			)
 			planPoly1.setAttribute("points", "14 2 14 8 20 8")
-			
-			const planLine1 = document.createElementNS("http://www.w3.org/2000/svg", "line")
+
+			const planLine1 = document.createElementNS(
+				"http://www.w3.org/2000/svg",
+				"line",
+			)
 			planLine1.setAttribute("x1", "16")
 			planLine1.setAttribute("y1", "13")
 			planLine1.setAttribute("x2", "8")
 			planLine1.setAttribute("y2", "13")
 
-			const planLine2 = document.createElementNS("http://www.w3.org/2000/svg", "line")
+			const planLine2 = document.createElementNS(
+				"http://www.w3.org/2000/svg",
+				"line",
+			)
 			planLine2.setAttribute("x1", "16")
 			planLine2.setAttribute("y1", "17")
 			planLine2.setAttribute("x2", "8")
 			planLine2.setAttribute("y2", "17")
 
-			const planPoly2 = document.createElementNS("http://www.w3.org/2000/svg", "polyline")
+			const planPoly2 = document.createElementNS(
+				"http://www.w3.org/2000/svg",
+				"polyline",
+			)
 			planPoly2.setAttribute("points", "10 9 9 9 8 9")
 
 			planSvg.appendChild(planPath)
@@ -2257,7 +2279,11 @@ const estimateTokensAccurate = (text) => {
 			'button.input-area-switch, button[aria-label*="Send"], button.send-button',
 		)
 		if (switchBtn) {
-			switchBtn.parentNode.style.setProperty("flex-direction", "row", "important")
+			switchBtn.parentNode.style.setProperty(
+				"flex-direction",
+				"row",
+				"important",
+			)
 			switchBtn.parentNode.insertBefore(container, switchBtn)
 		} else {
 			promptContainer.appendChild(container)
@@ -2445,62 +2471,73 @@ const estimateTokensAccurate = (text) => {
 	}
 
 	function injectRunButtons() {
-		const preElements = document.querySelectorAll('model-response pre, pre');
+		const preElements = document.querySelectorAll("model-response pre, pre")
 		// console.log(`[GMT] injectRunButtons running. Found ${preElements.length} <pre> elements.`);
-		
-		preElements.forEach(pre => {
-			if (pre.dataset.runButtonInjected) return;
 
-			let container = pre.parentElement;
-			let copyBtn = null;
-			let headerText = "";
+		preElements.forEach((pre) => {
+			if (pre.dataset.runButtonInjected) return
+
+			let container = pre.parentElement
+			let copyBtn = null
+			let headerText = ""
 
 			// Try to find the closest wrapper that has a copy button
 			for (let i = 0; i < 5; i++) {
-				if (!container || container.tagName === 'BODY') break;
-				
+				if (!container || container.tagName === "BODY") break
+
 				// Try various known selectors for the copy button
-				copyBtn = container.querySelector('button[aria-label*="Copy" i], button[aria-label*="copy" i], button[data-tooltip*="Copy" i], button.copy-button');
+				copyBtn = container.querySelector(
+					'button[aria-label*="Copy" i], button[aria-label*="copy" i], button[data-tooltip*="Copy" i], button.copy-button',
+				)
 				if (!copyBtn) {
-					const icon = container.querySelector('mat-icon[data-mat-icon-name="content_copy"], mat-icon[fonticon="content_copy"], .copy-icon, [data-icon="content_copy"]');
-					if (icon) copyBtn = icon.closest('button');
+					const icon = container.querySelector(
+						'mat-icon[data-mat-icon-name="content_copy"], mat-icon[fonticon="content_copy"], .copy-icon, [data-icon="content_copy"]',
+					)
+					if (icon) copyBtn = icon.closest("button")
 				}
 
 				if (copyBtn) {
-					headerText = container.innerText.toLowerCase();
-					break;
+					headerText = container.innerText.toLowerCase()
+					break
 				}
-				container = container.parentElement;
+				container = container.parentElement
 			}
 
 			if (!copyBtn) {
 				// No copy button found, so we can't inject safely next to it.
-				return; 
+				return
 			}
-			
+
 			// Detect language
-			let isBash = headerText.includes('bash') || headerText.includes('shell') || headerText.includes('sh');
+			let isBash =
+				headerText.includes("bash") ||
+				headerText.includes("shell") ||
+				headerText.includes("sh")
 			if (!isBash) {
-				const codeClass = (pre.querySelector('code') || pre).className || "";
-				if (codeClass.toLowerCase().includes('bash') || codeClass.toLowerCase().includes('sh') || codeClass.toLowerCase().includes('shell')) {
-					isBash = true;
+				const codeClass = (pre.querySelector("code") || pre).className || ""
+				if (
+					codeClass.toLowerCase().includes("bash") ||
+					codeClass.toLowerCase().includes("sh") ||
+					codeClass.toLowerCase().includes("shell")
+				) {
+					isBash = true
 				} else {
 					// Check spans
-					container.querySelectorAll('span, div').forEach(s => {
-						const txt = s.innerText.trim().toLowerCase();
-						if (txt === 'bash' || txt === 'sh' || txt === 'shell') isBash = true;
-					});
+					container.querySelectorAll("span, div").forEach((s) => {
+						const txt = s.innerText.trim().toLowerCase()
+						if (txt === "bash" || txt === "sh" || txt === "shell") isBash = true
+					})
 				}
 			}
 
-			if (!isBash) return;
+			if (!isBash) return
 
-			console.log("[GMT] Injecting Run button for bash block");
-			pre.dataset.runButtonInjected = "true";
+			console.log("[GMT] Injecting Run button for bash block")
+			pre.dataset.runButtonInjected = "true"
 
-			const runBtn = document.createElement("button");
-			runBtn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>`;
-			runBtn.title = "Run this command locally";
+			const runBtn = document.createElement("button")
+			runBtn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>`
+			runBtn.title = "Run this command locally"
 			runBtn.style.cssText = `
 				background: transparent;
 				color: #c4c7c5;
@@ -2513,73 +2550,83 @@ const estimateTokensAccurate = (text) => {
 				display: inline-flex;
 				align-items: center;
 				justify-content: center;
-			`;
-			runBtn.onmouseover = () => { runBtn.style.background = "rgba(255,255,255,0.1)"; runBtn.style.color = "#e3e3e3"; };
-			runBtn.onmouseout = () => { runBtn.style.background = "transparent"; runBtn.style.color = "#c4c7c5"; };
-			
+			`
+			runBtn.onmouseover = () => {
+				runBtn.style.background = "rgba(255,255,255,0.1)"
+				runBtn.style.color = "#e3e3e3"
+			}
+			runBtn.onmouseout = () => {
+				runBtn.style.background = "transparent"
+				runBtn.style.color = "#c4c7c5"
+			}
+
 			runBtn.onclick = (e) => {
-				e.preventDefault();
-				e.stopPropagation();
-				
-				const code = (pre.querySelector('code') || pre).innerText;
-				const secret = typeof GM_getValue === 'function' ? GM_getValue("gmt_archive_secret") : null;
+				e.preventDefault()
+				e.stopPropagation()
+
+				const code = (pre.querySelector("code") || pre).innerText
+				const secret =
+					typeof GM_getValue === "function" ?
+						GM_getValue("gmt_archive_secret")
+					:	null
 				if (!secret) {
-					alert("Please set your gmt_archive_secret in Tampermonkey first.");
-					return;
+					alert("Please set your gmt_archive_secret in Tampermonkey first.")
+					return
 				}
-				
-				runBtn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>`;
-				
-				if (typeof GM_xmlhttpRequest === 'function') {
+
+				runBtn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>`
+
+				if (typeof GM_xmlhttpRequest === "function") {
 					GM_xmlhttpRequest({
 						method: "POST",
 						url: "http://127.0.0.1:3033/run-command",
 						headers: {
 							"Content-Type": "application/json",
-							"x-gemini-thread-saver-key": secret
+							"x-gemini-thread-saver-key": secret,
 						},
 						data: JSON.stringify({ command: code }),
 						onload: (res) => {
 							try {
-								const data = JSON.parse(res.responseText);
+								const data = JSON.parse(res.responseText)
 								if (data.ok) {
-									runBtn.style.color = "#89b4fa";
-									runBtn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
-									if (typeof terminalManager !== 'undefined') terminalManager.startInline(pre, data.session);
+									runBtn.style.color = "#89b4fa"
+									runBtn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`
+									if (typeof terminalManager !== "undefined")
+										terminalManager.startInline(pre, data.session)
 								} else {
-									runBtn.style.color = "#f38ba8";
+									runBtn.style.color = "#f38ba8"
 								}
-							} catch(err) {
-								runBtn.style.color = "#f38ba8";
+							} catch (err) {
+								runBtn.style.color = "#f38ba8"
 							}
 							setTimeout(() => {
-								runBtn.style.color = "#c4c7c5";
-								runBtn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>`;
-							}, 8000);
+								runBtn.style.color = "#c4c7c5"
+								runBtn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>`
+							}, 8000)
 						},
 						onerror: () => {
-							runBtn.style.color = "#f38ba8";
+							runBtn.style.color = "#f38ba8"
 							setTimeout(() => {
-								runBtn.style.color = "#c4c7c5";
-								runBtn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>`;
-							}, 5000);
-						}
-					});
+								runBtn.style.color = "#c4c7c5"
+								runBtn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>`
+							}, 5000)
+						},
+					})
 				} else {
-					console.error("[GMT] GM_xmlhttpRequest is not defined.");
-				}
-			};
-			
-			// Insert before the copy button safely
-			if (copyBtn && copyBtn.parentNode) {
-				copyBtn.parentNode.insertBefore(runBtn, copyBtn);
-				// Make sure the parent has a flex layout or similar so they sit side by side
-				if (window.getComputedStyle(copyBtn.parentNode).display === 'block') {
-					copyBtn.parentNode.style.display = 'flex';
-					copyBtn.parentNode.style.alignItems = 'center';
+					console.error("[GMT] GM_xmlhttpRequest is not defined.")
 				}
 			}
-		});
+
+			// Insert before the copy button safely
+			if (copyBtn && copyBtn.parentNode) {
+				copyBtn.parentNode.insertBefore(runBtn, copyBtn)
+				// Make sure the parent has a flex layout or similar so they sit side by side
+				if (window.getComputedStyle(copyBtn.parentNode).display === "block") {
+					copyBtn.parentNode.style.display = "flex"
+					copyBtn.parentNode.style.alignItems = "center"
+				}
+			}
+		})
 	}
 
 	// ═══════════════════════════════════════════════════════════
@@ -2588,12 +2635,12 @@ const estimateTokensAccurate = (text) => {
 	const terminalManager = {
 		pollers: {},
 		contexts: {},
-		
+
 		startInline(pre, session) {
-			let container = pre.nextElementSibling;
+			let container = pre.nextElementSibling
 			if (!container || !container.classList.contains("gmt-inline-output")) {
-				container = document.createElement("div");
-				container.className = "gmt-inline-output";
+				container = document.createElement("div")
+				container.className = "gmt-inline-output"
 				container.style.cssText = `
 					background: rgba(30, 30, 46, 0.85);
 					border: 1px solid rgba(255, 255, 255, 0.08);
@@ -2606,109 +2653,122 @@ const estimateTokensAccurate = (text) => {
 					max-height: 400px;
 					overflow-y: auto;
 					position: relative;
-				`;
-				pre.parentNode.insertBefore(container, pre.nextSibling);
+				`
+				pre.parentNode.insertBefore(container, pre.nextSibling)
 			}
 
-			container.innerHTML = "";
-			
-			const header = document.createElement("div");
-			header.style.cssText = "display: flex; justify-content: space-between; margin-bottom: 8px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 4px; color: #89b4fa; font-weight: bold;";
-			header.innerText = `Terminal Output (tmux: ${session})`;
-			
-			const outputEl = document.createElement("pre");
-			outputEl.style.cssText = "margin: 0; white-space: pre-wrap; word-wrap: break-word;";
-			outputEl.innerText = "Loading...";
+			container.innerHTML = ""
 
-			const inputForm = document.createElement("form");
-			inputForm.style.cssText = "display: flex; gap: 8px; margin-top: 8px;";
-			const inputField = document.createElement("input");
-			inputField.type = "text";
-			inputField.placeholder = "Sudo pwd or input...";
-			inputField.style.cssText = "flex-grow: 1; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; color: #e2e2f0; padding: 4px 8px; font-size: 12px;";
-			const sendBtn = document.createElement("button");
-			sendBtn.innerText = "Send";
-			sendBtn.type = "submit";
-			sendBtn.style.cssText = "background: #89b4fa; color: #11111b; border: none; border-radius: 4px; padding: 4px 12px; font-size: 12px; cursor: pointer; font-weight: bold;";
-			
-			inputForm.appendChild(inputField);
-			inputForm.appendChild(sendBtn);
-			
+			const header = document.createElement("div")
+			header.style.cssText =
+				"display: flex; justify-content: space-between; margin-bottom: 8px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 4px; color: #89b4fa; font-weight: bold;"
+			header.innerText = `Terminal Output (tmux: ${session})`
+
+			const outputEl = document.createElement("pre")
+			outputEl.style.cssText =
+				"margin: 0; white-space: pre-wrap; word-wrap: break-word;"
+			outputEl.innerText = "Loading..."
+
+			const inputForm = document.createElement("form")
+			inputForm.style.cssText = "display: flex; gap: 8px; margin-top: 8px;"
+			const inputField = document.createElement("input")
+			inputField.type = "text"
+			inputField.placeholder = "Sudo pwd or input..."
+			inputField.style.cssText =
+				"flex-grow: 1; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; color: #e2e2f0; padding: 4px 8px; font-size: 12px;"
+			const sendBtn = document.createElement("button")
+			sendBtn.innerText = "Send"
+			sendBtn.type = "submit"
+			sendBtn.style.cssText =
+				"background: #89b4fa; color: #11111b; border: none; border-radius: 4px; padding: 4px 12px; font-size: 12px; cursor: pointer; font-weight: bold;"
+
+			inputForm.appendChild(inputField)
+			inputForm.appendChild(sendBtn)
+
 			inputForm.onsubmit = (e) => {
-				e.preventDefault();
-				this.sendInput(session, inputField.value);
-				inputField.value = "";
-			};
+				e.preventDefault()
+				this.sendInput(session, inputField.value)
+				inputField.value = ""
+			}
 
-			container.appendChild(header);
-			container.appendChild(outputEl);
-			container.appendChild(inputForm);
+			container.appendChild(header)
+			container.appendChild(outputEl)
+			container.appendChild(inputForm)
 
-			if (this.pollers[session]) clearInterval(this.pollers[session]);
-			this.pollers[session] = setInterval(() => this.poll(session, outputEl), 2000);
-			this.poll(session, outputEl);
+			if (this.pollers[session]) clearInterval(this.pollers[session])
+			this.pollers[session] = setInterval(
+				() => this.poll(session, outputEl),
+				2000,
+			)
+			this.poll(session, outputEl)
 		},
 
 		poll(session, outputEl) {
-			if (typeof GM_xmlhttpRequest === 'function') {
+			if (typeof GM_xmlhttpRequest === "function") {
 				GM_xmlhttpRequest({
 					method: "GET",
 					url: `http://127.0.0.1:3033/session-output?session=${session}`,
 					onload: (res) => {
 						try {
-							const data = JSON.parse(res.responseText);
-							if (data.ok && typeof data.output === 'string') {
-								outputEl.innerText = data.output || "(empty output)";
-								outputEl.scrollTop = outputEl.scrollHeight;
-								this.updateContextPill(session, data.output);
+							const data = JSON.parse(res.responseText)
+							if (data.ok && typeof data.output === "string") {
+								outputEl.innerText = data.output || "(empty output)"
+								outputEl.scrollTop = outputEl.scrollHeight
+								this.updateContextPill(session, data.output)
 							}
-						} catch(e) {}
-					}
-				});
+						} catch (e) {}
+					},
+				})
 			}
 		},
 
 		sendInput(session, text) {
-			if (typeof GM_xmlhttpRequest === 'function') {
+			if (typeof GM_xmlhttpRequest === "function") {
 				GM_xmlhttpRequest({
 					method: "POST",
 					url: "http://127.0.0.1:3033/send-input",
 					headers: {
 						"Content-Type": "application/json",
-						"x-gemini-thread-saver-key": typeof GM_getValue === 'function' ? GM_getValue("gmt_archive_secret") : ""
+						"x-gemini-thread-saver-key":
+							typeof GM_getValue === "function" ?
+								GM_getValue("gmt_archive_secret")
+							:	"",
 					},
-					data: JSON.stringify({ session: session, text: text })
-				});
+					data: JSON.stringify({ session: session, text: text }),
+				})
 			}
 		},
 
 		updateContextPill(session, output) {
-			this.contexts[session] = { active: true, output: output };
-			this.renderContextPills();
+			this.contexts[session] = { active: true, output: output }
+			this.renderContextPills()
 		},
 
 		renderContextPills() {
-			const inputArea = document.querySelector('rich-textarea[aria-label="Message Gemini"]') || document.querySelector('.ql-editor');
-			if (!inputArea) return;
+			const inputArea =
+				document.querySelector('rich-textarea[aria-label="Message Gemini"]') ||
+				document.querySelector(".ql-editor")
+			if (!inputArea) return
 
-			let container = document.getElementById("gmt-context-pills-container");
+			let container = document.getElementById("gmt-context-pills-container")
 			if (!container) {
-				container = document.createElement("div");
-				container.id = "gmt-context-pills-container";
-				container.style.cssText = "display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px;";
-				
+				container = document.createElement("div")
+				container.id = "gmt-context-pills-container"
+				container.style.cssText =
+					"display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px;"
+
 				// Insert right before the input area or as its previous sibling
-				const wrapper = inputArea.closest('rich-textarea') || inputArea;
+				const wrapper = inputArea.closest("rich-textarea") || inputArea
 				if (wrapper && wrapper.parentNode) {
-					wrapper.parentNode.insertBefore(container, wrapper);
+					wrapper.parentNode.insertBefore(container, wrapper)
 				}
 			}
 
-			container.innerHTML = "";
+			container.innerHTML = ""
 			Object.entries(this.contexts).forEach(([session, ctx]) => {
-				if (!ctx.active) return;
-				
-				const pill = document.createElement("div");
+				if (!ctx.active) return
+
+				const pill = document.createElement("div")
 				pill.style.cssText = `
 					background: rgba(137, 180, 250, 0.15);
 					border: 1px solid rgba(137, 180, 250, 0.3);
@@ -2722,28 +2782,29 @@ const estimateTokensAccurate = (text) => {
 					gap: 6px;
 					cursor: pointer;
 					position: relative;
-				`;
-				
-				const textNode = document.createElement("span");
-				textNode.innerText = `Terminal: ${session}`;
-				pill.appendChild(textNode);
+				`
 
-				const removeBtn = document.createElement("span");
-				removeBtn.innerHTML = "&times;";
-				removeBtn.style.cssText = "font-size: 14px; font-weight: bold; opacity: 0.7; cursor: pointer;";
+				const textNode = document.createElement("span")
+				textNode.innerText = `Terminal: ${session}`
+				pill.appendChild(textNode)
+
+				const removeBtn = document.createElement("span")
+				removeBtn.innerHTML = "&times;"
+				removeBtn.style.cssText =
+					"font-size: 14px; font-weight: bold; opacity: 0.7; cursor: pointer;"
 				removeBtn.onclick = (e) => {
-					e.stopPropagation();
-					ctx.active = false;
-					this.renderContextPills();
-				};
-				pill.appendChild(removeBtn);
+					e.stopPropagation()
+					ctx.active = false
+					this.renderContextPills()
+				}
+				pill.appendChild(removeBtn)
 
 				// Hover tooltip
 				pill.onmouseover = (e) => {
-					let tooltip = document.getElementById("gmt-context-tooltip");
+					let tooltip = document.getElementById("gmt-context-tooltip")
 					if (!tooltip) {
-						tooltip = document.createElement("div");
-						tooltip.id = "gmt-context-tooltip";
+						tooltip = document.createElement("div")
+						tooltip.id = "gmt-context-tooltip"
 						tooltip.style.cssText = `
 							position: absolute;
 							bottom: 100%;
@@ -2764,75 +2825,87 @@ const estimateTokensAccurate = (text) => {
 							box-shadow: 0 4px 12px rgba(0,0,0,0.5);
 							z-index: 99999;
 							pointer-events: none;
-						`;
-						pill.appendChild(tooltip);
+						`
+						pill.appendChild(tooltip)
 					}
 					// Show the last 500 chars roughly
-					const snippet = ctx.output.length > 500 ? "..." + ctx.output.slice(-500) : ctx.output;
-					tooltip.innerText = snippet;
-				};
+					const snippet =
+						ctx.output.length > 500 ?
+							"..." + ctx.output.slice(-500)
+						:	ctx.output
+					tooltip.innerText = snippet
+				}
 				pill.onmouseout = (e) => {
-					const tooltip = document.getElementById("gmt-context-tooltip");
-					if (tooltip) tooltip.remove();
-				};
-                
-                // Clicking the pill itself toggles insertion manually
-                pill.onclick = () => {
-                    this.injectToChat(ctx.output);
-                };
+					const tooltip = document.getElementById("gmt-context-tooltip")
+					if (tooltip) tooltip.remove()
+				}
 
-				container.appendChild(pill);
-			});
+				// Clicking the pill itself toggles insertion manually
+				pill.onclick = () => {
+					this.injectToChat(ctx.output)
+				}
+
+				container.appendChild(pill)
+			})
 		},
-        
-        injectToChat(text) {
-			if (!text) return;
-			const input = document.querySelector('rich-textarea[aria-label="Message Gemini"]') || document.querySelector('.ql-editor');
+
+		injectToChat(text) {
+			if (!text) return
+			const input =
+				document.querySelector('rich-textarea[aria-label="Message Gemini"]') ||
+				document.querySelector(".ql-editor")
 			if (input) {
-				input.focus();
-                // Fix newline issue by using execCommand insertText
-                // We format it as a markdown code block
-                const formatted = `
+				input.focus()
+				// Fix newline issue by using execCommand insertText
+				// We format it as a markdown code block
+				const formatted = `
 
 \`\`\`text
 ${text}
 \`\`\`
-`;
-                document.execCommand('insertText', false, formatted);
+`
+				document.execCommand("insertText", false, formatted)
 			}
-		}
-	};
-    
-    // Auto-inject context on enter/submit logic
-    document.addEventListener("keydown", (e) => {
-        if (e.key === "Enter" && !e.shiftKey) {
-            const input = document.querySelector('rich-textarea[aria-label="Message Gemini"]') || document.querySelector('.ql-editor');
-            if (input && input.contains(e.target)) {
-                // If there are active contexts, inject them right before sending
-                let allContext = "";
-                Object.entries(terminalManager.contexts).forEach(([session, ctx]) => {
-                    if (ctx.active) {
-                        allContext += `
+		},
+	}
+
+	// Auto-inject context on enter/submit logic
+	document.addEventListener(
+		"keydown",
+		(e) => {
+			if (e.key === "Enter" && !e.shiftKey) {
+				const input =
+					document.querySelector(
+						'rich-textarea[aria-label="Message Gemini"]',
+					) || document.querySelector(".ql-editor")
+				if (input && input.contains(e.target)) {
+					// If there are active contexts, inject them right before sending
+					let allContext = ""
+					Object.entries(terminalManager.contexts).forEach(([session, ctx]) => {
+						if (ctx.active) {
+							allContext += `
 
 [Attached Context: ${session}]
 \`\`\`text
 ${ctx.output}
 \`\`\`
-`;
-                        // Auto-detach after injection
-                        ctx.active = false;
-                    }
-                });
-                
-                if (allContext) {
-                    // Inject gracefully
-                    input.focus();
-                    document.execCommand('insertText', false, allContext);
-                    terminalManager.renderContextPills();
-                }
-            }
-        }
-    }, true);
+`
+							// Auto-detach after injection
+							ctx.active = false
+						}
+					})
+
+					if (allContext) {
+						// Inject gracefully
+						input.focus()
+						document.execCommand("insertText", false, allContext)
+						terminalManager.renderContextPills()
+					}
+				}
+			}
+		},
+		true,
+	)
 
 	// ═══════════════════════════════════════════════════════════
 	// PRIVATE LOCAL MARKDOWN ARCHIVE

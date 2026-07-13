@@ -85,13 +85,14 @@ function runBundler() {
 				fullError += errorOutput.trim();
 			}
 
-			// Copy error log to clipboard
-			const pbcopy = spawn("pbcopy");
+			// Copy error log to clipboard bypassing launchd pasteboard isolation
+			const uid = process.getuid();
+			const pbcopy = spawn("/bin/launchctl", ["asuser", uid.toString(), "/usr/bin/pbcopy"]);
 			pbcopy.stdin.write(fullError);
 			pbcopy.stdin.end();
 
-			// Send macOS notification
-			spawn("osascript", ["-e", `display notification "Bundle failed. Log copied to clipboard." with title "Userscript Bundler"`]);
+			// Send macOS notification using terminal-notifier in user context
+			spawn("/bin/launchctl", ["asuser", uid.toString(), "/usr/local/bin/terminal-notifier", "-title", "Userscript Bundler", "-message", "Bundle failed. Log copied to clipboard."]);
 		}
 	})
 
