@@ -2434,48 +2434,62 @@ const estimateTokensAccurate = (text) => {
 	}
 
 	function injectRunButtons() {
-		const preElements = document.querySelectorAll('model-response pre');
+		const preElements = document.querySelectorAll('model-response pre, pre');
+		// console.log(`[GMT] injectRunButtons running. Found ${preElements.length} <pre> elements.`);
+		
 		preElements.forEach(pre => {
 			if (pre.dataset.runButtonInjected) return;
 
 			let container = pre.parentElement;
-			// Go up a few levels to capture the header (code-block container)
-			for (let i = 0; i < 3; i++) {
-				if (container.parentElement && container.parentElement.tagName.toLowerCase() !== 'model-response') {
-					container = container.parentElement;
-				} else {
+			let copyBtn = null;
+			let headerText = "";
+
+			// Try to find the closest wrapper that has a copy button
+			for (let i = 0; i < 5; i++) {
+				if (!container || container.tagName === 'BODY') break;
+				
+				// Try various known selectors for the copy button
+				copyBtn = container.querySelector('button[aria-label*="Copy" i], button[aria-label*="copy" i], button[data-tooltip*="Copy" i], button.copy-button');
+				if (!copyBtn) {
+					const icon = container.querySelector('mat-icon[data-mat-icon-name="content_copy"], mat-icon[fonticon="content_copy"], .copy-icon, [data-icon="content_copy"]');
+					if (icon) copyBtn = icon.closest('button');
+				}
+
+				if (copyBtn) {
+					headerText = container.innerText.toLowerCase();
 					break;
 				}
+				container = container.parentElement;
 			}
 
-			const headerText = container.innerText.toLowerCase();
-			const isBash = headerText.includes('bash') || headerText.includes('shell') || headerText.includes('sh');
+			if (!copyBtn) {
+				// No copy button found, so we can't inject safely next to it.
+				return; 
+			}
 			
+			// Detect language
+			let isBash = headerText.includes('bash') || headerText.includes('shell') || headerText.includes('sh');
 			if (!isBash) {
-				const codeClass = (pre.querySelector('code') || {}).className || "";
-				if (!codeClass.toLowerCase().includes('bash') && !codeClass.toLowerCase().includes('sh') && !codeClass.toLowerCase().includes('shell')) {
-					let foundLang = false;
-					container.querySelectorAll('span').forEach(s => {
+				const codeClass = (pre.querySelector('code') || pre).className || "";
+				if (codeClass.toLowerCase().includes('bash') || codeClass.toLowerCase().includes('sh') || codeClass.toLowerCase().includes('shell')) {
+					isBash = true;
+				} else {
+					// Check spans
+					container.querySelectorAll('span, div').forEach(s => {
 						const txt = s.innerText.trim().toLowerCase();
-						if (txt === 'bash' || txt === 'sh' || txt === 'shell') foundLang = true;
+						if (txt === 'bash' || txt === 'sh' || txt === 'shell') isBash = true;
 					});
-					if (!foundLang) return; // Not a bash block
 				}
 			}
 
-			// Find the copy button
-			let copyBtn = container.querySelector('button[aria-label*="Copy" i], button[title*="Copy" i], button[data-test-id*="copy" i]');
-			if (!copyBtn) {
-				const icon = container.querySelector('mat-icon[data-mat-icon-name="content_copy"], .copy-icon, mat-icon[fonticon="content_copy"]');
-				if (icon) copyBtn = icon.closest('button');
-			}
-			
-			if (!copyBtn) return; 
-			
+			if (!isBash) return;
+
+			console.log("[GMT] Injecting Run button for bash block");
 			pre.dataset.runButtonInjected = "true";
 
 			const runBtn = document.createElement("button");
 			runBtn.innerText = "Run 🚀";
+			runBtn.title = "Run this command on your local system";
 			runBtn.style.cssText = `
 				background: #a6e3a1;
 				color: #1e1e2e;
@@ -2488,16 +2502,19 @@ const estimateTokensAccurate = (text) => {
 				cursor: pointer;
 				font-weight: bold;
 				transition: all 0.2s;
-				display: flex;
+				display: inline-flex;
 				align-items: center;
 				justify-content: center;
 				height: 32px;
+				vertical-align: middle;
 			`;
 			runBtn.onmouseover = () => runBtn.style.opacity = 0.8;
 			runBtn.onmouseout = () => runBtn.style.opacity = 1;
 			
 			runBtn.onclick = (e) => {
 				e.preventDefault();
+				e.stopPropagation();
+				
 				const code = (pre.querySelector('code') || pre).innerText;
 				const secret = typeof GM_getValue === 'function' ? GM_getValue("gmt_archive_secret") : null;
 				if (!secret) {
@@ -2520,8 +2537,9 @@ const estimateTokensAccurate = (text) => {
 							try {
 								const data = JSON.parse(res.responseText);
 								if (data.ok) {
-									runBtn.innerText = \`tmux: \${data.session}\`;
+									runBtn.innerText = `tmux: ${data.session}`;
 									runBtn.style.background = "#89b4fa";
+									if (typeof terminalUi !== 'undefined') terminalUi.start(data.session);
 								} else {
 									runBtn.innerText = "Error";
 									runBtn.style.background = "#f38ba8";
@@ -2544,12 +2562,234 @@ const estimateTokensAccurate = (text) => {
 							}, 5000);
 						}
 					});
+				} else {
+					console.error("[GMT] GM_xmlhttpRequest is not defined.");
 				}
 			};
 			
-			copyBtn.parentNode.insertBefore(runBtn, copyBtn);
+			// Insert before the copy button safely
+			if (copyBtn && copyBtn.parentNode) {
+				copyBtn.parentNode.insertBefore(runBtn, copyBtn);
+				// Make sure the parent has a flex layout or similar so they sit side by side
+				if (window.getComputedStyle(copyBtn.parentNode).display === 'block') {
+					copyBtn.parentNode.style.display = 'flex';
+					copyBtn.parentNode.style.alignItems = 'center';
+				}
+			}
 		});
 	}
+
+	// ═══════════════════════════════════════════════════════════
+	// TERMINAL OUTPUT ATTACHMENT
+	// ═══════════════════════════════════════════════════════════
+	const terminalUi = {
+		activeSession: null,
+		pollTimer: null,
+		box: null,
+		outputEl: null,
+		
+		init() {
+			if (this.box) return;
+			this.box = document.createElement("div");
+			this.box.id = "gmt-terminal-box";
+			this.box.style.cssText = `
+				position: fixed;
+				bottom: 80px;
+				left: 20px;
+				width: 450px;
+				max-height: 350px;
+				background: rgba(30, 30, 46, 0.85);
+				backdrop-filter: blur(12px) saturate(180%);
+				-webkit-backdrop-filter: blur(12px) saturate(180%);
+				border: 1px solid rgba(255, 255, 255, 0.08);
+				border-radius: 12px;
+				display: none;
+				flex-direction: column;
+				z-index: 99990;
+				font-family: monospace;
+				box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+				overflow: hidden;
+			`;
+
+			const header = document.createElement("div");
+			header.style.cssText = `
+				padding: 8px 12px;
+				background: rgba(0,0,0,0.2);
+				border-bottom: 1px solid rgba(255,255,255,0.05);
+				display: flex;
+				justify-content: space-between;
+				align-items: center;
+				color: #e2e2f0;
+				font-size: 13px;
+				font-family: "Google Sans", sans-serif;
+			`;
+			
+			const title = document.createElement("div");
+			title.innerText = "Attached Context: tmux";
+			this.titleEl = title;
+
+			const actions = document.createElement("div");
+			actions.style.display = "flex";
+			actions.style.gap = "8px";
+
+			const injectBtn = document.createElement("button");
+			injectBtn.innerText = "Inject to Chat";
+			injectBtn.style.cssText = `
+				background: #a6e3a1;
+				color: #11111b;
+				border: none;
+				border-radius: 4px;
+				padding: 4px 8px;
+				font-size: 11px;
+				cursor: pointer;
+				font-weight: bold;
+			`;
+			injectBtn.onclick = () => this.injectToChat();
+
+			const closeBtn = document.createElement("button");
+			closeBtn.innerText = "×";
+			closeBtn.style.cssText = `
+				background: transparent;
+				color: #f38ba8;
+				border: none;
+				font-size: 16px;
+				cursor: pointer;
+				line-height: 1;
+				padding: 0 4px;
+			`;
+			closeBtn.onclick = () => this.stop();
+
+			const sendInputForm = document.createElement("form");
+			sendInputForm.style.cssText = "display: flex; gap: 4px; margin-right: 8px;";
+			sendInputForm.onsubmit = (e) => {
+				e.preventDefault();
+				this.sendInput(this.inputField.value);
+				this.inputField.value = "";
+			};
+
+			this.inputField = document.createElement("input");
+			this.inputField.type = "password";
+			this.inputField.placeholder = "Sudo pwd or input...";
+			this.inputField.style.cssText = `
+				background: rgba(0,0,0,0.3);
+				border: 1px solid rgba(255,255,255,0.1);
+				border-radius: 4px;
+				color: #e2e2f0;
+				padding: 2px 6px;
+				font-size: 11px;
+				width: 120px;
+			`;
+
+			const sendBtn = document.createElement("button");
+			sendBtn.innerText = "Send";
+			sendBtn.type = "submit";
+			sendBtn.style.cssText = `
+				background: #89b4fa;
+				color: #11111b;
+				border: none;
+				border-radius: 4px;
+				padding: 2px 8px;
+				font-size: 11px;
+				cursor: pointer;
+				font-weight: bold;
+			`;
+			sendInputForm.appendChild(this.inputField);
+			sendInputForm.appendChild(sendBtn);
+
+			actions.appendChild(sendInputForm);
+			actions.appendChild(injectBtn);
+			actions.appendChild(closeBtn);
+			header.appendChild(title);
+			header.appendChild(actions);
+
+			this.outputEl = document.createElement("pre");
+			this.outputEl.style.cssText = `
+				padding: 12px;
+				margin: 0;
+				color: #a6adc8;
+				font-size: 12px;
+				overflow-y: auto;
+				flex-grow: 1;
+				white-space: pre-wrap;
+				word-wrap: break-word;
+			`;
+
+			this.box.appendChild(header);
+			this.box.appendChild(this.outputEl);
+			document.body.appendChild(this.box);
+		},
+
+		start(session) {
+			this.init();
+			this.activeSession = session;
+			this.titleEl.innerText = `Terminal: ${session}`;
+			this.box.style.display = "flex";
+			this.outputEl.innerText = "Loading...";
+			
+			if (this.pollTimer) clearInterval(this.pollTimer);
+			this.pollTimer = setInterval(() => this.poll(), 2000);
+			this.poll();
+		},
+
+		stop() {
+			this.activeSession = null;
+			this.box.style.display = "none";
+			if (this.pollTimer) {
+				clearInterval(this.pollTimer);
+				this.pollTimer = null;
+			}
+		},
+
+		poll() {
+			if (!this.activeSession) return;
+			if (typeof GM_xmlhttpRequest === 'function') {
+				GM_xmlhttpRequest({
+					method: "GET",
+					url: `http://127.0.0.1:3033/session-output?session=${this.activeSession}`,
+					onload: (res) => {
+						try {
+							const data = JSON.parse(res.responseText);
+							if (data.ok && typeof data.output === 'string') {
+								this.outputEl.innerText = data.output || "(empty output)";
+								this.outputEl.scrollTop = this.outputEl.scrollHeight;
+							}
+						} catch(e) {}
+					}
+				});
+			}
+		},
+
+		sendInput(text) {
+			if (!this.activeSession) return;
+			if (typeof GM_xmlhttpRequest === 'function') {
+				GM_xmlhttpRequest({
+					method: "POST",
+					url: "http://127.0.0.1:3033/send-input",
+					headers: {
+						"Content-Type": "application/json",
+						"x-gemini-thread-saver-key": typeof GM_getValue === 'function' ? GM_getValue("gmt_archive_secret") : ""
+					},
+					data: JSON.stringify({ session: this.activeSession, text: text }),
+					onload: () => {
+						setTimeout(() => this.poll(), 200);
+					}
+				});
+			}
+		},
+
+		injectToChat() {
+			const text = this.outputEl.innerText;
+			if (!text) return;
+			const input = document.querySelector('rich-textarea[aria-label="Message Gemini"]') || document.querySelector('.ql-editor');
+			if (input) {
+				input.focus();
+				const p = document.createElement('p');
+				p.innerText = `\n\n\`\`\`text\n${text}\n\`\`\``;
+				input.appendChild(p);
+				input.dispatchEvent(new Event('input', { bubbles: true }));
+			}
+		}
+	};
 
 	// ═══════════════════════════════════════════════════════════
 	// PRIVATE LOCAL MARKDOWN ARCHIVE

@@ -604,7 +604,7 @@ window.${functionName} = ${functionName};
 		const sourceMap = {
 			version: 3,
 			file: OUTPUT_FILE,
-			sources: manifest.map((entry) => `userscripts/${entry.file}`),
+			sources: manifest.map((entry) => `webpack://userscripts/${entry.file}`),
 			sourcesContent: sourcesContent,
 			names: [],
 			mappings: mappings,
@@ -613,7 +613,7 @@ window.${functionName} = ${functionName};
 		const sourceMapBase64 = Buffer.from(JSON.stringify(sourceMap)).toString(
 			"base64",
 		)
-		const sourceMapUrl = `\n//# sourceMappingURL=data:application/json;charset=utf-8;base64,${sourceMapBase64}`
+		const sourceMapUrl = `\n//# sourceURL=userscript_bundle.js\n//# sourceMappingURL=data:application/json;charset=utf-8;base64,${sourceMapBase64}`
 
 		const bundleCode = outputLines.join("\n") + sourceMapUrl
 
