@@ -2643,20 +2643,27 @@ const estimateTokensAccurate = (text) => {
 				}
 			}
 
-			// Insert before the copy button safely
-			if (copyBtn && copyBtn.parentNode) {
-				if (copyBtn.parentNode.querySelector(".run-btn-gmt")) return
+			// Find the correct wrapper to insert before (so we don't end up inside a tooltip wrapper)
+			let targetNode = copyBtn
+			if (copyBtn.closest("gem-icon-button")) {
+				targetNode = copyBtn.closest("gem-icon-button")
+			} else if (copyBtn.closest("button-group") || copyBtn.closest("span.action-btn-wrapper")) {
+				targetNode = copyBtn.closest("span.action-btn-wrapper") || copyBtn.closest("button-group") || targetNode
+			}
 
-				copyBtn.parentNode.insertBefore(runBtn, copyBtn)
+			if (targetNode && targetNode.parentNode) {
+				if (targetNode.parentNode.querySelector(".run-btn-gmt")) return
+
+				targetNode.parentNode.insertBefore(runBtn, targetNode)
 				// Make sure the parent has a flex layout or similar so they sit side by side
-				const parentStyle = window.getComputedStyle(copyBtn.parentNode)
+				const parentStyle = window.getComputedStyle(targetNode.parentNode)
 				if (
 					parentStyle.display !== "flex" &&
 					parentStyle.display !== "inline-flex"
 				) {
-					copyBtn.parentNode.style.display = "flex"
-					copyBtn.parentNode.style.alignItems = "center"
-					copyBtn.parentNode.style.flexDirection = "row"
+					targetNode.parentNode.style.display = "flex"
+					targetNode.parentNode.style.alignItems = "center"
+					targetNode.parentNode.style.flexDirection = "row"
 				}
 			}
 		})
@@ -2773,7 +2780,11 @@ const estimateTokensAccurate = (text) => {
 		},
 
 		updateContextPill(session, output) {
-			this.contexts[session] = { active: true, output: output }
+			if (!this.contexts[session]) {
+				this.contexts[session] = { active: true, output: output }
+			} else {
+				this.contexts[session].output = output
+			}
 			this.renderContextPills()
 		},
 
