@@ -2476,6 +2476,7 @@ const estimateTokensAccurate = (text) => {
 
 		preElements.forEach((pre) => {
 			if (pre.dataset.runButtonInjected) return
+			if (pre.closest(".gmt-inline-output")) return
 
 			let container = pre.parentElement
 			let copyBtn = null
@@ -2536,6 +2537,7 @@ const estimateTokensAccurate = (text) => {
 			pre.dataset.runButtonInjected = "true"
 
 			const runBtn = document.createElement("button")
+			runBtn.className = "run-btn-gmt"
 			if (window.trustedTypes && window.trustedTypes.createPolicy) {
 				if (!window.gmtPolicy) {
 					try { window.gmtPolicy = window.trustedTypes.createPolicy("gmt-svg", { createHTML: s => s }); }
@@ -2643,11 +2645,18 @@ const estimateTokensAccurate = (text) => {
 
 			// Insert before the copy button safely
 			if (copyBtn && copyBtn.parentNode) {
+				if (copyBtn.parentNode.querySelector(".run-btn-gmt")) return
+
 				copyBtn.parentNode.insertBefore(runBtn, copyBtn)
 				// Make sure the parent has a flex layout or similar so they sit side by side
-				if (window.getComputedStyle(copyBtn.parentNode).display === "block") {
+				const parentStyle = window.getComputedStyle(copyBtn.parentNode)
+				if (
+					parentStyle.display !== "flex" &&
+					parentStyle.display !== "inline-flex"
+				) {
 					copyBtn.parentNode.style.display = "flex"
 					copyBtn.parentNode.style.alignItems = "center"
+					copyBtn.parentNode.style.flexDirection = "row"
 				}
 			}
 		})
