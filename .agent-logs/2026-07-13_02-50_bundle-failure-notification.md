@@ -1,19 +1,20 @@
 ## Goal
-When a bundle fails, the user wants to get notified and have the log copied to their clipboard.
+When a bundle fails, the user wants to get notified and have the log copied to their clipboard. Ensure this works when run by a launch agent.
 
 ## User Feedback & Decisions
-None yet.
+- The user pointed out the script is run by a launch agent, and notifications/clipboard copying weren't working properly in that context.
 
 ## Changes Made
-- Modified `watch-and-bundle.js`'s bundler error handler.
-- Used `child_process.spawn("pbcopy")` to write the full error output and exit code to the clipboard when the bundler script exits with a non-zero code.
-- Used `child_process.spawn("osascript", ["-e", 'display notification ...'])` to show a macOS notification natively.
+- Initially added `osascript` for notifications and `pbcopy` for clipboard copying.
+- Replaced `osascript` with `terminal-notifier` (at `/usr/local/bin/terminal-notifier`).
+- Wrapped both `pbcopy` and `terminal-notifier` commands in `launchctl asuser <uid>` to ensure they execute within the user's GUI/pasteboard namespace, bypassing launchd/tmux background isolation.
 
 ## What Worked
-- Replaced the bundler error handler block in `watch-and-bundle.js` with the modified logic successfully.
+- Replaced the bundler error handler block in `watch-and-bundle.js` with the modified logic using `launchctl asuser` successfully.
 
 ## What Didn't Work / Known Issues
 None.
 
 ## Architecture Notes
-- The bundling is orchestrated by a parent process (`watch-and-bundle.js`) which shells out to `bundler.js` and handles file events. Intercepting the error at the parent level provides a clean way to deal with any potential crashes from the bundler without cluttering the bundler's own source code.
+- macOS LaunchDaemons and processes running in `tmux` environments (such as those orchestrated by `tmux-agent-wrapper.sh`) run outside of the graphical user's bootstrap namespace. This prevents simple calls to `pbcopy` or `osascript` from reliably interacting with the clipboard or Notification Center.
+- `launchctl asuser <uid>` successfully bridges the background daemon into the user's graphical session namespace, allowing both the clipboard pasteboard (`pbcopy`) and Notification Center (`terminal-notifier`) to work seamlessly.
