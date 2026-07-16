@@ -5,10 +5,7 @@
 // @description  Make embedded Apple Music player taller
 // @author       You
 // @match        https://embed.music.apple.com/*
-// @grant        GM_setValue
-// @grant        GM_getValue
-// @grant        GM.setValue
-// @grant        GM.getValue
+// @grant        none
 // ==/UserScript==
 
 console.log("iframe loaded");

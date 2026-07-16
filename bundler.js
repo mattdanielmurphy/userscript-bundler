@@ -132,7 +132,7 @@ function generateManifestFromUserscripts() {
 
 	const files = fs.readdirSync(USERSCRIPTS_DIR)
 	const jsFiles = files.filter(
-		(file) => file.endsWith(".js") && !file.includes(".disabled."),
+		(file) => file.endsWith(".js") && !file.includes(".disabled.") && file !== "compat.js",
 	)
 
 	if (jsFiles.length === 0) {
@@ -220,6 +220,15 @@ async function bundleUserscripts() {
 try {
 const __BUILD_ID__ = "${buildId}";`)
 		addLine("")
+
+		// Inject centralized compatibility layer
+		const compatPath = path.join(USERSCRIPTS_DIR, "compat.js")
+		if (fs.existsSync(compatPath)) {
+			console.log("🧩 Prepending compatibility layer (compat.js)...")
+			const compatContent = fs.readFileSync(compatPath, "utf8")
+			addTemplate(compatContent)
+			addLine("")
+		}
 
 		// Step 3: Iterative wrapping - process each manifest entry
 		const processedManifest = []

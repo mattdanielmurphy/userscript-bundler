@@ -77,36 +77,8 @@ const estimateTokensAccurate = (text) => {
 ;(function () {
 	"use strict"
 
-	// Polyfills for environments that do not support legacy synchronous GM_* APIs (like Safari Userscripts extension)
-	if (typeof GM_getValue === "undefined") {
-		var GM_getValue = function (key, defaultValue) {
-			const value = localStorage.getItem("__gm_" + key)
-			if (value === null) return defaultValue
-			try {
-				return JSON.parse(value)
-			} catch (e) {
-				return value
-			}
-		}
-	}
+	// Note: Shared compatibility layer (gm.*) is loaded centrally.
 
-	if (typeof GM_setValue === "undefined") {
-		var GM_setValue = function (key, value) {
-			localStorage.setItem("__gm_" + key, JSON.stringify(value))
-		}
-	}
-
-	if (typeof GM_registerMenuCommand === "undefined") {
-		var GM_registerMenuCommand = function () {}
-	}
-
-	if (typeof GM_unregisterMenuCommand === "undefined") {
-		var GM_unregisterMenuCommand = function () {}
-	}
-
-	if (typeof GM_xmlhttpRequest === "undefined" && typeof GM !== "undefined" && typeof GM.xmlHttpRequest === "function") {
-		var GM_xmlhttpRequest = GM.xmlHttpRequest.bind(GM)
-	}
 
 	// --- Integration with your parsing logic ---
 	let lastConversationId = null
@@ -511,11 +483,11 @@ const estimateTokensAccurate = (text) => {
 	// GM SETTINGS
 	// ═══════════════════════════════════════════════════════════
 
-	let currentLayout = GM_getValue("gwd_layout_style", "split")
-	let showAbsolute = GM_getValue("gwd_show_absolute", false)
-	let dateFormat = GM_getValue("gwd_date_format", "yyyy-mm-dd")
-	let autoThreadSync = GM_getValue("gwd_auto_thread_sync", true)
-	let isMenuExpanded = GM_getValue("gwd_menu_expanded", false)
+	let currentLayout = gm.getValue("gwd_layout_style", "split")
+	let showAbsolute = gm.getValue("gwd_show_absolute", false)
+	let dateFormat = gm.getValue("gwd_date_format", "yyyy-mm-dd")
+	let autoThreadSync = gm.getValue("gwd_auto_thread_sync", true)
+	let isMenuExpanded = gm.getValue("gwd_menu_expanded", false)
 
 	let menuIds = []
 
@@ -531,74 +503,69 @@ const estimateTokensAccurate = (text) => {
 	}
 
 	function refreshMenu() {
-		menuIds.forEach((id) => GM_unregisterMenuCommand(id))
+		menuIds.forEach((id) => gm.unregisterMenuCommand(id))
 		menuIds = []
 		const opts = { autoClose: false }
 
-		menuIds.push(
-			GM_registerMenuCommand(
-				getMenuText("settingsToggle"),
+		const idToggle = gm.registerMenuCommand(
+			getMenuText("settingsToggle"),
+			() => {
+				isMenuExpanded = !isMenuExpanded
+				gm.setValue("gwd_menu_expanded", isMenuExpanded)
+				refreshMenu()
+			},
+			opts,
+		)
+		if (idToggle) menuIds.push(idToggle)
+
+		if (isMenuExpanded) {
+			const idLayout = gm.registerMenuCommand(
+				getMenuText("layout"),
 				() => {
-					isMenuExpanded = !isMenuExpanded
-					GM_setValue("gwd_menu_expanded", isMenuExpanded)
+					currentLayout = currentLayout === "classic" ? "split" : "classic"
+					gm.setValue("gwd_layout_style", currentLayout)
+					clearAndReRenderSidebar()
 					refreshMenu()
 				},
 				opts,
-			),
-		)
-
-		if (isMenuExpanded) {
-			menuIds.push(
-				GM_registerMenuCommand(
-					getMenuText("layout"),
-					() => {
-						currentLayout = currentLayout === "classic" ? "split" : "classic"
-						GM_setValue("gwd_layout_style", currentLayout)
-						clearAndReRenderSidebar()
-						refreshMenu()
-					},
-					opts,
-				),
 			)
+			if (idLayout) menuIds.push(idLayout)
 
-			menuIds.push(
-				GM_registerMenuCommand(
-					getMenuText("absolute"),
-					() => {
-						showAbsolute = !showAbsolute
-						GM_setValue("gwd_show_absolute", showAbsolute)
-						clearAndReRenderSidebar()
-						refreshMenu()
-					},
-					opts,
-				),
+			const idAbsolute = gm.registerMenuCommand(
+				getMenuText("absolute"),
+				() => {
+					showAbsolute = !showAbsolute
+					gm.setValue("gwd_show_absolute", showAbsolute)
+					clearAndReRenderSidebar()
+					refreshMenu()
+				},
+				opts,
 			)
+			if (idAbsolute) menuIds.push(idAbsolute)
 
-			menuIds.push(
-				GM_registerMenuCommand(
-					getMenuText("format"),
-					() => {
-						dateFormat =
-							dateFormat === "yyyy-mm-dd" ? "mm/dd/yyyy" : "yyyy-mm-dd"
-						GM_setValue("gwd_date_format", dateFormat)
-						clearAndReRenderSidebar()
-						refreshMenu()
-					},
-					opts,
-				),
+			const idFormat = gm.registerMenuCommand(
+				getMenuText("format"),
+				() => {
+					dateFormat =
+						dateFormat === "yyyy-mm-dd" ? "mm/dd/yyyy" : "yyyy-mm-dd"
+					gm.setValue("gwd_date_format", dateFormat)
+					clearAndReRenderSidebar()
+					refreshMenu()
+				},
+				opts,
 			)
+			if (idFormat) menuIds.push(idFormat)
 
-			menuIds.push(
-				GM_registerMenuCommand(
-					getMenuText("sync"),
-					() => {
-						autoThreadSync = !autoThreadSync
-						GM_setValue("gwd_auto_thread_sync", autoThreadSync)
-						refreshMenu()
-					},
-					opts,
-				),
+			const idSync = gm.registerMenuCommand(
+				getMenuText("sync"),
+				() => {
+					autoThreadSync = !autoThreadSync
+					gm.setValue("gwd_auto_thread_sync", autoThreadSync)
+					refreshMenu()
+				},
+				opts,
 			)
+			if (idSync) menuIds.push(idSync)
 		}
 	}
 
@@ -2609,12 +2576,9 @@ const estimateTokensAccurate = (text) => {
 				e.stopPropagation()
 
 				const code = (pre.querySelector("code") || pre).innerText
-				const secret =
-					typeof GM_getValue === "function" ?
-						GM_getValue("gmt_archive_secret")
-					:	null
+				const secret = gm.getValue("gmt_archive_secret")
 				if (!secret) {
-					alert("Please set your gmt_archive_secret in Tampermonkey first.")
+					alert("Please set your gmt_archive_secret first via the userscript settings menu.")
 					return
 				}
 
@@ -2624,57 +2588,58 @@ const estimateTokensAccurate = (text) => {
 					runBtn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>`
 				}
 
-				if (typeof GM_xmlhttpRequest === "function") {
-					GM_xmlhttpRequest({
-						method: "POST",
-						url: "http://127.0.0.1:3033/run-command",
-						headers: {
-							"Content-Type": "application/json",
-							"x-gemini-thread-saver-key": secret,
-						},
-						data: JSON.stringify({ command: code }),
-						onload: (res) => {
-							try {
-								const data = JSON.parse(res.responseText)
-								if (data.ok) {
-									runBtn.style.color = "#89b4fa"
-									if (window.gmtPolicy) {
-										runBtn.innerHTML = window.gmtPolicy.createHTML(`<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`)
-									} else {
-										runBtn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`
-									}
-									if (typeof terminalManager !== "undefined")
-										terminalManager.startInline(pre, data.session, code)
+				if (!gm.isXmlHttpRequestSupported) {
+					alert("Run command is disabled: this userscript manager does not support cross-origin HTTP requests (GM.xmlHttpRequest).");
+					return;
+				}
+
+				gm.xmlHttpRequest({
+					method: "POST",
+					url: "http://127.0.0.1:3033/run-command",
+					headers: {
+						"Content-Type": "application/json",
+						"x-gemini-thread-saver-key": secret,
+					},
+					data: JSON.stringify({ command: code }),
+					onload: (res) => {
+						try {
+							const data = JSON.parse(res.responseText)
+							if (data.ok) {
+								runBtn.style.color = "#89b4fa"
+								if (window.gmtPolicy) {
+									runBtn.innerHTML = window.gmtPolicy.createHTML(`<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`)
 								} else {
-									runBtn.style.color = "#f38ba8"
+									runBtn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`
 								}
-							} catch (err) {
+								if (typeof terminalManager !== "undefined")
+									terminalManager.startInline(pre, data.session, code)
+							} else {
 								runBtn.style.color = "#f38ba8"
 							}
-							setTimeout(() => {
-								runBtn.style.color = "#c4c7c5"
-								if (window.gmtPolicy) {
-									runBtn.innerHTML = window.gmtPolicy.createHTML(`<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>`)
-								} else {
-									runBtn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>`
-								}
-							}, 8000)
-						},
-						onerror: () => {
+						} catch (err) {
 							runBtn.style.color = "#f38ba8"
-							setTimeout(() => {
-								runBtn.style.color = "#c4c7c5"
-								if (window.gmtPolicy) {
-									runBtn.innerHTML = window.gmtPolicy.createHTML(`<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>`)
-								} else {
-									runBtn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>`
-								}
-							}, 5000)
-						},
-					})
-				} else {
-					console.error("[GMT] GM_xmlhttpRequest is not defined.")
-				}
+						}
+						setTimeout(() => {
+							runBtn.style.color = "#c4c7c5"
+							if (window.gmtPolicy) {
+								runBtn.innerHTML = window.gmtPolicy.createHTML(`<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>`)
+							} else {
+								runBtn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>`
+							}
+						}, 8000)
+					},
+					onerror: () => {
+						runBtn.style.color = "#f38ba8"
+						setTimeout(() => {
+							runBtn.style.color = "#c4c7c5"
+							if (window.gmtPolicy) {
+								runBtn.innerHTML = window.gmtPolicy.createHTML(`<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>`)
+							} else {
+								runBtn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>`
+							}
+						}, 5000)
+					},
+				})
 			}
 
 			// Find the correct wrapper to insert before (so we don't end up inside a tooltip wrapper)
@@ -2797,8 +2762,8 @@ const estimateTokensAccurate = (text) => {
 		},
 
 		poll(session, outputEl) {
-			if (typeof GM_xmlhttpRequest === "function") {
-				GM_xmlhttpRequest({
+			if (gm.isXmlHttpRequestSupported) {
+				gm.xmlHttpRequest({
 					method: "GET",
 					url: `http://127.0.0.1:3033/session-output?session=${session}`,
 					onload: (res) => {
@@ -2816,16 +2781,13 @@ const estimateTokensAccurate = (text) => {
 		},
 
 		sendInput(session, text) {
-			if (typeof GM_xmlhttpRequest === "function") {
-				GM_xmlhttpRequest({
+			if (gm.isXmlHttpRequestSupported) {
+				gm.xmlHttpRequest({
 					method: "POST",
 					url: "http://127.0.0.1:3033/send-input",
 					headers: {
 						"Content-Type": "application/json",
-						"x-gemini-thread-saver-key":
-							typeof GM_getValue === "function" ?
-								GM_getValue("gmt_archive_secret")
-							:	"",
+						"x-gemini-thread-saver-key": gm.getValue("gmt_archive_secret", ""),
 					},
 					data: JSON.stringify({ session: session, text: text }),
 				})
@@ -3077,17 +3039,17 @@ ${ctx.output}
 		)
 		return title || "Untitled Thread"
 	}
-	GM_registerMenuCommand("Set local archive key", () => {
+	gm.registerMenuCommand("Set local archive key", () => {
 		const key = prompt(
 			"Paste the local archive key. Run `cat ~/.config/gemini-thread-saver/secret | pbcopy` in your terminal to get it:",
-			GM_getValue(ARCHIVE_KEY, ""),
+			gm.getValue(ARCHIVE_KEY, ""),
 		)
 		if (key?.trim()) {
-			GM_setValue(ARCHIVE_KEY, key.trim())
+			gm.setValue(ARCHIVE_KEY, key.trim())
 			showArchiveNotice("Local archive key saved")
 		}
 	})
-	GM_registerMenuCommand("Save this thread now", () =>
+	gm.registerMenuCommand("Save this thread now", () =>
 		exportThreadWithTimestamps(true),
 	)
 
@@ -3182,7 +3144,11 @@ ${ctx.output}
 			messages: threadData,
 		})
 		if (!force && window._lastLocalThreadArchive === signature) return
-		const key = GM_getValue(ARCHIVE_KEY, "")
+		if (!gm.isXmlHttpRequestSupported) {
+			if (force) showArchiveNotice("Archive unavailable: network API unsupported", true)
+			return
+		}
+		const key = gm.getValue(ARCHIVE_KEY, "")
 		if (!key) {
 			if (force) showArchiveNotice("Set local archive key first", true)
 			return
@@ -3190,7 +3156,7 @@ ${ctx.output}
 		archiveWriteInFlight = true
 		try {
 			const response = await new Promise((resolve, reject) =>
-				GM_xmlhttpRequest({
+				gm.xmlHttpRequest({
 					method: "POST",
 					url: ARCHIVE_SERVER,
 					data: JSON.stringify(record),

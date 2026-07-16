@@ -12,7 +12,7 @@
 ;(function () {
     'use strict'
 
-    GM_addStyle(`
+    gm.addStyle(`
         * {
             backdrop-filter: none !important;
             -webkit-backdrop-filter: none !important;

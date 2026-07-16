@@ -49,36 +49,8 @@ const estimateTokensAccurate = (text) => {
 ;(function () {
 	"use strict"
 
-	// Polyfills for environments that do not support legacy synchronous GM_* APIs (like Safari Userscripts extension)
-	if (typeof GM_getValue === "undefined") {
-		var GM_getValue = function (key, defaultValue) {
-			const value = localStorage.getItem("__gm_" + key)
-			if (value === null) return defaultValue
-			try {
-				return JSON.parse(value)
-			} catch (e) {
-				return value
-			}
-		}
-	}
+	// Note: Shared compatibility layer (gm.*) is loaded centrally.
 
-	if (typeof GM_setValue === "undefined") {
-		var GM_setValue = function (key, value) {
-			localStorage.setItem("__gm_" + key, JSON.stringify(value))
-		}
-	}
-
-	if (typeof GM_registerMenuCommand === "undefined") {
-		var GM_registerMenuCommand = function () {}
-	}
-
-	if (typeof GM_unregisterMenuCommand === "undefined") {
-		var GM_unregisterMenuCommand = function () {}
-	}
-
-	if (typeof GM_xmlhttpRequest === "undefined" && typeof GM !== "undefined" && typeof GM.xmlHttpRequest === "function") {
-		var GM_xmlhttpRequest = GM.xmlHttpRequest.bind(GM)
-	}
 
 	let lastConversationId = null
 	let beginningLoaded = false
@@ -417,7 +389,7 @@ const estimateTokensAccurate = (text) => {
 		return title || "Untitled Thread"
 	}
 
-	GM_registerMenuCommand("Save this Perplexity thread now", () =>
+	gm.registerMenuCommand("Save this Perplexity thread now", () =>
 		exportThreadWithTimestamps(true),
 	)
 
@@ -478,7 +450,11 @@ const estimateTokensAccurate = (text) => {
 			messages: threadData,
 		}
 
-		const key = GM_getValue(ARCHIVE_KEY, "")
+		if (!gm.isXmlHttpRequestSupported) {
+			if (force) showArchiveNotice("Archive unavailable: network API unsupported", true)
+			return
+		}
+		const key = gm.getValue(ARCHIVE_KEY, "")
 		if (!key) {
 			if (force) showArchiveNotice("Set local archive key first", true)
 			return
@@ -487,7 +463,7 @@ const estimateTokensAccurate = (text) => {
 		archiveWriteInFlight = true
 		try {
 			const response = await new Promise((resolve, reject) =>
-				GM_xmlhttpRequest({
+				gm.xmlHttpRequest({
 					method: "POST",
 					url: ARCHIVE_SERVER,
 					data: JSON.stringify(record),

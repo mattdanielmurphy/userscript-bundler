@@ -49,3 +49,8 @@ This document tracks all features, capabilities, and enhancements implemented in
 - **Smart Autosave Synchronization**: Debounces and triggers local backup synchronizations only after the Gemini model has completely finished generating the response, avoiding partial backups and redundant requests during active output generation.
 - **Title Synchronization**: Syncs the document tab title with the conversation thread title using `MutationObserver`.
 - **Run Bash Commands**: Adds a "Run 🚀" button next to Gemini's native copy button on bash code blocks. Uses the local backend to spawn a detached `tmux` session, executing commands seamlessly on your host system.
+
+## Centralized Cross-Manager Compatibility Layer
+- **Centralized API Wrapper**: Prepend a lightweight compatibility module (`compat.js`) that abstracts differences between Tampermonkey and Safari's "Userscripts" extension (e.g. sync/async storage, menu commands, and style injection).
+- **Universal XHR request adapter**: Translates callbacks and promise-based network requests dynamically across legacy `GM_xmlhttpRequest` and modern/case-insensitive `GM.xmlHttpRequest` formats.
+- **Graceful Failure Diagnostics**: Captures unavailable XHR APIs in limited extensions and informs the user via clear console logs and alerts instead of throwing a TypeError crash.
