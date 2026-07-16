@@ -7,7 +7,6 @@
 // @match        https://www.youtube.com/*
 // @grant        GM.getValue
 // @grant        GM.setValue
-// @grant        none
 // @run-at       document-start
 // ==/UserScript==
 

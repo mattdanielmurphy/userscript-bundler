@@ -9,6 +9,9 @@
 // @grant        GM_registerMenuCommand
 // @grant        GM_unregisterMenuCommand
 // @grant        GM_xmlhttpRequest
+// @grant        GM.getValue
+// @grant        GM.setValue
+// @grant        GM.xmlHttpRequest
 // @connect      127.0.0.1
 // @run-at       document-start
 // ==/UserScript==
@@ -45,6 +48,37 @@ const estimateTokensAccurate = (text) => {
 
 ;(function () {
 	"use strict"
+
+	// Polyfills for environments that do not support legacy synchronous GM_* APIs (like Safari Userscripts extension)
+	if (typeof GM_getValue === "undefined") {
+		var GM_getValue = function (key, defaultValue) {
+			const value = localStorage.getItem("__gm_" + key)
+			if (value === null) return defaultValue
+			try {
+				return JSON.parse(value)
+			} catch (e) {
+				return value
+			}
+		}
+	}
+
+	if (typeof GM_setValue === "undefined") {
+		var GM_setValue = function (key, value) {
+			localStorage.setItem("__gm_" + key, JSON.stringify(value))
+		}
+	}
+
+	if (typeof GM_registerMenuCommand === "undefined") {
+		var GM_registerMenuCommand = function () {}
+	}
+
+	if (typeof GM_unregisterMenuCommand === "undefined") {
+		var GM_unregisterMenuCommand = function () {}
+	}
+
+	if (typeof GM_xmlhttpRequest === "undefined" && typeof GM !== "undefined" && typeof GM.xmlHttpRequest === "function") {
+		var GM_xmlhttpRequest = GM.xmlHttpRequest.bind(GM)
+	}
 
 	let lastConversationId = null
 	let beginningLoaded = false

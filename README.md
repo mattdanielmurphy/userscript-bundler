@@ -14,6 +14,7 @@ This bundler solves the problem of managing multiple userscripts in Tampermonkey
 ## How It Works
 
 ### 1. Master Userscript
+
 You install one master userscript in Tampermonkey that loads the bundled file:
 
 ```javascript
@@ -26,6 +27,7 @@ You install one master userscript in Tampermonkey that loads the bundled file:
 // @require      file:///Users/matt/projects/userscript-bundler/userscript_bundle.js
 // @grant        GM.getValue
 // @grant        GM.setValue
+// @grant        GM.xmlHttpRequest
 // @grant        GM_addStyle
 // @grant        GM_getValue
 // @grant        GM_notification
@@ -35,29 +37,37 @@ You install one master userscript in Tampermonkey that loads the bundled file:
 // @grant        GM_unregisterMenuCommand
 // @grant        GM_xmlhttpRequest
 // @grant        unsafeWindow
+// @grant        GM_setClipboard
+// @grant        GM_notification
 // @connect      127.0.0.1
 // ==/UserScript==
 ```
 
 ### 2. Source Scripts
+
 Create individual JavaScript files for different websites or functionalities. Each script contains immediately executing code (not wrapped in functions).
 
 ### 3. Manifest Configuration
+
 Define which scripts should run on which URLs using `script_manifest.json`.
 
 ### 4. Bundling Process
+
 Run `node bundler.js` to:
+
 - Read all source scripts
 - Wrap each script in a unique function
 - Generate a dispatcher that checks the current URL
 - Create a single `userscript_bundle.js` file
 
 ### 5. Dynamic Execution
+
 The bundled file automatically:
+
 - Checks the current page URL
 - Matches it against configured patterns
-- Executes the appropriate script function
-i
+- Executes the appropriate script function i
+
 ## File Structure
 
 ```
@@ -87,6 +97,7 @@ userscript-bundler/
    - Include logging to confirm execution
 
 2. **Generate the bundle**:
+
    ```bash
    node bundler.js
    ```
@@ -100,6 +111,7 @@ userscript-bundler/
 For seamless development, set up automatic bundling that watches for file changes:
 
 1. **Set up auto-bundling**:
+
    ```bash
    ./setup-auto-bundler.sh
    ```
@@ -118,14 +130,16 @@ For seamless development, set up automatic bundling that watches for file change
 ## Example Source Scripts
 
 ### GitHub Script (`source_script_a.js`)
+
 ```javascript
-console.log('GitHub script loaded!');
+console.log("GitHub script loaded!")
 // Add GitHub-specific functionality here
 ```
 
 ### Wikipedia Script (`source_script_b.js`)
+
 ```javascript
-console.log('Wikipedia script loaded!');
+console.log("Wikipedia script loaded!")
 // Add Wikipedia-specific functionality here
 ```
 
@@ -133,14 +147,14 @@ console.log('Wikipedia script loaded!');
 
 ```json
 [
-  {
-    "file": "source_script_a.js",
-    "match": "github.com"
-  },
-  {
-    "file": "source_script_b.js", 
-    "match": "wikipedia.org"
-  }
+	{
+		"file": "source_script_a.js",
+		"match": "github.com"
+	},
+	{
+		"file": "source_script_b.js",
+		"match": "wikipedia.org"
+	}
 ]
 ```
 
@@ -157,6 +171,7 @@ console.log('Wikipedia script loaded!');
 ## Technical Details
 
 The bundler:
+
 1. **Auto-generates manifest** from userscript headers (`@name` and `@match`)
 2. **Wraps each source script** in a unique function name with DOM ready logic
 3. **Creates a dispatcher** that checks `window.location.href`
@@ -164,6 +179,7 @@ The bundler:
 5. **Outputs a single, self-contained JavaScript file**
 
 ### Auto-Bundling System
+
 - **File watcher** monitors the `userscripts/` directory for changes
 - **Debounced execution** prevents rapid rebuilds during editing
 - **LaunchAgent integration** runs automatically on system startup

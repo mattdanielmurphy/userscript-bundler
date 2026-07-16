@@ -9,6 +9,9 @@
 // @grant        GM_registerMenuCommand
 // @grant        GM_unregisterMenuCommand
 // @grant        GM_xmlhttpRequest
+// @grant        GM.getValue
+// @grant        GM.setValue
+// @grant        GM.xmlHttpRequest
 // @connect      127.0.0.1
 // @run-at       document-start
 // ==/UserScript==
@@ -73,6 +76,37 @@ const estimateTokensAccurate = (text) => {
 // Token counter logic has been relocated inside the IIFE below.
 ;(function () {
 	"use strict"
+
+	// Polyfills for environments that do not support legacy synchronous GM_* APIs (like Safari Userscripts extension)
+	if (typeof GM_getValue === "undefined") {
+		var GM_getValue = function (key, defaultValue) {
+			const value = localStorage.getItem("__gm_" + key)
+			if (value === null) return defaultValue
+			try {
+				return JSON.parse(value)
+			} catch (e) {
+				return value
+			}
+		}
+	}
+
+	if (typeof GM_setValue === "undefined") {
+		var GM_setValue = function (key, value) {
+			localStorage.setItem("__gm_" + key, JSON.stringify(value))
+		}
+	}
+
+	if (typeof GM_registerMenuCommand === "undefined") {
+		var GM_registerMenuCommand = function () {}
+	}
+
+	if (typeof GM_unregisterMenuCommand === "undefined") {
+		var GM_unregisterMenuCommand = function () {}
+	}
+
+	if (typeof GM_xmlhttpRequest === "undefined" && typeof GM !== "undefined" && typeof GM.xmlHttpRequest === "function") {
+		var GM_xmlhttpRequest = GM.xmlHttpRequest.bind(GM)
+	}
 
 	// --- Integration with your parsing logic ---
 	let lastConversationId = null
@@ -2610,7 +2644,7 @@ const estimateTokensAccurate = (text) => {
 										runBtn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`
 									}
 									if (typeof terminalManager !== "undefined")
-										terminalManager.startInline(pre, data.session)
+										terminalManager.startInline(pre, data.session, code)
 								} else {
 									runBtn.style.color = "#f38ba8"
 								}
@@ -2676,7 +2710,12 @@ const estimateTokensAccurate = (text) => {
 		pollers: {},
 		contexts: {},
 
-		startInline(pre, session) {
+		startInline(pre, session, command) {
+			if (!this.contexts[session]) {
+				this.contexts[session] = { active: true, output: "", command: command }
+			} else {
+				this.contexts[session].command = command
+			}
 			let container = pre.nextElementSibling
 			if (!container || !container.classList.contains("gmt-inline-output")) {
 				container = document.createElement("div")
@@ -2701,8 +2740,22 @@ const estimateTokensAccurate = (text) => {
 
 			const header = document.createElement("div")
 			header.style.cssText =
-				"display: flex; justify-content: space-between; margin-bottom: 8px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 4px; color: #89b4fa; font-weight: bold;"
-			header.innerText = `Terminal Output (tmux: ${session})`
+				"display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 4px; color: #89b4fa; font-weight: bold;"
+			
+			const titleSpan = document.createElement("span")
+			titleSpan.innerText = `Terminal Output (tmux: ${session})`
+			header.appendChild(titleSpan)
+			
+			const attachBtn = document.createElement("button")
+			attachBtn.innerText = "+ Context"
+			attachBtn.style.cssText = "background: rgba(137, 180, 250, 0.15); border: 1px solid rgba(137, 180, 250, 0.3); color: #89b4fa; border-radius: 4px; padding: 2px 8px; font-size: 10px; cursor: pointer;"
+			attachBtn.onclick = () => {
+				if (this.contexts[session]) {
+					this.contexts[session].active = true
+					this.renderContextPills()
+				}
+			}
+			header.appendChild(attachBtn)
 
 			const outputEl = document.createElement("pre")
 			outputEl.style.cssText =
@@ -2781,7 +2834,7 @@ const estimateTokensAccurate = (text) => {
 
 		updateContextPill(session, output) {
 			if (!this.contexts[session]) {
-				this.contexts[session] = { active: true, output: output }
+				this.contexts[session] = { active: true, output: output, command: session }
 			} else {
 				this.contexts[session].output = output
 			}
@@ -2829,7 +2882,11 @@ const estimateTokensAccurate = (text) => {
 				`
 
 				const textNode = document.createElement("span")
-				textNode.innerText = `Terminal: ${session}`
+				let shortCmd = ctx.command || session
+				if (shortCmd.includes("\\n")) shortCmd = shortCmd.split("\\n")[0]
+				shortCmd = shortCmd.trim()
+				if (shortCmd.length > 25) shortCmd = shortCmd.substring(0, 25) + "..."
+				textNode.innerText = `Terminal: "${shortCmd}"`
 				pill.appendChild(textNode)
 
 				const removeBtn = document.createElement("span")
@@ -2839,21 +2896,30 @@ const estimateTokensAccurate = (text) => {
 				removeBtn.onclick = (e) => {
 					e.stopPropagation()
 					ctx.active = false
+					if (window.gmtTooltipHideTimeout) {
+						clearTimeout(window.gmtTooltipHideTimeout)
+						window.gmtTooltipHideTimeout = null
+					}
+					const tooltip = document.getElementById("gmt-context-tooltip")
+					if (tooltip) tooltip.remove()
 					this.renderContextPills()
 				}
 				pill.appendChild(removeBtn)
 
 				// Hover tooltip
-				pill.onmouseover = (e) => {
+				// Hover tooltip
+				pill.onmouseenter = (e) => {
+					if (window.gmtTooltipHideTimeout) {
+						clearTimeout(window.gmtTooltipHideTimeout)
+						window.gmtTooltipHideTimeout = null
+					}
+					
 					let tooltip = document.getElementById("gmt-context-tooltip")
 					if (!tooltip) {
 						tooltip = document.createElement("div")
 						tooltip.id = "gmt-context-tooltip"
 						tooltip.style.cssText = `
-							position: absolute;
-							bottom: 100%;
-							left: 0;
-							margin-bottom: 8px;
+							position: fixed;
 							background: #1e1e2e;
 							border: 1px solid rgba(255,255,255,0.1);
 							border-radius: 8px;
@@ -2861,27 +2927,48 @@ const estimateTokensAccurate = (text) => {
 							color: #cdd6f4;
 							font-family: monospace;
 							font-size: 11px;
-							max-width: 400px;
-							max-height: 200px;
-							overflow: hidden;
-							text-overflow: ellipsis;
+							max-width: 500px;
+							max-height: 300px;
+							overflow-y: auto;
 							white-space: pre-wrap;
 							box-shadow: 0 4px 12px rgba(0,0,0,0.5);
-							z-index: 99999;
-							pointer-events: none;
+							z-index: 2147483647;
+							pointer-events: auto;
 						`
-						pill.appendChild(tooltip)
+						document.body.appendChild(tooltip)
+						
+						tooltip.onmouseenter = () => {
+							if (window.gmtTooltipHideTimeout) {
+								clearTimeout(window.gmtTooltipHideTimeout)
+								window.gmtTooltipHideTimeout = null
+							}
+						}
+						tooltip.onmouseleave = () => {
+							window.gmtTooltipHideTimeout = setTimeout(() => {
+								tooltip.remove()
+							}, 350)
+						}
 					}
-					// Show the last 500 chars roughly
+					
+					const rect = pill.getBoundingClientRect()
+					tooltip.style.left = Math.max(10, rect.left) + "px"
+					tooltip.style.bottom = (window.innerHeight - rect.top + 8) + "px"
+
+					// Show the last 2000 chars roughly
 					const snippet =
-						ctx.output.length > 500 ?
-							"..." + ctx.output.slice(-500)
+						ctx.output.length > 2000 ?
+							"..." + ctx.output.slice(-2000)
 						:	ctx.output
 					tooltip.innerText = snippet
+					tooltip.onclick = (e) => e.stopPropagation()
 				}
-				pill.onmouseout = (e) => {
+				pill.onmouseleave = (e) => {
 					const tooltip = document.getElementById("gmt-context-tooltip")
-					if (tooltip) tooltip.remove()
+					if (tooltip) {
+						window.gmtTooltipHideTimeout = setTimeout(() => {
+							tooltip.remove()
+						}, 350)
+					}
 				}
 
 				// Clicking the pill itself toggles insertion manually
@@ -3132,3 +3219,14 @@ ${ctx.output}
 		}
 	}
 })()
+
+(function() {
+	const style = document.createElement('style');
+	style.id = 'remove-radial-gradient';
+	style.textContent = `
+		chat-window::before {
+			background-image: none !important;
+		}
+	`;
+	document.head.appendChild(style);
+})();
