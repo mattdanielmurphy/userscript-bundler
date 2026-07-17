@@ -236,7 +236,6 @@ const __BUILD_ID__ = "${buildId}";`)
 		const allConnects = new Set()
 		
 		allGrants.add("GM_setClipboard")
-		allGrants.add("GM_notification")
 
 		for (let i = 0; i < manifest.length; i++) {
 			const entry = manifest[i]
@@ -557,36 +556,148 @@ window.${functionName} = ${functionName};
                     }
                 }
             } catch (error) {
-                console.error(\`❌ Error in \${entry.name}:\`, error);
-                try {
-                    const stack = error.stack || error.toString();
-                    if (typeof GM_setClipboard !== 'undefined') GM_setClipboard(stack);
-                    if (typeof GM_notification !== 'undefined') {
-                        GM_notification({
-                            title: \`❌ \${entry.name} Error\`,
-                            text: "Copied to clipboard: " + error.message,
-                            timeout: 5000
-                        });
-                    }
-                } catch(e) {}
+                reportError(entry.name, error);
             }
         });
     }
     
+    const errorQueue = [];
+    let errorDotElement = null;
+
+    function reportError(nameOrType, errorObj) {
+        const errorMsg = errorObj ? (errorObj.message || String(errorObj)) : "Unknown error";
+        const errorStack = errorObj && errorObj.stack ? errorObj.stack : String(errorObj || "No stack trace available");
+        
+        errorQueue.push({
+            source: nameOrType,
+            message: errorMsg,
+            stack: errorStack,
+            time: new Date().toLocaleTimeString()
+        });
+
+        console.error(\`❌ [Bundler] Error in \${nameOrType}:\`, errorMsg, errorObj);
+
+        try {
+            if (typeof GM_setClipboard !== 'undefined') {
+                GM_setClipboard(errorStack);
+            }
+        } catch (e) {}
+
+        if (!document.body) {
+            if (!window._bundlerErrorListenerAdded) {
+                window._bundlerErrorListenerAdded = true;
+                const checkBody = setInterval(() => {
+                    if (document.body) {
+                        clearInterval(checkBody);
+                        renderErrorDot();
+                    }
+                }, 100);
+                document.addEventListener('DOMContentLoaded', () => {
+                    clearInterval(checkBody);
+                    renderErrorDot();
+                });
+            }
+        } else {
+            renderErrorDot();
+        }
+    }
+
+    function renderErrorDot() {
+        if (!document.body) return;
+        if (errorDotElement && errorDotElement.parentNode) {
+            updateErrorDot();
+            return;
+        }
+
+        errorDotElement = document.createElement('div');
+        errorDotElement.id = 'userscript-error-dot';
+        
+        const styleId = 'userscript-error-dot-styles';
+        if (!document.getElementById(styleId)) {
+            const style = document.createElement('style');
+            style.id = styleId;
+            style.textContent = \`
+                #userscript-error-dot {
+                    position: fixed !important;
+                    bottom: 20px !important;
+                    right: 20px !important;
+                    width: 16px !important;
+                    height: 16px !important;
+                    border-radius: 50% !important;
+                    background-color: #ff4d4f !important;
+                    box-shadow: 0 0 10px rgba(255, 77, 79, 0.8), 0 2px 8px rgba(0, 0, 0, 0.3) !important;
+                    cursor: pointer !important;
+                    z-index: 2147483647 !important;
+                    transition: transform 0.2s ease, background-color 0.3s ease, box-shadow 0.3s ease !important;
+                    animation: userscript-error-pulse 2s infinite !important;
+                }
+                #userscript-error-dot:hover {
+                    transform: scale(1.25) !important;
+                }
+                #userscript-error-dot.copied {
+                    background-color: #52c41a !important;
+                    box-shadow: 0 0 10px rgba(82, 196, 26, 0.8), 0 2px 8px rgba(0, 0, 0, 0.3) !important;
+                }
+                @keyframes userscript-error-pulse {
+                    0% { box-shadow: 0 0 0 0 rgba(255, 77, 79, 0.7); }
+                    70% { box-shadow: 0 0 0 8px rgba(255, 77, 79, 0); }
+                    100% { box-shadow: 0 0 0 0 rgba(255, 77, 79, 0); }
+                }
+            \`;
+            document.head.appendChild(style);
+        }
+
+        errorDotElement.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const combinedStack = errorQueue.map((err, idx) => {
+                return \`[Error #\${idx + 1}] Source: \${err.source} (\${err.time})\\nMessage: \${err.message}\\nStack:\\n\${err.stack}\`;
+            }).join('\\n\\n' + '='.repeat(50) + '\\n\\n');
+
+            try {
+                if (typeof GM_setClipboard !== 'undefined') {
+                    GM_setClipboard(combinedStack);
+                } else if (navigator.clipboard) {
+                    navigator.clipboard.writeText(combinedStack).catch(() => {});
+                }
+            } catch (err) {}
+
+            errorDotElement.classList.add('copied');
+            const originalTitle = errorDotElement.title;
+            errorDotElement.title = 'Stack trace copied to clipboard!';
+            setTimeout(() => {
+                if (errorDotElement) {
+                    errorDotElement.classList.remove('copied');
+                    errorDotElement.title = originalTitle;
+                }
+            }, 1500);
+        });
+
+        errorDotElement.addEventListener('dblclick', (e) => {
+            e.stopPropagation();
+            if (errorDotElement) {
+                errorDotElement.remove();
+                errorDotElement = null;
+            }
+        });
+
+        document.body.appendChild(errorDotElement);
+        updateErrorDot();
+    }
+
+    function updateErrorDot() {
+        if (!errorDotElement) return;
+        const count = errorQueue.length;
+        const lastErr = errorQueue[count - 1];
+        errorDotElement.title = \`❌ Userscript Error in \${lastErr.source} (\${count} total)\\nMessage: \${lastErr.message}\\n\\nClick to copy full stack trace.\\nDouble-click to dismiss.\`;
+    }
+
     // Set up global error reporting for async/runtime userscript errors
     function handleGlobalError(type, message, errorObj) {
         try {
             const stack = errorObj && errorObj.stack ? errorObj.stack : String(errorObj);
             // Only report if it looks like it originated from our bundle/userscript context
             if (stack && (stack.includes('userscript.html') || stack.includes('userscript_bundle') || stack.includes('eval'))) {
-                if (typeof GM_setClipboard !== 'undefined') GM_setClipboard(stack);
-                if (typeof GM_notification !== 'undefined') {
-                    GM_notification({
-                        title: "Bundler: " + type,
-                        text: "Copied to clipboard: " + message,
-                        timeout: 5000
-                    });
-                }
+                reportError(type, errorObj || message);
             }
         } catch (e) {}
     }

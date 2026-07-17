@@ -28,17 +28,16 @@ You install one master userscript in Tampermonkey that loads the bundled file:
 // @grant        GM.getValue
 // @grant        GM.setValue
 // @grant        GM.xmlHttpRequest
+// @grant        GM_addElement
 // @grant        GM_addStyle
+// @grant        GM_getResourceText
 // @grant        GM_getValue
-// @grant        GM_notification
 // @grant        GM_registerMenuCommand
 // @grant        GM_setClipboard
 // @grant        GM_setValue
 // @grant        GM_unregisterMenuCommand
 // @grant        GM_xmlhttpRequest
 // @grant        unsafeWindow
-// @grant        GM_setClipboard
-// @grant        GM_notification
 // @connect      127.0.0.1
 // ==/UserScript==
 ```

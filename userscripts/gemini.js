@@ -3184,7 +3184,7 @@ ${ctx.output}
 			archiveWriteInFlight = false
 		}
 	}
-})()
+})();
 
 (function() {
 	const style = document.createElement('style');
