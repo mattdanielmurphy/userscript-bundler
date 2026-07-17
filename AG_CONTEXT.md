@@ -12,6 +12,7 @@ A tool for bundling userscripts, likely with a watcher and auto-bundling capabil
 ## Conventions
 - **Conventions**: Added `showToast` utility for non-blocking notifications; Uses `mv` instead of `rm` for recovery.
 - **Bundling**: `userscript_bundle.js` is loaded via `file://` @require in Tampermonkey.
+  - **Error Reporting**: Replaced invasive notification popups (`GM_notification`) with a custom on-screen pulsing red dot at the bottom-right of the viewport. Hovering over it shows error counts and details; clicking it copies all accumulated stack traces to the clipboard with visual confirmation; double-clicking dismisses the dot.
   - **Feature**: `bundler.js` extracts all `@grant` and `@run-at` headers automatically; instructions are printed to the console.
   - **Fix**: Scripts with `@run-at document-start` now execute immediately upon bundle load rather than waiting for `DOMContentLoaded`. This ensures menu commands and early page modifications (like the Gemini timestamp script) work correctly.
   - **Gemini**: Automatically syncs the tab title with the current conversation thread title using `MutationObserver`.
