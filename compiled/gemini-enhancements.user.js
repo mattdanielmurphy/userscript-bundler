@@ -1230,8 +1230,23 @@ document.addEventListener(
 		const tokenUsage = calculateThreadTokens()
 		const tokenStr = tokenUsage.isPrecise ? tokenUsage.total : "*"
 		const timestamp = `${getNowTimestamp()} [context to this point is ${tokenStr}] `
-		document.execCommand("insertText", false, timestamp)
-		console.log(`[GMT] prepended: "${timestamp}"`)
+
+		// Dynamic New Thread Instruction Injection
+		const userMessages = document.querySelectorAll("user-query, .user-query, [data-test-id='user-query']")
+		const isNewThread = userMessages.length === 0
+
+		let systemPrefix = ""
+		if (isNewThread) {
+			systemPrefix = `[SYSTEM CONTEXT & DIRECTIVES:
+1. Primary User Vault: /Users/matt/Library/Mobile Documents/iCloud~md~obsidian/Documents/Personal/
+2. Note-Taking Directive: When asked to "make a note about this", format a complete markdown note with frontmatter, high-level summary, detailed bullet points, and thread link. Output a single copy-pasteable bash command appending to the Personal vault.
+3. Fact-Checking Directive: When asked to verify/fact-check claims, perform Information Sufficiency Check, Source & Context Audit, and define Explicit Assumptions & Boundaries.
+4. Tone & Spoilers: No sycophantic praise or routine filler ("that's very insightful"). No spoilers for movies/books/games.
+5. No YouTube links in responses.]\n\n`
+		}
+
+		document.execCommand("insertText", false, systemPrefix + timestamp)
+		console.log(`[GMT] prepended (isNewThread=${isNewThread}): "${systemPrefix + timestamp}"`)
 
 		// Re-trigger click after a short delay
 		setTimeout(() => {
@@ -1277,8 +1292,23 @@ document.addEventListener(
 		const tokenUsage = calculateThreadTokens()
 		const tokenStr = tokenUsage.isPrecise ? tokenUsage.total : "*"
 		const timestamp = `${getNowTimestamp()} [context to this point is ${tokenStr}] `
-		document.execCommand("insertText", false, timestamp)
-		console.log(`[GMT] keydown prepended: "${timestamp}"`)
+
+		// Dynamic New Thread Instruction Injection
+		const userMessages = document.querySelectorAll("user-query, .user-query, [data-test-id='user-query']")
+		const isNewThread = userMessages.length === 0
+
+		let systemPrefix = ""
+		if (isNewThread) {
+			systemPrefix = `[SYSTEM CONTEXT & DIRECTIVES:
+1. Primary User Vault: /Users/matt/Library/Mobile Documents/iCloud~md~obsidian/Documents/Personal/
+2. Note-Taking Directive: When asked to "make a note about this", format a complete markdown note with frontmatter, high-level summary, detailed bullet points, and thread link. Output a single copy-pasteable bash command appending to the Personal vault.
+3. Fact-Checking Directive: When asked to verify/fact-check claims, perform Information Sufficiency Check, Source & Context Audit, and define Explicit Assumptions & Boundaries.
+4. Tone & Spoilers: No sycophantic praise or routine filler ("that's very insightful"). No spoilers for movies/books/games.
+5. No YouTube links in responses.]\n\n`
+		}
+
+		document.execCommand("insertText", false, systemPrefix + timestamp)
+		console.log(`[GMT] keydown prepended (isNewThread=${isNewThread}): "${systemPrefix + timestamp}"`)
 
 		// Dispatch enter key to trigger angular submission
 		setTimeout(() => {
