@@ -3424,21 +3424,4 @@ startObservers()
 // Close the outer IIFE started in 00-bootstrap.js
 })();
 
-(function() {
-	const style = document.createElement('style');
-	style.id = 'remove-radial-gradient';
-	style.textContent = `
-		chat-window::before {
-			background-image: none !important;
-		}
-	`;
-	if (typeof appendStyle === "function") {
-		appendStyle(style);
-	} else if (document.head) {
-		document.head.appendChild(style);
-	} else if (document.documentElement) {
-		document.documentElement.appendChild(style);
-	}
-})();
-
 
