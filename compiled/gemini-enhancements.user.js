@@ -1784,7 +1784,20 @@ aiosStyle.textContent = `
         }
     }
 `
-document.head.appendChild(aiosStyle)
+
+function appendStyle(styleEl) {
+	if (document.head) {
+		document.head.appendChild(styleEl)
+	} else if (document.documentElement) {
+		document.documentElement.appendChild(styleEl)
+	} else {
+		document.addEventListener("DOMContentLoaded", () => {
+			(document.head || document.documentElement).appendChild(styleEl)
+		})
+	}
+}
+
+appendStyle(aiosStyle)
 
 // Autocomplete Menu logic
 let autocompleteMenu = null
@@ -3409,7 +3422,13 @@ startObservers()
 			background-image: none !important;
 		}
 	`;
-	document.head.appendChild(style);
+	if (typeof appendStyle === "function") {
+		appendStyle(style);
+	} else if (document.head) {
+		document.head.appendChild(style);
+	} else if (document.documentElement) {
+		document.documentElement.appendChild(style);
+	}
 })();
 
 

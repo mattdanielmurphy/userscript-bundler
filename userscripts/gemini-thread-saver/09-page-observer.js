@@ -185,5 +185,11 @@ startObservers()
 			background-image: none !important;
 		}
 	`;
-	document.head.appendChild(style);
+	if (typeof appendStyle === "function") {
+		appendStyle(style);
+	} else if (document.head) {
+		document.head.appendChild(style);
+	} else if (document.documentElement) {
+		document.documentElement.appendChild(style);
+	}
 })();

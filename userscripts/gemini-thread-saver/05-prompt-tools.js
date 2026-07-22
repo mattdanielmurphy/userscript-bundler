@@ -493,7 +493,20 @@ aiosStyle.textContent = `
         }
     }
 `
-document.head.appendChild(aiosStyle)
+
+function appendStyle(styleEl) {
+	if (document.head) {
+		document.head.appendChild(styleEl)
+	} else if (document.documentElement) {
+		document.documentElement.appendChild(styleEl)
+	} else {
+		document.addEventListener("DOMContentLoaded", () => {
+			(document.head || document.documentElement).appendChild(styleEl)
+		})
+	}
+}
+
+appendStyle(aiosStyle)
 
 // Autocomplete Menu logic
 let autocompleteMenu = null
