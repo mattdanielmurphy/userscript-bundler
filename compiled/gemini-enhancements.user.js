@@ -1786,14 +1786,24 @@ aiosStyle.textContent = `
 `
 
 function appendStyle(styleEl) {
-	if (document.head) {
-		document.head.appendChild(styleEl)
-	} else if (document.documentElement) {
-		document.documentElement.appendChild(styleEl)
-	} else {
-		document.addEventListener("DOMContentLoaded", () => {
-			(document.head || document.documentElement).appendChild(styleEl)
-		})
+	const doAppend = () => {
+		const target = document.head || document.documentElement || document.body
+		if (target) {
+			target.appendChild(styleEl)
+			return true
+		}
+		return false
+	}
+
+	if (!doAppend()) {
+		if (document.readyState === "loading") {
+			document.addEventListener("DOMContentLoaded", doAppend)
+		} else {
+			const observer = new MutationObserver(() => {
+				if (doAppend()) observer.disconnect()
+			})
+			observer.observe(document, { childList: true, subtree: true })
+		}
 	}
 }
 
