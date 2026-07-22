@@ -969,6 +969,100 @@ window.${functionName} = ${functionName};
 			`📊 Stats: ${(stats.size / 1024).toFixed(2)} KB, ${processedManifest.length} scripts`,
 		)
 
+		// Step 7: Compile multi-module (grouped) userscripts into standalone files
+		const COMPILED_DIR = path.join(__dirname, "compiled")
+		const groupedEntries = manifest.filter(entry => entry.files && Array.isArray(entry.files))
+
+		if (groupedEntries.length > 0) {
+			if (!fs.existsSync(COMPILED_DIR)) {
+				fs.mkdirSync(COMPILED_DIR, { recursive: true })
+			}
+
+			console.log(`\n📦 Compiling ${groupedEntries.length} multi-module userscript(s) into standalone files in: ${COMPILED_DIR}`)
+
+			for (const groupEntry of groupedEntries) {
+				const idName = groupEntry.id || groupEntry.group || (groupEntry.name ? groupEntry.name.toLowerCase().replace(/[^a-z0-9]+/g, "-") : "grouped-script")
+				const outputFilename = `${idName}.user.js`
+				const outputPath = path.join(COMPILED_DIR, outputFilename)
+
+				let standaloneCode = `// ==UserScript==\n`
+				standaloneCode += `// @name         ${groupEntry.name || groupEntry.group || "Grouped Userscript"}\n`
+				if (groupEntry.description) {
+					standaloneCode += `// @description  ${groupEntry.description}\n`
+				}
+
+				const matches = groupEntry.matches || (groupEntry.match ? [groupEntry.match] : [])
+				matches.forEach(m => {
+					standaloneCode += `// @match        ${m}\n`
+				})
+
+				const groupGrants = new Set()
+				const groupConnects = new Set()
+				let groupRunAt = "document-idle"
+				let concatenatedBody = ""
+
+				for (const relFile of groupEntry.files) {
+					const fullPath = path.resolve(USERSCRIPTS_DIR, relFile)
+					if (!fs.existsSync(fullPath)) continue
+
+					const fileContent = fs.readFileSync(fullPath, "utf8")
+					const headerLines = fileContent.split("\n")
+					let inHeader = false
+
+					for (const line of headerLines) {
+						const trimmed = line.trim()
+						if (trimmed === "// ==UserScript==") {
+							inHeader = true
+							continue
+						}
+						if (trimmed === "// ==/UserScript==") {
+							break
+						}
+						if (inHeader) {
+							const grantMatch = trimmed.match(/^\/\/\s*@grant\s+(.+)$/)
+							if (grantMatch && grantMatch[1].trim() !== "none") {
+								groupGrants.add(grantMatch[1].trim())
+							}
+							const connectMatch = trimmed.match(/^\/\/\s*@connect\s+(.+)$/)
+							if (connectMatch) {
+								groupConnects.add(connectMatch[1].trim())
+							}
+						}
+					}
+
+					const runAtMatch = fileContent.match(/\/\/\s*@run-at\s+(.+)$/m)
+					if (runAtMatch) {
+						groupRunAt = runAtMatch[1].trim()
+					}
+
+					concatenatedBody += `/* ===== ${relFile} ===== */\n${fileContent}\n\n`
+				}
+
+				Array.from(groupGrants).sort().forEach(g => {
+					standaloneCode += `// @grant        ${g}\n`
+				})
+				Array.from(groupConnects).sort().forEach(c => {
+					standaloneCode += `// @connect      ${c}\n`
+				})
+				standaloneCode += `// @run-at       ${groupRunAt}\n`
+				standaloneCode += `// ==/UserScript==\n\n`
+				standaloneCode += concatenatedBody
+
+				// Validate syntax of compiled standalone userscript
+				try {
+					new vm.Script(standaloneCode, { filename: outputFilename })
+				} catch (syntaxError) {
+					console.error(`❌ [Syntax Error] In compiled standalone script: ${outputFilename}`)
+					console.error(syntaxError.stack || syntaxError.message)
+					process.exit(1)
+				}
+
+				fs.writeFileSync(outputPath, standaloneCode, "utf8")
+				const fileStats = fs.statSync(outputPath)
+				console.log(`  ✅ Compiled: ${outputFilename} (${(fileStats.size / 1024).toFixed(2)} KB)`)
+			}
+		}
+
 		// Display usage instructions
 		const absoluteBundlePath = path.resolve(OUTPUT_FILE)
 		console.log("\n📖 Master Userscript Configuration:")
