@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Gemini Thread Saver
-// @namespace    local.gemini.thread.saver
+// @name         Gemini Enhancements
+// @namespace    local.gemini.enhancements
 // @version      5.0.0
-// @description  Gemini timestamps and private local Markdown archive.
+// @description  Timestamps, thread token counter, private local Markdown archiving, prompt tools, model optimizer, and terminal command execution for Gemini.
 // @match        https://gemini.google.com/*
 // @grant        GM_getValue
 // @grant        GM_setValue

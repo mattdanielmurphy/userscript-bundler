@@ -11,9 +11,9 @@
     "sharedFiles": []
   },
   {
-    "id": "gemini-thread-saver",
-    "name": "Gemini Thread Saver",
-    "description": "Gemini timestamps, private local Markdown archive, and terminal execution integration",
+    "id": "gemini-enhancements",
+    "name": "Gemini Enhancements",
+    "description": "Timestamps, thread token counter, private local Markdown archiving, prompt tools, model optimizer, and terminal command execution for Gemini",
     "kind": "grouped",
     "matches": [
       "https://gemini.google.com/*"
