@@ -1038,6 +1038,13 @@ window.${functionName} = ${functionName};
 					concatenatedBody += `/* ===== ${relFile} ===== */\n${fileContent}\n\n`
 				}
 
+				// Prepend compatibility layer (compat.js) so `gm` wrapper is defined
+				const compatPath = path.resolve(USERSCRIPTS_DIR, "compat.js")
+				let compatCode = ""
+				if (fs.existsSync(compatPath)) {
+					compatCode = `/* ===== compat.js ===== */\n${fs.readFileSync(compatPath, "utf8")}\n\n`
+				}
+
 				Array.from(groupGrants).sort().forEach(g => {
 					standaloneCode += `// @grant        ${g}\n`
 				})
@@ -1046,7 +1053,7 @@ window.${functionName} = ${functionName};
 				})
 				standaloneCode += `// @run-at       ${groupRunAt}\n`
 				standaloneCode += `// ==/UserScript==\n\n`
-				standaloneCode += concatenatedBody
+				standaloneCode += compatCode + concatenatedBody
 
 				// Validate syntax of compiled standalone userscript
 				try {
