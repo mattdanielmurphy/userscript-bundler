@@ -1,4 +1,12 @@
 {
+  "name": "userscript-bundler",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node bundler.cjs",
+    "test": "node --test"
+  },
   "dependencies": {
     "puppeteer-core": "^25.3.0"
   }

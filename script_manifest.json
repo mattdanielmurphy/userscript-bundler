@@ -1,8 +1,23 @@
 [
   {
+    "id": "userscript-control-center",
+    "name": "Userscript Control Center",
+    "description": "Embedded cross-site Control Center dialog and hotkey overlay",
+    "kind": "standalone",
+    "matches": [
+      "*://*/*"
+    ],
+    "file": "control-center.js",
+    "sharedFiles": []
+  },
+  {
+    "id": "gemini-thread-saver",
     "name": "Gemini Thread Saver",
-    "match": "gemini.google.com",
-    "group": "gemini-thread-saver",
+    "description": "Gemini timestamps, private local Markdown archive, and terminal execution integration",
+    "kind": "grouped",
+    "matches": [
+      "https://gemini.google.com/*"
+    ],
     "files": [
       "gemini-thread-saver/00-bootstrap.js",
       "gemini-thread-saver/01-shared.js",
@@ -14,6 +29,196 @@
       "gemini-thread-saver/07-terminal.js",
       "gemini-thread-saver/08-model-optimizer.js",
       "gemini-thread-saver/09-page-observer.js"
-    ]
+    ],
+    "sharedFiles": []
+  },
+  {
+    "id": "perplexity-ai-improvements",
+    "name": "Perplexity.ai Improvements",
+    "description": "Rate limit display, input auto-focus, and promo cleanup on Perplexity",
+    "kind": "standalone",
+    "matches": [
+      "https://www.perplexity.ai/*"
+    ],
+    "file": "Perplexity.ai Improvements.user.js",
+    "sharedFiles": []
+  },
+  {
+    "id": "d2l-content-tools",
+    "name": "D2L Content Tools",
+    "description": "Image downloader and content tools for D2L courseware",
+    "kind": "standalone",
+    "matches": [
+      "*://*/*"
+    ],
+    "file": "d2l-content-tools.user.js",
+    "sharedFiles": []
+  },
+  {
+    "id": "youtube-master",
+    "name": "YouTube Master Script",
+    "description": "Custom YouTube controls, transcript extractor, and player enhancements",
+    "kind": "standalone",
+    "matches": [
+      "https://www.youtube.com/*"
+    ],
+    "file": "youtube-master.user.js",
+    "sharedFiles": []
+  },
+  {
+    "id": "contentconnections",
+    "name": "ContentConnections Enhancements",
+    "description": "Lesson capture automation and dark mode for ContentConnections",
+    "kind": "standalone",
+    "matches": [
+      "*://*/*"
+    ],
+    "file": "contentconnections.js",
+    "sharedFiles": []
+  },
+  {
+    "id": "studyforge-frame-downloader",
+    "name": "StudyForge Frame Downloader",
+    "description": "StudyForge frame and slide capture automation",
+    "kind": "standalone",
+    "matches": [
+      "*://*/*"
+    ],
+    "file": "studyforge-frame-downloader.user.js",
+    "sharedFiles": []
+  },
+  {
+    "id": "m3u8-capture",
+    "name": "M3U8 Stream Capture",
+    "description": "Capture m3u8 playlist URLs from web players",
+    "kind": "standalone",
+    "matches": [
+      "*://*/*"
+    ],
+    "file": "m3u8-capture.user.js",
+    "sharedFiles": []
+  },
+  {
+    "id": "amazon-filter",
+    "name": "Amazon Filter",
+    "description": "Filter search results on Amazon",
+    "kind": "standalone",
+    "matches": [
+      "https://www.amazon.ca/*",
+      "https://www.amazon.com/*"
+    ],
+    "file": "amazon filter.js",
+    "sharedFiles": []
+  },
+  {
+    "id": "custom-youtube-iframe-fullscreen",
+    "name": "Universal YouTube Fullscreen Unblocker",
+    "description": "Restores native fullscreen for embedded YouTube iframe players",
+    "kind": "standalone",
+    "matches": [
+      "*://*/*"
+    ],
+    "file": "custom-youtube-iframe-fullscreen.js",
+    "sharedFiles": []
+  },
+  {
+    "id": "rate-your-music-hide-competing-media",
+    "name": "RYM Hide Competing Media",
+    "description": "Hide competing media listings on Rate Your Music",
+    "kind": "standalone",
+    "matches": [
+      "https://rateyourmusic.com/*"
+    ],
+    "file": "rate-your-music-hide-competing-media.js",
+    "sharedFiles": []
+  },
+  {
+    "id": "rym",
+    "name": "RYM Enhancements",
+    "description": "Rate Your Music player and UI enhancements",
+    "kind": "standalone",
+    "matches": [
+      "https://rateyourmusic.com/*"
+    ],
+    "file": "rym.user.js",
+    "sharedFiles": []
+  },
+  {
+    "id": "torrentgalaxy-modal-fix",
+    "name": "TorrentGalaxy Modal Fix",
+    "description": "Fix modal overlays and ads on TorrentGalaxy",
+    "kind": "standalone",
+    "matches": [
+      "https://torrentgalaxy.to/*",
+      "https://torrentgalaxy.mx/*"
+    ],
+    "file": "torrentgalaxy-modal-fix.js",
+    "sharedFiles": []
+  },
+  {
+    "id": "fix-aistudio-lag",
+    "name": "Fix AI Studio Lag",
+    "description": "Performance improvements for Google AI Studio",
+    "kind": "standalone",
+    "matches": [
+      "https://aistudio.google.com/*"
+    ],
+    "file": "fix-aistudio-lag-1.0.user.js",
+    "sharedFiles": []
+  },
+  {
+    "id": "torrentmac",
+    "name": "TorrentMac Cleaner",
+    "description": "Remove fake download buttons on TorrentMac",
+    "kind": "standalone",
+    "matches": [
+      "https://torrentmac.net/*"
+    ],
+    "file": "torrentmac.js",
+    "sharedFiles": []
+  },
+  {
+    "id": "open-apple-music-links-in-music-app",
+    "name": "Open Apple Music Links in App",
+    "description": "Redirect web Apple Music links to macOS Music app",
+    "kind": "standalone",
+    "matches": [
+      "https://music.apple.com/*"
+    ],
+    "file": "open-apple-music-links-in-music-app.js",
+    "sharedFiles": []
+  },
+  {
+    "id": "forbes",
+    "name": "Forbes Paywall Bypass",
+    "description": "Bypass Forbes paywall and article backdrop overlay",
+    "kind": "standalone",
+    "matches": [
+      "https://www.forbes.com/*"
+    ],
+    "file": "forbes.js",
+    "sharedFiles": []
+  },
+  {
+    "id": "1337x",
+    "name": "1337x Cleaner",
+    "description": "UI cleanup for 1337x torrent pages",
+    "kind": "standalone",
+    "matches": [
+      "https://1337x.to/*"
+    ],
+    "file": "1337x.js",
+    "sharedFiles": []
+  },
+  {
+    "id": "apple-music-embedded-player",
+    "name": "Apple Music Embedded Player",
+    "description": "Enhancements for embedded Apple Music players",
+    "kind": "standalone",
+    "matches": [
+      "*://*/*"
+    ],
+    "file": "apple-music-embedded-player.user.js",
+    "sharedFiles": []
   }
 ]

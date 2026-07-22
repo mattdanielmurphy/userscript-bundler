@@ -63,12 +63,12 @@ try {
 
 	// We can invoke bundler logic by copying bundler.js or running node bundler inside test dir
 	// Let's create a small script runner inside testDir that requires bundler logic
-	const bundlerScript = fs.readFileSync(path.join(__dirname, "bundler.js"), "utf8")
+	const bundlerScript = fs.readFileSync(path.join(__dirname, "bundler.cjs"), "utf8")
 		.replace('const MANIFEST_FILE = "script_manifest.json"', `const MANIFEST_FILE = "script_manifest.json"`)
 		.replace('const USERSCRIPTS_DIR = "./userscripts/"', `const USERSCRIPTS_DIR = "${userscriptsDir}/"`)
 		.replace('const OUTPUT_FILE = "userscript_bundle.js"', `const OUTPUT_FILE = "${path.join(testDir, "userscript_bundle.js")}"`)
 
-	const testBundlerPath = path.join(testDir, "test_bundler.js")
+	const testBundlerPath = path.join(testDir, "test_bundler.cjs")
 	fs.writeFileSync(testBundlerPath, bundlerScript, "utf8")
 
 	execSync(`node "${testBundlerPath}"`, { cwd: testDir, stdio: "pipe" })
