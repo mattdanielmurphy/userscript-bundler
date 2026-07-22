@@ -1,0 +1,19 @@
+[
+  {
+    "name": "Gemini Thread Saver",
+    "match": "gemini.google.com",
+    "group": "gemini-thread-saver",
+    "files": [
+      "gemini-thread-saver/00-bootstrap.js",
+      "gemini-thread-saver/01-shared.js",
+      "gemini-thread-saver/02-token-usage.js",
+      "gemini-thread-saver/03-timestamps.js",
+      "gemini-thread-saver/04-sidebar-dates.js",
+      "gemini-thread-saver/05-prompt-tools.js",
+      "gemini-thread-saver/06-archive.js",
+      "gemini-thread-saver/07-terminal.js",
+      "gemini-thread-saver/08-model-optimizer.js",
+      "gemini-thread-saver/09-page-observer.js"
+    ]
+  }
+]

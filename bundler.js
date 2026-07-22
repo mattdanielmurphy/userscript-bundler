@@ -124,7 +124,36 @@ function parseUserscriptHeader(filePath) {
  * @returns {Array} - Array of manifest entries
  */
 function generateManifestFromUserscripts() {
-	console.log(`🔍 Scanning userscripts directory: ${USERSCRIPTS_DIR}`)
+	const manifest = []
+	const manifestPath = path.join(__dirname, MANIFEST_FILE)
+	const manifestFilesSet = new Set()
+
+	if (fs.existsSync(manifestPath)) {
+		console.log(`📋 Loading manifest from: ${MANIFEST_FILE}`)
+		try {
+			const content = fs.readFileSync(manifestPath, "utf8")
+			const parsed = JSON.parse(content)
+			for (const entry of parsed) {
+				const matches = entry.matches || (entry.match ? [entry.match] : [])
+				const normalized = {
+					...entry,
+					matches: matches,
+				}
+				manifest.push(normalized)
+				if (entry.file) {
+					manifestFilesSet.add(entry.file)
+				}
+				if (entry.files && Array.isArray(entry.files)) {
+					entry.files.forEach((f) => manifestFilesSet.add(f))
+				}
+			}
+		} catch (e) {
+			console.error(`❌ Failed to parse ${MANIFEST_FILE}: ${e.message}`)
+			process.exit(1)
+		}
+	}
+
+	console.log(`🔍 Scanning userscripts directory for standalone scripts: ${USERSCRIPTS_DIR}`)
 
 	if (!fs.existsSync(USERSCRIPTS_DIR)) {
 		throw new Error(`Userscripts directory not found: ${USERSCRIPTS_DIR}`)
@@ -132,22 +161,12 @@ function generateManifestFromUserscripts() {
 
 	const files = fs.readdirSync(USERSCRIPTS_DIR)
 	const jsFiles = files.filter(
-		(file) => file.endsWith(".js") && !file.includes(".disabled.") && file !== "compat.js",
+		(file) => file.endsWith(".js") && !file.includes(".disabled.") && file !== "compat.js" && !manifestFilesSet.has(file),
 	)
-
-	if (jsFiles.length === 0) {
-		throw new Error(`No JavaScript files found in ${USERSCRIPTS_DIR}`)
-	}
-
-	console.log(
-		`📁 Found ${jsFiles.length} JavaScript files: ${jsFiles.join(", ")}`,
-	)
-
-	const manifest = []
 
 	for (const file of jsFiles) {
 		const filePath = path.join(USERSCRIPTS_DIR, file)
-		console.log(`📋 Parsing userscript: ${file}`)
+		console.log(`📋 Parsing standalone userscript: ${file}`)
 
 		const parsed = parseUserscriptHeader(filePath)
 		if (parsed) {
@@ -166,11 +185,11 @@ function generateManifestFromUserscripts() {
 
 	if (manifest.length === 0) {
 		throw new Error(
-			"No valid userscripts found with proper @name and @match headers",
+			"No valid userscripts or manifest entries found",
 		)
 	}
 
-	console.log(`📊 Generated manifest with ${manifest.length} entries`)
+	console.log(`📊 Final manifest has ${manifest.length} script entries`)
 	return manifest
 }
 
@@ -237,96 +256,125 @@ const __BUILD_ID__ = "${buildId}";`)
 		
 		allGrants.add("GM_setClipboard")
 
+		const baseResolved = path.resolve(USERSCRIPTS_DIR)
+
 		for (let i = 0; i < manifest.length; i++) {
 			const entry = manifest[i]
-
-			if (!entry.file || !entry.matches) {
-				console.warn(
-					`⚠️  Skipping invalid manifest entry at index ${i}: missing file or match property`,
-				)
-				continue
-			}
-
-			console.log(
-				`📦 Processing script ${i + 1}/${manifest.length}: ${entry.file}`,
-			)
-
-			// Read source file content
-			const sourcePath = path.join(USERSCRIPTS_DIR, entry.file)
-
-			if (!fs.existsSync(sourcePath)) {
-				console.warn(`⚠️  Source file not found: ${sourcePath}, skipping...`)
-				continue
-			}
-
-			const sourceContent = fs.readFileSync(sourcePath, "utf8")
-
-			// Validate syntax before wrapping
-			try {
-				new vm.Script(sourceContent, { filename: entry.file })
-			} catch (syntaxError) {
-				console.error(`\n❌ [Syntax Error] In userscript: ${entry.file}`)
-				console.error(syntaxError.stack || syntaxError.message)
-				console.error("Bundling aborted.\n")
-				process.exit(1)
-			}
-
-			// Enhanced parsing for grants, connects and run-at
-			const headerLines = sourceContent.split("\n")
-			let inSourceHeader = false
-			for (const line of headerLines) {
-				const trimmed = line.trim()
-				if (trimmed === "// ==UserScript==") {
-					inSourceHeader = true
-					continue
-				}
-				if (trimmed === "// ==/UserScript==") {
-					break
-				}
-				if (inSourceHeader) {
-					const grantMatch = trimmed.match(/^\/\/\s*@grant\s+(.+)$/)
-					if (grantMatch) {
-						const grant = grantMatch[1].trim()
-						if (grant !== "none") allGrants.add(grant)
-					}
-					const connectMatch = trimmed.match(/^\/\/\s*@connect\s+(.+)$/)
-					if (connectMatch) {
-						const connect = connectMatch[1].trim()
-						allConnects.add(connect)
-					}
-				}
-			}
-
-			const runAtMatch = sourceContent.match(/\/\/\s*@run-at\s+(.+)$/m)
-			const runAt = runAtMatch ? runAtMatch[1].trim() : "document-idle"
-
-			// Generate unique, safe function name
 			const functionName = `script_func_${i}`
 
-			// Wrap content into function definition template
-			// Only wrap in DOM readiness check if not document-start
-			if (runAt === "document-start") {
-				addTemplate(`const ${functionName} = () => {
-    console.log("🚀 [Bundler] Executing ${entry.file} immediately (@run-at document-start)");`)
+			if (entry.files && Array.isArray(entry.files)) {
+				// Grouped Script Entry
+				const groupName = entry.group || entry.name || `group_${i}`
+				console.log(`📦 Processing script group ${i + 1}/${manifest.length}: ${groupName} (${entry.files.length} files)`)
 
-				const sourceLines = sourceContent.split("\n")
-				sourceLines.forEach((line, index) => {
-					addSourceLine(line, i, index)
-				})
+				if (entry.files.length === 0) {
+					console.error(`❌ [Error] Empty files array in group: ${groupName}`)
+					process.exit(1)
+				}
 
-				addTemplate(`};`)
-			} else {
-				addTemplate(`const ${functionName} = () => {
-    // Wait for DOM to be ready before executing (@run-at ${runAt})
+				const groupSeen = new Set()
+				let combinedContent = ""
+				let accumulatedRunAt = "document-idle"
+
+				for (const relFile of entry.files) {
+					const fullPath = path.resolve(USERSCRIPTS_DIR, relFile)
+
+					// Path safety validation: must be inside USERSCRIPTS_DIR
+					if (!fullPath.startsWith(baseResolved + path.sep)) {
+						console.error(`❌ [Error] Grouped source file escapes userscripts directory: ${relFile}`)
+						process.exit(1)
+					}
+
+					// Existence check
+					if (!fs.existsSync(fullPath)) {
+						console.error(`❌ [Error] Grouped source file missing: ${relFile}`)
+						process.exit(1)
+					}
+
+					// Duplication check
+					if (groupSeen.has(fullPath)) {
+						console.error(`❌ [Error] Duplicate file in group: ${relFile}`)
+						process.exit(1)
+					}
+					groupSeen.add(fullPath)
+
+					// Read file
+					let fileContent = ""
+					try {
+						fileContent = fs.readFileSync(fullPath, "utf8")
+					} catch (readErr) {
+						console.error(`❌ [Error] Unreadable grouped source file: ${relFile}`)
+						console.error(readErr.message)
+						process.exit(1)
+					}
+
+					// Header parsing
+					const headerLines = fileContent.split("\n")
+					let inSourceHeader = false
+					for (const line of headerLines) {
+						const trimmed = line.trim()
+						if (trimmed === "// ==UserScript==") {
+							inSourceHeader = true
+							continue
+						}
+						if (trimmed === "// ==/UserScript==") {
+							break
+						}
+						if (inSourceHeader) {
+							const grantMatch = trimmed.match(/^\/\/\s*@grant\s+(.+)$/)
+							if (grantMatch) {
+								const grant = grantMatch[1].trim()
+								if (grant !== "none") allGrants.add(grant)
+							}
+							const connectMatch = trimmed.match(/^\/\/\s*@connect\s+(.+)$/)
+							if (connectMatch) {
+								const connect = connectMatch[1].trim()
+								allConnects.add(connect)
+							}
+						}
+					}
+
+					const runAtMatch = fileContent.match(/\/\/\s*@run-at\s+(.+)$/m)
+					if (runAtMatch) {
+						accumulatedRunAt = runAtMatch[1].trim()
+					}
+
+					combinedContent += `/* ===== ${relFile} ===== */\n` + fileContent + "\n\n"
+				}
+
+				// Validate syntax of combined group
+				try {
+					new vm.Script(combinedContent, { filename: groupName })
+				} catch (syntaxError) {
+					console.error(`\n❌ [Syntax Error] In grouped userscript: ${groupName}`)
+					console.error(syntaxError.stack || syntaxError.message)
+					console.error("Bundling aborted.\n")
+					process.exit(1)
+				}
+
+				const runAt = accumulatedRunAt
+
+				if (runAt === "document-start") {
+					addTemplate(`const ${functionName} = () => {
+    console.log("🚀 [Bundler] Executing group ${groupName} immediately (@run-at document-start)");`)
+
+					const sourceLines = combinedContent.split("\n")
+					sourceLines.forEach((line, index) => {
+						addSourceLine(line, i, index)
+					})
+
+					addTemplate(`};`)
+				} else {
+					addTemplate(`const ${functionName} = () => {
     const executeScript = () => {
-        console.log("🚀 [Bundler] Executing ${entry.file}");`)
+        console.log("🚀 [Bundler] Executing group ${groupName}");`)
 
-				const sourceLines = sourceContent.split("\n")
-				sourceLines.forEach((line, index) => {
-					addSourceLine(line, i, index)
-				})
+					const sourceLines = combinedContent.split("\n")
+					sourceLines.forEach((line, index) => {
+						addSourceLine(line, i, index)
+					})
 
-				addTemplate(`    };
+					addTemplate(`    };
     
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', executeScript);
@@ -334,24 +382,144 @@ const __BUILD_ID__ = "${buildId}";`)
         executeScript();
     }
 };`)
-			}
+				}
 
-			addTemplate(`// Expose function to global scope for dispatcher access
+				addTemplate(`// Expose function to global scope for dispatcher access
 window.${functionName} = ${functionName};
 
 `)
 
-			// Update processed manifest
-			processedManifest.push({
-				functionName: functionName,
-				matches: entry.matches,
-				originalFile: entry.file,
-				name: entry.name,
-			})
+				processedManifest.push({
+					functionName: functionName,
+					matches: entry.matches || (entry.match ? [entry.match] : []),
+					originalFile: entry.group || entry.files[0],
+					name: entry.name || groupName,
+				})
 
-			console.log(
-				`✅ Wrapped ${entry.file} as ${functionName} (run-at: ${runAt})`,
-			)
+				console.log(
+					`✅ Wrapped group ${groupName} (${entry.files.length} files) as ${functionName} (run-at: ${runAt})`,
+				)
+			} else {
+				// Standalone Single File Entry
+				if (!entry.file || !entry.matches) {
+					console.warn(
+						`⚠️  Skipping invalid manifest entry at index ${i}: missing file or match property`,
+					)
+					continue
+				}
+
+				console.log(
+					`📦 Processing script ${i + 1}/${manifest.length}: ${entry.file}`,
+				)
+
+				// Path safety check
+				const sourcePath = path.resolve(USERSCRIPTS_DIR, entry.file)
+				if (!sourcePath.startsWith(baseResolved + path.sep)) {
+					console.error(`❌ [Error] Source file escapes userscripts directory: ${entry.file}`)
+					process.exit(1)
+				}
+
+				if (!fs.existsSync(sourcePath)) {
+					console.warn(`⚠️  Source file not found: ${sourcePath}, skipping...`)
+					continue
+				}
+
+				let sourceContent = ""
+				try {
+					sourceContent = fs.readFileSync(sourcePath, "utf8")
+				} catch (readErr) {
+					console.error(`❌ [Error] Unreadable source file: ${entry.file}`)
+					process.exit(1)
+				}
+
+				// Validate syntax before wrapping
+				try {
+					new vm.Script(sourceContent, { filename: entry.file })
+				} catch (syntaxError) {
+					console.error(`\n❌ [Syntax Error] In userscript: ${entry.file}`)
+					console.error(syntaxError.stack || syntaxError.message)
+					console.error("Bundling aborted.\n")
+					process.exit(1)
+				}
+
+				// Enhanced parsing for grants, connects and run-at
+				const headerLines = sourceContent.split("\n")
+				let inSourceHeader = false
+				for (const line of headerLines) {
+					const trimmed = line.trim()
+					if (trimmed === "// ==UserScript==") {
+						inSourceHeader = true
+						continue
+					}
+					if (trimmed === "// ==/UserScript==") {
+						break
+					}
+					if (inSourceHeader) {
+						const grantMatch = trimmed.match(/^\/\/\s*@grant\s+(.+)$/)
+						if (grantMatch) {
+							const grant = grantMatch[1].trim()
+							if (grant !== "none") allGrants.add(grant)
+						}
+						const connectMatch = trimmed.match(/^\/\/\s*@connect\s+(.+)$/)
+						if (connectMatch) {
+							const connect = connectMatch[1].trim()
+							allConnects.add(connect)
+						}
+					}
+				}
+
+				const runAtMatch = sourceContent.match(/\/\/\s*@run-at\s+(.+)$/m)
+				const runAt = runAtMatch ? runAtMatch[1].trim() : "document-idle"
+
+				// Wrap content into function definition template
+				if (runAt === "document-start") {
+					addTemplate(`const ${functionName} = () => {
+    console.log("🚀 [Bundler] Executing ${entry.file} immediately (@run-at document-start)");`)
+
+					const sourceLines = sourceContent.split("\n")
+					sourceLines.forEach((line, index) => {
+						addSourceLine(line, i, index)
+					})
+
+					addTemplate(`};`)
+				} else {
+					addTemplate(`const ${functionName} = () => {
+    // Wait for DOM to be ready before executing (@run-at ${runAt})
+    const executeScript = () => {
+        console.log("🚀 [Bundler] Executing ${entry.file}");`)
+
+					const sourceLines = sourceContent.split("\n")
+					sourceLines.forEach((line, index) => {
+						addSourceLine(line, i, index)
+					})
+
+					addTemplate(`    };
+    
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', executeScript);
+    } else {
+        executeScript();
+    }
+};`)
+				}
+
+				addTemplate(`// Expose function to global scope for dispatcher access
+window.${functionName} = ${functionName};
+
+`)
+
+				// Update processed manifest
+				processedManifest.push({
+					functionName: functionName,
+					matches: entry.matches,
+					originalFile: entry.file,
+					name: entry.name,
+				})
+
+				console.log(
+					`✅ Wrapped ${entry.file} as ${functionName} (run-at: ${runAt})`,
+				)
+			}
 		}
 
 		// Step 4: Append execution logic (Dispatcher)
@@ -754,9 +922,22 @@ window.${functionName} = ${functionName};
 		// Read all sources to include content inline
 		const sourcesContent = []
 		for (const entry of manifest) {
-			const sourcePath = path.join(USERSCRIPTS_DIR, entry.file)
-			if (fs.existsSync(sourcePath)) {
-				sourcesContent.push(fs.readFileSync(sourcePath, "utf8"))
+			if (entry.files && Array.isArray(entry.files)) {
+				let groupCombined = ""
+				for (const f of entry.files) {
+					const sp = path.join(USERSCRIPTS_DIR, f)
+					if (fs.existsSync(sp)) {
+						groupCombined += `/* ===== ${f} ===== */\n` + fs.readFileSync(sp, "utf8") + "\n\n"
+					}
+				}
+				sourcesContent.push(groupCombined)
+			} else if (entry.file) {
+				const sourcePath = path.join(USERSCRIPTS_DIR, entry.file)
+				if (fs.existsSync(sourcePath)) {
+					sourcesContent.push(fs.readFileSync(sourcePath, "utf8"))
+				} else {
+					sourcesContent.push("")
+				}
 			} else {
 				sourcesContent.push("")
 			}
@@ -765,7 +946,7 @@ window.${functionName} = ${functionName};
 		const sourceMap = {
 			version: 3,
 			file: OUTPUT_FILE,
-			sources: manifest.map((entry) => `webpack://userscripts/${entry.file}`),
+			sources: manifest.map((entry) => `webpack://userscripts/${entry.file || entry.group || entry.name}`),
 			sourcesContent: sourcesContent,
 			names: [],
 			mappings: mappings,

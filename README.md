@@ -144,17 +144,37 @@ console.log("Wikipedia script loaded!")
 
 ## Manifest Configuration
 
+`script_manifest.json` supports both single-file entries and grouped multi-file userscripts.
+
+### Single-File Entry
 ```json
-[
-	{
-		"file": "source_script_a.js",
-		"match": "github.com"
-	},
-	{
-		"file": "source_script_b.js",
-		"match": "wikipedia.org"
-	}
-]
+{
+  "file": "source_script_a.js",
+  "match": "github.com"
+}
+```
+
+### Grouped Multi-File Entry
+Grouped scripts concatenate multiple source files into a single shared IIFE lexical scope in an explicit, deterministic load order:
+
+```json
+{
+  "name": "Gemini Thread Saver",
+  "match": "gemini.google.com",
+  "group": "gemini-thread-saver",
+  "files": [
+    "gemini-thread-saver/00-bootstrap.js",
+    "gemini-thread-saver/01-shared.js",
+    "gemini-thread-saver/02-token-usage.js",
+    "gemini-thread-saver/03-timestamps.js",
+    "gemini-thread-saver/04-sidebar-dates.js",
+    "gemini-thread-saver/05-prompt-tools.js",
+    "gemini-thread-saver/06-archive.js",
+    "gemini-thread-saver/07-terminal.js",
+    "gemini-thread-saver/08-model-optimizer.js",
+    "gemini-thread-saver/09-page-observer.js"
+  ]
+}
 ```
 
 ## Benefits

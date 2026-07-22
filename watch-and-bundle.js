@@ -155,6 +155,18 @@ function startWatcher() {
 		handleFileChange(eventType, "bundler.js")
 	})
 
+	// Start watching script_manifest.json if it exists
+	const manifestPath = path.join(__dirname, "script_manifest.json")
+	let manifestWatcher = null
+	if (fs.existsSync(manifestPath)) {
+		manifestWatcher = fs.watch(manifestPath, (eventType, filename) => {
+			handleFileChange(eventType, "script_manifest.json")
+		})
+		manifestWatcher.on("error", (err) => {
+			log(`❌ Manifest watcher error: ${err.message}`, true)
+		})
+	}
+
 	// Handle watcher errors
 	userscriptWatcher.on("error", (err) => {
 		log(`❌ Userscript watcher error: ${err.message}`, true)
@@ -169,6 +181,7 @@ function startWatcher() {
 		log("🛑 Received SIGINT, shutting down watchers...")
 		userscriptWatcher.close()
 		bundlerWatcher.close()
+		if (manifestWatcher) manifestWatcher.close()
 		process.exit(0)
 	})
 
@@ -176,11 +189,12 @@ function startWatcher() {
 		log("🛑 Received SIGTERM, shutting down watchers...")
 		userscriptWatcher.close()
 		bundlerWatcher.close()
+		if (manifestWatcher) manifestWatcher.close()
 		process.exit(0)
 	})
 
 	log("✅ File watcher started successfully")
-	log("💡 Watching for changes to .js files in userscripts directory and bundler.js...")
+	log("💡 Watching for changes to .js files in userscripts directory, script_manifest.json, and bundler.js...")
 }
 
 // Start the watcher

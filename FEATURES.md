@@ -50,6 +50,12 @@ This document tracks all features, capabilities, and enhancements implemented in
 - **Title Synchronization**: Syncs the document tab title with the conversation thread title using `MutationObserver`.
 - **Run Bash Commands**: Adds a "Run 🚀" button next to Gemini's native copy button on bash code blocks. Uses the local backend to spawn a detached `tmux` session, executing commands seamlessly on your host system.
 
+## Bundler & Grouped Userscripts
+- **Script Grouping**: Concatenates multiple source files listed under `"group"` and `"files"` in `script_manifest.json` into a single shared IIFE lexical scope in explicit load order.
+- **Single Dispatcher Wrapper**: Generates a single wrapper function per group in `userscript_bundle.js` so all group source files execute together inside one shared scope when matching page URLs.
+- **Source Boundaries & Validation**: Inserts `/* ===== file ===== */` boundary comments, enforces path safety, checks file existence/duplication/readability, and validates syntax before wrapping.
+- **Automatic Watching**: Watcher automatically rebuilds `userscript_bundle.js` when any grouped `.js` file or `script_manifest.json` is modified.
+
 ## Centralized Cross-Manager Compatibility Layer
 - **Centralized API Wrapper**: Prepend a lightweight compatibility module (`compat.js`) that abstracts differences between Tampermonkey and Safari's "Userscripts" extension (e.g. sync/async storage, menu commands, and style injection).
 - **Universal XHR request adapter**: Translates callbacks and promise-based network requests dynamically across legacy `GM_xmlhttpRequest` and modern/case-insensitive `GM.xmlHttpRequest` formats.
