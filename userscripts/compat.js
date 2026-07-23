@@ -6,6 +6,16 @@ const gm = (function () {
 
 	const storagePrefix = "__gm_";
 
+	// Helper to safely get localStorage without throwing SecurityError in sandboxed frames
+	function safeGetLocalStorage() {
+		try {
+			if (typeof window !== "undefined" && window.localStorage) {
+				return window.localStorage;
+			}
+		} catch (e) {}
+		return null;
+	}
+
 	// 1. Sync Storage Helpers (fallback to localStorage)
 	function getValue(key, defaultValue) {
 		if (typeof GM_getValue === "function") {
@@ -15,12 +25,18 @@ const gm = (function () {
 				console.error("[Compat] Native GM_getValue failed:", e);
 			}
 		}
-		const val = localStorage.getItem(storagePrefix + key);
-		if (val === null) return defaultValue;
 		try {
-			return JSON.parse(val);
+			const storage = safeGetLocalStorage();
+			if (!storage) return defaultValue;
+			const val = storage.getItem(storagePrefix + key);
+			if (val === null) return defaultValue;
+			try {
+				return JSON.parse(val);
+			} catch (e) {
+				return val;
+			}
 		} catch (e) {
-			return val;
+			return defaultValue;
 		}
 	}
 
@@ -34,7 +50,10 @@ const gm = (function () {
 			}
 		}
 		try {
-			localStorage.setItem(storagePrefix + key, JSON.stringify(value));
+			const storage = safeGetLocalStorage();
+			if (storage) {
+				storage.setItem(storagePrefix + key, JSON.stringify(value));
+			}
 		} catch (e) {
 			console.error("[Compat] LocalStorage setValue failed:", e);
 		}
@@ -162,6 +181,32 @@ const gm = (function () {
 		}
 	}
 
+	// 6. Safe HTML Injection Helper (TrustedHTML compliant)
+	function setSafeHTML(element, html) {
+		if (!element) return;
+		if (!html) {
+			element.replaceChildren();
+			return;
+		}
+		if (typeof window !== "undefined" && window.trustedTypes) {
+			try {
+				const policy = window.trustedTypes.defaultPolicy ||
+					(window.trustedTypes.createPolicy ? window.trustedTypes.createPolicy("gm-safe-policy", { createHTML: (s) => s }) : null);
+				if (policy) {
+					element.innerHTML = policy.createHTML(html);
+					return;
+				}
+			} catch (e) {}
+		}
+		try {
+			const parser = new DOMParser();
+			const parsed = parser.parseFromString(html, "text/html");
+			element.replaceChildren(...parsed.body.childNodes);
+		} catch (e) {
+			element.innerHTML = html;
+		}
+	}
+
 	return {
 		getValue,
 		setValue,
@@ -172,6 +217,7 @@ const gm = (function () {
 		xmlHttpRequest,
 		isXmlHttpRequestSupported,
 		addStyle,
+		setSafeHTML,
 	};
 })();
 

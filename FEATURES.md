@@ -52,7 +52,7 @@ This document tracks all features, capabilities, and enhancements implemented in
 
 ## Bundler & Grouped Userscripts
 - **Script Grouping**: Concatenates multiple source files listed under `"group"` and `"files"` in `script_manifest.json` into a single shared IIFE lexical scope in explicit load order.
-- **Standalone Multi-Module Compilation**: In addition to generating `userscript_bundle.js`, automatically compiles multi-module script groups (such as `gemini-thread-saver`) into individual standalone `.user.js` files under the `compiled/` directory for direct use in standalone userscript injectors.
+- **Standalone Multi-Module Compilation**: In addition to generating `userscript_bundle.js`, automatically compiles multi-module script groups (such as `gemini-enhancements`) into individual standalone `.user.js` files under the `compiled/` directory for direct use in standalone userscript injectors.
 - **Single Dispatcher Wrapper**: Generates a single wrapper function per group in `userscript_bundle.js` so all group source files execute together inside one shared scope when matching page URLs.
 - **Source Boundaries & Validation**: Inserts `/* ===== file ===== */` boundary comments, enforces path safety, checks file existence/duplication/readability, and validates syntax before wrapping.
 - **Automatic Watching**: Watcher automatically rebuilds `userscript_bundle.js` when any grouped `.js` file or `script_manifest.json` is modified.

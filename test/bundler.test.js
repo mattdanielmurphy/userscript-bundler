@@ -39,3 +39,14 @@ test("Bundle Output Generation", (t) => {
 	assert.ok(bundleContent.includes("Userscript Control Center"), "Control Center included in bundle")
 	assert.ok(bundleContent.includes("uscc-root"), "Control Center UI root element included")
 })
+
+test("URL Pattern Matching & Frame Restriction Logic", (t) => {
+	const bundlePath = path.join(process.cwd(), "userscript_bundle.js")
+	const bundleContent = fs.readFileSync(bundlePath, "utf8")
+
+	// Verify matchesPattern function exists in bundle and regex glob logic is included
+	assert.ok(bundleContent.includes("matchesPattern"), "matchesPattern function included in bundle")
+	assert.ok(bundleContent.includes(".split('*')"), "Wildcard glob splitting included in bundle")
+	assert.ok(bundleContent.includes("entry.noframes"), "noframes check included in bundle dispatcher")
+})
+

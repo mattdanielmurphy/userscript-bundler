@@ -23,6 +23,20 @@ function removeAdvUpsell(warnIfMissing = false) {
 	}
 }
 
+let lastSidebarClickTime = 0
+function ensureSidebarOpen() {
+	const now = Date.now()
+	if (now - lastSidebarClickTime < 3000) return
+	const openButton = document.querySelector(
+		'button.side-nav-sparkle-button[aria-label="Open sidebar"]',
+	)
+	if (openButton && openButton.offsetParent !== null) {
+		lastSidebarClickTime = now
+		openButton.click()
+		console.log("[GMT] Sidebar persistence: Sidebar was closed. Opening it now.")
+	}
+}
+
 let lastUrl = location.href
 
 let syncTimeout = null
@@ -33,6 +47,7 @@ function startObservers() {
 		return
 	}
 	ensureTooltip()
+	ensureSidebarOpen()
 	new MutationObserver((mutations) => {
 		// Check if mutations only contain typing/editing events or temp sync elements
 		let isOnlyTypingOrTemp = true
@@ -65,6 +80,7 @@ function startObservers() {
 		// Debounce DOM-heavy callbacks to avoid thrashing during rapid mutations
 		if (observerTimeout) clearTimeout(observerTimeout)
 		observerTimeout = setTimeout(() => {
+			ensureSidebarOpen()
 			processEmbeddedTimestamps()
 			updateSidebarDOM()
 			updateTabTitle()

@@ -204,9 +204,12 @@ function injectRunButtons() {
 	})
 }
 
+window.gmtContexts = window.gmtContexts || {}
+
 const terminalManager = {
 	pollers: {},
-	contexts: {},
+	contexts: window.gmtContexts,
+
 
 	startInline(pre, session, command) {
 		if (!this.contexts[session]) {
@@ -361,27 +364,48 @@ const terminalManager = {
 			if (!ctx.active) return
 
 			const pill = document.createElement("div")
-			pill.style.cssText = `
-				background: rgba(137, 180, 250, 0.15);
-				border: 1px solid rgba(137, 180, 250, 0.3);
-				color: #89b4fa;
-				border-radius: 16px;
-				padding: 4px 12px;
-				font-size: 12px;
-				font-family: "Google Sans", sans-serif;
-				display: flex;
-				align-items: center;
-				gap: 6px;
-				cursor: pointer;
-				position: relative;
-			`
+			if (ctx.isKeyword) {
+				pill.style.cssText = `
+					background: rgba(166, 227, 161, 0.15);
+					border: 1px solid rgba(166, 227, 161, 0.3);
+					color: #a6e3a1;
+					border-radius: 16px;
+					padding: 4px 12px;
+					font-size: 12px;
+					font-family: "Google Sans", sans-serif;
+					display: flex;
+					align-items: center;
+					gap: 6px;
+					cursor: pointer;
+					position: relative;
+				`
+			} else {
+				pill.style.cssText = `
+					background: rgba(137, 180, 250, 0.15);
+					border: 1px solid rgba(137, 180, 250, 0.3);
+					color: #89b4fa;
+					border-radius: 16px;
+					padding: 4px 12px;
+					font-size: 12px;
+					font-family: "Google Sans", sans-serif;
+					display: flex;
+					align-items: center;
+					gap: 6px;
+					cursor: pointer;
+					position: relative;
+				`
+			}
 
 			const textNode = document.createElement("span")
-			let shortCmd = ctx.command || session
-			if (shortCmd.includes("\\n")) shortCmd = shortCmd.split("\\n")[0]
-			shortCmd = shortCmd.trim()
-			if (shortCmd.length > 25) shortCmd = shortCmd.substring(0, 25) + "..."
-			textNode.innerText = `Terminal: "${shortCmd}"`
+			if (ctx.isKeyword) {
+				textNode.innerText = `Context: ${ctx.title}`
+			} else {
+				let shortCmd = ctx.command || session
+				if (shortCmd.includes("\n")) shortCmd = shortCmd.split("\n")[0]
+				shortCmd = shortCmd.trim()
+				if (shortCmd.length > 25) shortCmd = shortCmd.substring(0, 25) + "..."
+				textNode.innerText = `Terminal: "${shortCmd}"`
+			}
 			pill.appendChild(textNode)
 
 			const removeBtn = document.createElement("span")
@@ -391,6 +415,7 @@ const terminalManager = {
 			removeBtn.onclick = (e) => {
 				e.stopPropagation()
 				ctx.active = false
+				ctx.userDismissed = true
 				if (window.gmtTooltipHideTimeout) {
 					clearTimeout(window.gmtTooltipHideTimeout)
 					window.gmtTooltipHideTimeout = null
@@ -506,15 +531,10 @@ document.addEventListener(
 				let allContext = ""
 				Object.entries(terminalManager.contexts).forEach(([session, ctx]) => {
 					if (ctx.active) {
-						allContext += `
-
-[Attached Context: ${session}]
-\`\`\`text
-${ctx.output}
-\`\`\`
-`
-						// Auto-detach after injection
+						const label = ctx.title || session
+						allContext += `\n\n[Attached Context: ${label}]\n\`\`\`text\n${ctx.output}\n\`\`\`\n`
 						ctx.active = false
+						ctx.userDismissed = false
 					}
 				})
 

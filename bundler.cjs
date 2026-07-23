@@ -51,6 +51,7 @@ function parseUserscriptHeader(filePath) {
 
 		let name = null
 		let matches = []
+		let noframes = false
 		let inHeader = false
 
 		for (const line of lines) {
@@ -75,25 +76,17 @@ function parseUserscriptHeader(filePath) {
 					continue
 				}
 
+				const noframesMatch = trimmedLine.match(/^\/\/\s*@noframes\b/)
+				if (noframesMatch) {
+					noframes = true
+					continue
+				}
+
 				const matchMatch = trimmedLine.match(/^\/\/\s*@match\s+(.+)$/)
 				if (matchMatch) {
 					const matchPattern = matchMatch[1].trim()
-
-					// Extract domain from match pattern for simpler matching
-					let domain = null
-					if (matchPattern === "*://*/*") {
-						domain = "*"
-					} else {
-						const domainMatch = matchPattern.match(
-							/(?:https?|\*):\/\/(?:\*\.)?([^\/\*]+)/,
-						)
-						if (domainMatch) {
-							domain = domainMatch[1]
-						}
-					}
-
-					if (domain) {
-						matches.push(domain)
+					if (matchPattern) {
+						matches.push(matchPattern)
 					}
 					continue
 				}
@@ -105,6 +98,7 @@ function parseUserscriptHeader(filePath) {
 				name: name,
 				match: matches[0], // Keep for backward compatibility if needed
 				matches: matches,
+				noframes: noframes,
 				file: path.basename(filePath),
 			}
 		}
@@ -392,6 +386,7 @@ window.${functionName} = ${functionName};
 				processedManifest.push({
 					functionName: functionName,
 					matches: entry.matches || (entry.match ? [entry.match] : []),
+					noframes: entry.noframes || false,
 					originalFile: entry.group || entry.files[0],
 					name: entry.name || groupName,
 				})
@@ -508,10 +503,13 @@ window.${functionName} = ${functionName};
 
 `)
 
+				const headerParsed = parseUserscriptHeader(sourcePath)
+
 				// Update processed manifest
 				processedManifest.push({
 					functionName: functionName,
 					matches: entry.matches,
+					noframes: entry.noframes || (headerParsed ? headerParsed.noframes : false),
 					originalFile: entry.file,
 					name: entry.name,
 				})
@@ -686,8 +684,20 @@ window.${functionName} = ${functionName};
         if (!Array.isArray(matchPatterns)) matchPatterns = [matchPatterns];
         const currentUrl = window.location.href;
         return matchPatterns.some(pattern => {
-            if (pattern === '*') return true;
-            return currentUrl.includes(pattern);
+            if (!pattern || pattern === '*') return true;
+            if (pattern === '*://*/*') return true;
+            if (!pattern.includes('/') && !pattern.includes(':')) {
+                return currentUrl.includes(pattern);
+            }
+            const regexStr = '^' + pattern
+                .split('*')
+                .map(s => s.replace(/[-\/\\^$+#?()|[\]{}]/g, '\\$&'))
+                .join('.*') + '$';
+            try {
+                return new RegExp(regexStr).test(currentUrl);
+            } catch (e) {
+                return currentUrl.includes(pattern);
+            }
         });
     }
     
@@ -716,6 +726,16 @@ window.${functionName} = ${functionName};
                     return;
                 }
 
+                if (entry.noframes) {
+                    try {
+                        if (window.self !== window.top) {
+                            return;
+                        }
+                    } catch (e) {
+                        return;
+                    }
+                }
+
                 if (matchesPattern(entry.matches)) {
                     if (typeof window[entry.functionName] === 'function') {
                         window[entry.functionName]();
@@ -731,6 +751,8 @@ window.${functionName} = ${functionName};
     
     const errorQueue = [];
     let errorDotElement = null;
+    let clipboardDebounceTimer = null;
+    let lastCopiedHash = "";
 
     function reportError(nameOrType, errorObj) {
         const errorMsg = errorObj ? (errorObj.message || String(errorObj)) : "Unknown error";
@@ -745,11 +767,25 @@ window.${functionName} = ${functionName};
 
         console.error(\`❌ [Bundler] Error in \${nameOrType}:\`, errorMsg, errorObj);
 
-        try {
-            if (typeof GM_setClipboard !== 'undefined') {
-                GM_setClipboard(errorStack);
-            }
-        } catch (e) {}
+        // Group errors in quick succession into one clipboard update & prevent loop spam
+        if (clipboardDebounceTimer) clearTimeout(clipboardDebounceTimer);
+        clipboardDebounceTimer = setTimeout(() => {
+            if (errorQueue.length === 0) return;
+            const combinedStack = errorQueue.map((err, idx) => {
+                return \`[Error #\${idx + 1}] Source: \${err.source} (\${err.time})\\nMessage: \${err.message}\\nStack:\\n\${err.stack}\`;
+            }).join('\\n\\n' + '='.repeat(50) + '\\n\\n');
+
+            if (combinedStack === lastCopiedHash) return; // Loop protection: don't repeatedly overwrite clipboard with identical errors
+            lastCopiedHash = combinedStack;
+
+            try {
+                if (typeof GM_setClipboard !== 'undefined') {
+                    GM_setClipboard(combinedStack);
+                } else if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(combinedStack).catch(() => {});
+                }
+            } catch (e) {}
+        }, 500);
 
         if (!document.body) {
             if (!window._bundlerErrorListenerAdded) {

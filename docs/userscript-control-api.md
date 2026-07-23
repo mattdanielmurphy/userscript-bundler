@@ -22,12 +22,12 @@ Returns a sanitized summary of all manifest-registered scripts, repository HEAD,
   "data": {
     "scripts": [
       {
-        "id": "gemini-thread-saver",
-        "name": "Gemini Thread Saver",
-        "description": "Gemini timestamps and private local Markdown archive",
+        "id": "gemini-enhancements",
+        "name": "Gemini Enhancements",
+        "description": "Timestamps, thread token counter, private local Markdown archiving, prompt tools, model optimizer, and terminal command execution for Gemini",
         "kind": "grouped",
         "matches": ["https://gemini.google.com/*"],
-        "sourceFiles": ["gemini-thread-saver/00-bootstrap.js"],
+        "sourceFiles": ["gemini-enhancements/00-bootstrap.js"],
         "sharedFiles": [],
         "git": {
           "head": {

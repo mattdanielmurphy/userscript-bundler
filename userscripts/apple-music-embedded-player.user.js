@@ -8,14 +8,18 @@
 // @grant        none
 // ==/UserScript==
 
-console.log("iframe loaded");
+let attempts = 0;
+const MAX_ATTEMPTS = 60;
 const pollingInterval = setInterval(checkIfPlayerLoaded, 500);
 function checkIfPlayerLoaded() {
-  console.log("checking if player loaded...");
-  // Start polling every 500 milliseconds
+  attempts++;
+  if (attempts > MAX_ATTEMPTS) {
+    clearInterval(pollingInterval);
+    return;
+  }
   const containerPlayer = document
     .querySelector("embed-root")
-    .shadowRoot?.querySelector(".container-player");
+    ?.shadowRoot?.querySelector(".container-player");
 
   if (containerPlayer) {
     // Stop polling
@@ -31,6 +35,7 @@ function checkIfPlayerLoaded() {
     console.log(containerPlayer);
     containerPlayer.style.height = "max-content";
 
-    containerPlayer.querySelector(".audio-tracklist").style.maskImage = "none";
+    const tracklist = containerPlayer.querySelector(".audio-tracklist");
+    if (tracklist) tracklist.style.maskImage = "none";
   }
 }

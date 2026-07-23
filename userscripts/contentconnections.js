@@ -358,7 +358,7 @@
             if (doc && doc.body && !doc.querySelector(`#${id}`)) {
                 const style = doc.createElement('style')
                 style.id = id
-                style.innerHTML = css
+                style.textContent = css
                 doc.head.appendChild(style)
             }
             const iframes = doc.querySelectorAll('iframe')
@@ -608,11 +608,11 @@
         checkbox.style.height = '16px'
 
         // Load state
-        const savedState = localStorage.getItem(AUTO_SHOW_KEY) === 'true'
+        const savedState = safeStorageGet(AUTO_SHOW_KEY) === 'true'
         checkbox.checked = savedState
 
         checkbox.addEventListener('change', (e) => {
-            localStorage.setItem(AUTO_SHOW_KEY, e.target.checked)
+            safeStorageSet(AUTO_SHOW_KEY, e.target.checked)
             // If enabled, try triggering immediately in case we are waiting on one
             if (e.target.checked) attemptAutoShowAnswer()
         })
@@ -631,7 +631,7 @@
 
     const attemptAutoShowAnswer = () => {
         // Check if feature is enabled
-        const rawState = localStorage.getItem(AUTO_SHOW_KEY)
+        const rawState = safeStorageGet(AUTO_SHOW_KEY)
         const isEnabled = rawState === 'true'
 
         if (!isEnabled) return
@@ -722,14 +722,28 @@
     const RUNNING_KEY = 'cc_automation_running_state'
     const SPEED_KEY = 'cc_automation_speed'
     const MUTE_KEY = 'cc_automation_mute'
-    const POS_KEY = 'cc_automation_pos'
-    const SLIDE_PROGRESS_MIN_PERCENT = 80
-    const LESSON_PRINT_DONE_PREFIX = 'cc_lesson_print_done:'
+    const safeStorageGet = (key, fallback = null) => {
+        try {
+            return typeof window !== 'undefined' && window.localStorage
+                ? window.localStorage.getItem(key)
+                : fallback
+        } catch (e) {
+            return fallback
+        }
+    }
 
-    let automationDelay = parseInt(localStorage.getItem(DELAY_KEY) || '500')
-    let useDwellTime = localStorage.getItem(DWELL_KEY) !== 'false' // Default to true
-    let automationSpeed = parseFloat(localStorage.getItem(SPEED_KEY) || '10')
-    let isAutomationMuted = localStorage.getItem(MUTE_KEY) === 'true'
+    const safeStorageSet = (key, value) => {
+        try {
+            if (typeof window !== 'undefined' && window.localStorage) {
+                window.localStorage.setItem(key, value)
+            }
+        } catch (e) {}
+    }
+
+    let automationDelay = parseInt(safeStorageGet(DELAY_KEY, '500'))
+    let useDwellTime = safeStorageGet(DWELL_KEY) !== 'false' // Default to true
+    let automationSpeed = parseFloat(safeStorageGet(SPEED_KEY, '10'))
+    let isAutomationMuted = safeStorageGet(MUTE_KEY) === 'true'
 
     let lastCurrentSlide = -1
     let initialSyncDone = false
@@ -765,7 +779,7 @@
         bar.id = 'automation-control-bar'
 
         // Restore position
-        const posStr = localStorage.getItem(POS_KEY)
+        const posStr = safeStorageGet(POS_KEY)
         if (posStr) {
             try {
                 const pos = JSON.parse(posStr)
@@ -805,13 +819,13 @@
         const delayInput = bar.querySelector('#ac-delay-input')
         delayInput.addEventListener('change', (e) => {
             automationDelay = parseInt(e.target.value) || 0
-            localStorage.setItem(DELAY_KEY, automationDelay)
+            safeStorageSet(DELAY_KEY, automationDelay)
         })
 
         const speedInput = bar.querySelector('#ac-speed-input')
         speedInput.addEventListener('change', (e) => {
             automationSpeed = parseFloat(e.target.value) || 1.0
-            localStorage.setItem(SPEED_KEY, automationSpeed)
+            safeStorageSet(SPEED_KEY, automationSpeed)
             console.log(
                 `[Userscript] Automation speed updated to: ${automationSpeed}x`
             )
@@ -828,14 +842,14 @@
         const dllCheck = bar.querySelector('#ac-dwell-check')
         dllCheck.addEventListener('change', (e) => {
             useDwellTime = e.target.checked
-            localStorage.setItem(DWELL_KEY, useDwellTime)
+            safeStorageSet(DWELL_KEY, useDwellTime)
             console.log(`[Userscript] Trick Progress mode: ${useDwellTime}`)
         })
 
         const muteCheck = bar.querySelector('#ac-mute-check')
         muteCheck.addEventListener('change', (e) => {
             isAutomationMuted = e.target.checked
-            localStorage.setItem(MUTE_KEY, isAutomationMuted)
+            safeStorageSet(MUTE_KEY, isAutomationMuted)
             console.log(
                 `[Userscript] Automation Mute state: ${isAutomationMuted}`
             )
@@ -907,7 +921,7 @@
             if (isDragging) {
                 isDragging = false
                 const rect = bar.getBoundingClientRect()
-                localStorage.setItem(
+                safeStorageSet(
                     POS_KEY,
                     JSON.stringify({ x: rect.left, y: rect.top })
                 )
@@ -2020,7 +2034,7 @@
 
     async function triggerCornerPrintOnce(meta) {
         const key = getLessonPrintStorageKey(meta)
-        if (localStorage.getItem(key) === 'true') {
+        if (safeStorageGet(key) === 'true') {
             console.log('[Userscript] Lesson print already done, skipping.')
             return false
         }
@@ -2034,7 +2048,7 @@
                 '[Userscript] Incomplete progress — triggering one-time Notes download.'
             )
             printBtn.click()
-            localStorage.setItem(key, 'true')
+            safeStorageSet(key, 'true')
             await new Promise((r) => setTimeout(r, 1500))
             return true
         }

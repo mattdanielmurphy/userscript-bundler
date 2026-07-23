@@ -23,6 +23,16 @@ const gm = (function () {
 
 	const storagePrefix = "__gm_";
 
+	// Helper to safely get localStorage without throwing SecurityError in sandboxed frames
+	function safeGetLocalStorage() {
+		try {
+			if (typeof window !== "undefined" && window.localStorage) {
+				return window.localStorage;
+			}
+		} catch (e) {}
+		return null;
+	}
+
 	// 1. Sync Storage Helpers (fallback to localStorage)
 	function getValue(key, defaultValue) {
 		if (typeof GM_getValue === "function") {
@@ -32,12 +42,18 @@ const gm = (function () {
 				console.error("[Compat] Native GM_getValue failed:", e);
 			}
 		}
-		const val = localStorage.getItem(storagePrefix + key);
-		if (val === null) return defaultValue;
 		try {
-			return JSON.parse(val);
+			const storage = safeGetLocalStorage();
+			if (!storage) return defaultValue;
+			const val = storage.getItem(storagePrefix + key);
+			if (val === null) return defaultValue;
+			try {
+				return JSON.parse(val);
+			} catch (e) {
+				return val;
+			}
 		} catch (e) {
-			return val;
+			return defaultValue;
 		}
 	}
 
@@ -51,7 +67,10 @@ const gm = (function () {
 			}
 		}
 		try {
-			localStorage.setItem(storagePrefix + key, JSON.stringify(value));
+			const storage = safeGetLocalStorage();
+			if (storage) {
+				storage.setItem(storagePrefix + key, JSON.stringify(value));
+			}
 		} catch (e) {
 			console.error("[Compat] LocalStorage setValue failed:", e);
 		}
@@ -179,6 +198,32 @@ const gm = (function () {
 		}
 	}
 
+	// 6. Safe HTML Injection Helper (TrustedHTML compliant)
+	function setSafeHTML(element, html) {
+		if (!element) return;
+		if (!html) {
+			element.replaceChildren();
+			return;
+		}
+		if (typeof window !== "undefined" && window.trustedTypes) {
+			try {
+				const policy = window.trustedTypes.defaultPolicy ||
+					(window.trustedTypes.createPolicy ? window.trustedTypes.createPolicy("gm-safe-policy", { createHTML: (s) => s }) : null);
+				if (policy) {
+					element.innerHTML = policy.createHTML(html);
+					return;
+				}
+			} catch (e) {}
+		}
+		try {
+			const parser = new DOMParser();
+			const parsed = parser.parseFromString(html, "text/html");
+			element.replaceChildren(...parsed.body.childNodes);
+		} catch (e) {
+			element.innerHTML = html;
+		}
+	}
+
 	return {
 		getValue,
 		setValue,
@@ -189,6 +234,7 @@ const gm = (function () {
 		xmlHttpRequest,
 		isXmlHttpRequestSupported,
 		addStyle,
+		setSafeHTML,
 	};
 })();
 
@@ -201,7 +247,7 @@ if (typeof globalThis !== "undefined") {
 }
 
 
-/* ===== gemini-thread-saver/00-bootstrap.js ===== */
+/* ===== gemini-enhancements/00-bootstrap.js ===== */
 // ==UserScript==
 // @name         Gemini Enhancements
 // @namespace    local.gemini.enhancements
@@ -221,15 +267,15 @@ if (typeof globalThis !== "undefined") {
 // ==/UserScript==
 
 /**
- * Gemini Thread Saver - Grouped Source
- * All files in the gemini-thread-saver group are concatenated by bundler.js
+ * Gemini Enhancements - Grouped Source
+ * All files in the gemini-enhancements group are concatenated by bundler.js
  * into a single shared lexical scope inside this outer IIFE.
  */
 (function () {
 	"use strict"
 
 
-/* ===== gemini-thread-saver/01-shared.js ===== */
+/* ===== gemini-enhancements/01-shared.js ===== */
 // ═══════════════════════════════════════════════════════════
 // SHARED TOOLTIP SINGLETON & UTILITIES
 // ═══════════════════════════════════════════════════════════
@@ -348,7 +394,7 @@ function getRelativeDateLabel(unix, forSidebar = false) {
 }
 
 
-/* ===== gemini-thread-saver/02-token-usage.js ===== */
+/* ===== gemini-enhancements/02-token-usage.js ===== */
 // ═══════════════════════════════════════════════════════════
 // TOKEN COUNTER & THREAD TOKEN USAGE BADGE
 // ═══════════════════════════════════════════════════════════
@@ -796,7 +842,7 @@ function checkThreadUsage() {
 setInterval(checkThreadUsage, 2500)
 
 
-/* ===== gemini-thread-saver/03-timestamps.js ===== */
+/* ===== gemini-enhancements/03-timestamps.js ===== */
 // ═══════════════════════════════════════════════════════════
 // EMBED REGEX + MESSAGE TIMESTAMP STATE
 // ═══════════════════════════════════════════════════════════
@@ -1023,7 +1069,7 @@ function processEmbeddedTimestamps() {
 }
 
 
-/* ===== gemini-thread-saver/04-sidebar-dates.js ===== */
+/* ===== gemini-enhancements/04-sidebar-dates.js ===== */
 // ═══════════════════════════════════════════════════════════
 // SIDEBAR DATES & GM SETTINGS
 // ═══════════════════════════════════════════════════════════
@@ -1288,7 +1334,7 @@ function updateSidebarDOM() {
 }
 
 
-/* ===== gemini-thread-saver/05-prompt-tools.js ===== */
+/* ===== gemini-enhancements/05-prompt-tools.js ===== */
 // ═══════════════════════════════════════════════════════════
 // PROMPT TIMESTAMP PREPEND & PROMPT TOOLS UI
 // ═══════════════════════════════════════════════════════════
@@ -1385,9 +1431,23 @@ function processCommandReplacement(editor) {
 	}
 }
 
+let isPrependingPrompt = false
+
+function hasAlreadyPrepended(text) {
+	if (!text) return false
+	return (
+		text.includes("[SYSTEM CONTEXT & DIRECTIVES:") ||
+		text.includes("[context to this point is") ||
+		EMBED_RE.test(text)
+	)
+}
+
 document.addEventListener(
 	"click",
 	function (e) {
+		if (e.isTrusted === false) return
+		if (isPrependingPrompt) return
+
 		const btn = getSendButton(e.target)
 		if (!btn) return
 		const editor = document.querySelector(
@@ -1397,7 +1457,12 @@ document.addEventListener(
 
 		// Avoid the read-replace cycle that can double newlines in contenteditable
 		let currentText = editor.innerText || ""
-		if (!currentText.trim() || EMBED_RE.test(currentText)) return
+		if (!currentText.trim() || hasAlreadyPrepended(currentText)) return
+
+		isPrependingPrompt = true
+		setTimeout(() => {
+			isPrependingPrompt = false
+		}, 500)
 
 		e.stopImmediatePropagation()
 		e.preventDefault()
@@ -1426,10 +1491,12 @@ document.addEventListener(
 		if (isNewThread) {
 			systemPrefix = `[SYSTEM CONTEXT & DIRECTIVES:
 1. Primary User Vault: /Users/matt/Library/Mobile Documents/iCloud~md~obsidian/Documents/Personal/
-2. Note-Taking Directive: When asked to "make a note about this", format a complete markdown note with frontmatter, high-level summary, detailed bullet points, and thread link. Output a single copy-pasteable bash command appending to the Personal vault.
-3. Fact-Checking Directive: When asked to verify/fact-check claims, perform Information Sufficiency Check, Source & Context Audit, and define Explicit Assumptions & Boundaries.
-4. Tone & Spoilers: No sycophantic praise or routine filler ("that's very insightful"). No spoilers for movies/books/games.
-5. No YouTube links in responses.]\n\n`
+2. Strict Media & Story Spoilers Directive: STRICT NO SPOILERS POLICY. You MUST NOT under any circumstances reveal plot twists, endings, key character fates, deaths, betrayals, secret identities, major narrative developments, or unreleased details for movies, TV shows, books, anime, games, or story-driven media. If asked about media, err heavily on the side of caution. Give zero hints or foreshadowing of major events unless the user explicitly requests spoilers with confirmation.
+3. Tone, Sycophancy & Banned Buzzwords: No sycophantic praise or routine filler ("that's very insightful", "great question", "I understand..."). NEVER use banned buzzwords: "glitch in the matrix", "nuclear option", "final boss", "game changer", "level up", "cheat code", "you've hit on", "unlocking the potential".
+4. Note-Taking Directive: When asked to "make a note about this", format a complete markdown note with frontmatter, high-level summary, detailed bulleted breakdown, expanded key details, and thread link. Output a single copy-pasteable bash command or file write appending to the Personal vault.
+5. Fact-Checking Directive: When asked to verify/fact-check claims, perform Information Sufficiency Check, Source & Context Audit, and define Explicit Assumptions & Boundaries.
+6. Local Environment & Tooling Rules: Default JS package manager is Bun (never npm/pnpm). Use ./tmp for local script files. Safe file removal via mv ~/.Trash/ (never rm).
+7. No YouTube links in responses.]\n\n`
 		}
 
 		document.execCommand("insertText", false, systemPrefix + timestamp)
@@ -1447,6 +1514,9 @@ document.addEventListener(
 document.addEventListener(
 	"keydown",
 	function (e) {
+		if (e.isTrusted === false) return
+		if (isPrependingPrompt) return
+
 		if (e.key !== "Enter" || e.shiftKey || e.ctrlKey || e.metaKey || e.altKey)
 			return
 
@@ -1459,7 +1529,12 @@ document.addEventListener(
 		}
 
 		const currentText = editor.innerText || ""
-		if (!currentText.trim() || EMBED_RE.test(currentText)) return
+		if (!currentText.trim() || hasAlreadyPrepended(currentText)) return
+
+		isPrependingPrompt = true
+		setTimeout(() => {
+			isPrependingPrompt = false
+		}, 500)
 
 		e.stopImmediatePropagation()
 		e.preventDefault()
@@ -1488,10 +1563,12 @@ document.addEventListener(
 		if (isNewThread) {
 			systemPrefix = `[SYSTEM CONTEXT & DIRECTIVES:
 1. Primary User Vault: /Users/matt/Library/Mobile Documents/iCloud~md~obsidian/Documents/Personal/
-2. Note-Taking Directive: When asked to "make a note about this", format a complete markdown note with frontmatter, high-level summary, detailed bullet points, and thread link. Output a single copy-pasteable bash command appending to the Personal vault.
-3. Fact-Checking Directive: When asked to verify/fact-check claims, perform Information Sufficiency Check, Source & Context Audit, and define Explicit Assumptions & Boundaries.
-4. Tone & Spoilers: No sycophantic praise or routine filler ("that's very insightful"). No spoilers for movies/books/games.
-5. No YouTube links in responses.]\n\n`
+2. Strict Media & Story Spoilers Directive: STRICT NO SPOILERS POLICY. You MUST NOT under any circumstances reveal plot twists, endings, key character fates, deaths, betrayals, secret identities, major narrative developments, or unreleased details for movies, TV shows, books, anime, games, or story-driven media. If asked about media, err heavily on the side of caution. Give zero hints or foreshadowing of major events unless the user explicitly requests spoilers with confirmation.
+3. Tone, Sycophancy & Banned Buzzwords: No sycophantic praise or routine filler ("that's very insightful", "great question", "I understand..."). NEVER use banned buzzwords: "glitch in the matrix", "nuclear option", "final boss", "game changer", "level up", "cheat code", "you've hit on", "unlocking the potential".
+4. Note-Taking Directive: When asked to "make a note about this", format a complete markdown note with frontmatter, high-level summary, detailed bulleted breakdown, expanded key details, and thread link. Output a single copy-pasteable bash command or file write appending to the Personal vault.
+5. Fact-Checking Directive: When asked to verify/fact-check claims, perform Information Sufficiency Check, Source & Context Audit, and define Explicit Assumptions & Boundaries.
+6. Local Environment & Tooling Rules: Default JS package manager is Bun (never npm/pnpm). Use ./tmp for local script files. Safe file removal via mv ~/.Trash/ (never rm).
+7. No YouTube links in responses.]\n\n`
 		}
 
 		document.execCommand("insertText", false, systemPrefix + timestamp)
@@ -2219,8 +2296,119 @@ function injectUI() {
 	}
 }
 
+// ═══════════════════════════════════════════════════════════
+// KEYWORD-BASED CONTEXT CHIP DETECTOR
+// ═══════════════════════════════════════════════════════════
+window.gmtContexts = window.gmtContexts || {}
 
-/* ===== gemini-thread-saver/06-archive.js ===== */
+const KEYWORD_CONTEXT_DEFINITIONS = [
+	{
+		id: "kw-mac-apps",
+		title: "Mac Apps & Automation Context",
+		keywords: ["mac", "macos", "installed app", "installed apps", "app list", "automation", "hammerspoon", "raycast", "applescript", "shortcuts", "tcc", "system settings"],
+		output: `[Mac Environment & Installed Applications Context]
+Primary Directory: /Users/matt
+Installed Development & Utility Apps:
+- Raycast (Launcher & Extension Runner)
+- Hammerspoon (Lua Desktop & Window Automation)
+- Obsidian (Personal Vault & Project Notes)
+- Xcode & Command Line Tools (macOS Development)
+- Docker Desktop & Container Tools
+- iTerm2 & Terminal (Zsh shell)
+- VS Code & Antigravity / Cursor
+- CleanShot X (Screen capture & recording)
+- Karabiner-Elements (Keyboard remapping)
+- Homebrew (/opt/homebrew)
+- Bun, Node.js, Python 3.12, Rust / Cargo`
+	},
+	{
+		id: "kw-obsidian-vault",
+		title: "Obsidian Vault & Notes Context",
+		keywords: ["obsidian", "vault", "project notes", "global todos", "make a note", "note taking", "markdown note"],
+		output: `[Obsidian Vault Context]
+Primary User Vault: /Users/matt/Library/Mobile Documents/iCloud~md~obsidian/Documents/Personal/
+Project Notes Folder: Development/Project Notes/
+Global Todos File: Development/Project Notes/Global Todos.md
+Note Format: YAML Frontmatter (tags, date), # Title, High-Level Summary, Bulleted Breakdown, Expanded Details, Thread Link.`
+	},
+	{
+		id: "kw-ai-os",
+		title: "AI-OS Protocols Context",
+		keywords: ["ai-os", "aios", "agent rules", "ag_context", "preflight", "auto-commit", "bun", "subagent"],
+		output: `[AI-OS Protocols Context]
+Project Root: /Users/matt/projects/ai-os
+Preflight Routine: python3 /Users/matt/projects/ai-os/scripts/preflight.py
+Auto-Commit Routine: python3 /Users/matt/projects/ai-os/scripts/auto_commit.py
+Rules Summary: Bun is required for JS projects; ./tmp for temporary scripts; mv ~/.Trash/ for deletions; no heredocs; concise token-efficient outputs.`
+	},
+	{
+		id: "kw-terminal-cli",
+		title: "Terminal & CLI Context",
+		keywords: ["terminal", "cli", "zsh", "bash", "tmux", "command", "shell"],
+		output: `[Terminal & Local Execution Context]
+Shell: Zsh on macOS (/bin/zsh)
+Local Command Executor Service: http://127.0.0.1:3033/run-command
+Headers: x-gemini-thread-saver-key (requires secret configuration)
+Inline Terminal Sessions: tmux background sessions monitored via HTTP`
+	}
+]
+
+const KeywordContextManager = {
+	scanInput(text) {
+		if (!text) text = ""
+		const lower = text.toLowerCase()
+
+		KEYWORD_CONTEXT_DEFINITIONS.forEach((def) => {
+			const existing = window.gmtContexts[def.id]
+			const matched = def.keywords.some((kw) => lower.includes(kw))
+
+			if (matched) {
+				if (!existing) {
+					window.gmtContexts[def.id] = {
+						id: def.id,
+						active: true,
+						title: def.title,
+						command: def.title,
+						output: def.output,
+						isKeyword: true,
+						userDismissed: false,
+					}
+				} else if (!existing.userDismissed) {
+					existing.active = true
+				}
+			} else {
+				if (existing && existing.isKeyword && !existing.userDismissed) {
+					existing.active = false
+				}
+			}
+		})
+
+		if (typeof renderContextPills === "function") {
+			renderContextPills()
+		} else if (typeof terminalManager !== "undefined" && terminalManager.renderContextPills) {
+			terminalManager.renderContextPills()
+		}
+	},
+}
+
+let keywordScanDebounceTimer = null
+document.addEventListener(
+	"input",
+	(e) => {
+		const editor = e.target.closest && e.target.closest('.ql-editor[contenteditable="true"]')
+		if (editor) {
+			clearTimeout(keywordScanDebounceTimer)
+			keywordScanDebounceTimer = setTimeout(() => {
+				KeywordContextManager.scanInput(editor.innerText || "")
+			}, 300)
+		}
+	},
+	true,
+)
+
+
+
+/* ===== gemini-enhancements/06-archive.js ===== */
 // ═══════════════════════════════════════════════════════════
 // PRIVATE LOCAL MARKDOWN ARCHIVE
 // ═══════════════════════════════════════════════════════════
@@ -2412,7 +2600,7 @@ async function exportThreadWithTimestamps(force = false) {
 }
 
 
-/* ===== gemini-thread-saver/07-terminal.js ===== */
+/* ===== gemini-enhancements/07-terminal.js ===== */
 // ═══════════════════════════════════════════════════════════
 // LOCAL TERMINAL EXECUTION & INLINE OUTPUT
 // ═══════════════════════════════════════════════════════════
@@ -2619,9 +2807,12 @@ function injectRunButtons() {
 	})
 }
 
+window.gmtContexts = window.gmtContexts || {}
+
 const terminalManager = {
 	pollers: {},
-	contexts: {},
+	contexts: window.gmtContexts,
+
 
 	startInline(pre, session, command) {
 		if (!this.contexts[session]) {
@@ -2776,27 +2967,48 @@ const terminalManager = {
 			if (!ctx.active) return
 
 			const pill = document.createElement("div")
-			pill.style.cssText = `
-				background: rgba(137, 180, 250, 0.15);
-				border: 1px solid rgba(137, 180, 250, 0.3);
-				color: #89b4fa;
-				border-radius: 16px;
-				padding: 4px 12px;
-				font-size: 12px;
-				font-family: "Google Sans", sans-serif;
-				display: flex;
-				align-items: center;
-				gap: 6px;
-				cursor: pointer;
-				position: relative;
-			`
+			if (ctx.isKeyword) {
+				pill.style.cssText = `
+					background: rgba(166, 227, 161, 0.15);
+					border: 1px solid rgba(166, 227, 161, 0.3);
+					color: #a6e3a1;
+					border-radius: 16px;
+					padding: 4px 12px;
+					font-size: 12px;
+					font-family: "Google Sans", sans-serif;
+					display: flex;
+					align-items: center;
+					gap: 6px;
+					cursor: pointer;
+					position: relative;
+				`
+			} else {
+				pill.style.cssText = `
+					background: rgba(137, 180, 250, 0.15);
+					border: 1px solid rgba(137, 180, 250, 0.3);
+					color: #89b4fa;
+					border-radius: 16px;
+					padding: 4px 12px;
+					font-size: 12px;
+					font-family: "Google Sans", sans-serif;
+					display: flex;
+					align-items: center;
+					gap: 6px;
+					cursor: pointer;
+					position: relative;
+				`
+			}
 
 			const textNode = document.createElement("span")
-			let shortCmd = ctx.command || session
-			if (shortCmd.includes("\\n")) shortCmd = shortCmd.split("\\n")[0]
-			shortCmd = shortCmd.trim()
-			if (shortCmd.length > 25) shortCmd = shortCmd.substring(0, 25) + "..."
-			textNode.innerText = `Terminal: "${shortCmd}"`
+			if (ctx.isKeyword) {
+				textNode.innerText = `Context: ${ctx.title}`
+			} else {
+				let shortCmd = ctx.command || session
+				if (shortCmd.includes("\n")) shortCmd = shortCmd.split("\n")[0]
+				shortCmd = shortCmd.trim()
+				if (shortCmd.length > 25) shortCmd = shortCmd.substring(0, 25) + "..."
+				textNode.innerText = `Terminal: "${shortCmd}"`
+			}
 			pill.appendChild(textNode)
 
 			const removeBtn = document.createElement("span")
@@ -2806,6 +3018,7 @@ const terminalManager = {
 			removeBtn.onclick = (e) => {
 				e.stopPropagation()
 				ctx.active = false
+				ctx.userDismissed = true
 				if (window.gmtTooltipHideTimeout) {
 					clearTimeout(window.gmtTooltipHideTimeout)
 					window.gmtTooltipHideTimeout = null
@@ -2921,15 +3134,10 @@ document.addEventListener(
 				let allContext = ""
 				Object.entries(terminalManager.contexts).forEach(([session, ctx]) => {
 					if (ctx.active) {
-						allContext += `
-
-[Attached Context: ${session}]
-\`\`\`text
-${ctx.output}
-\`\`\`
-`
-						// Auto-detach after injection
+						const label = ctx.title || session
+						allContext += `\n\n[Attached Context: ${label}]\n\`\`\`text\n${ctx.output}\n\`\`\`\n`
 						ctx.active = false
+						ctx.userDismissed = false
 					}
 				})
 
@@ -2946,7 +3154,7 @@ ${ctx.output}
 )
 
 
-/* ===== gemini-thread-saver/08-model-optimizer.js ===== */
+/* ===== gemini-enhancements/08-model-optimizer.js ===== */
 // ═══════════════════════════════════════════════════════════
 // GEMINI MODEL OPTIMIZER
 // ═══════════════════════════════════════════════════════════
@@ -3244,7 +3452,7 @@ function startOptimizer() {
 startOptimizer()
 
 
-/* ===== gemini-thread-saver/09-page-observer.js ===== */
+/* ===== gemini-enhancements/09-page-observer.js ===== */
 // ═══════════════════════════════════════════════════════════
 // PAGE OBSERVERS & TOP-LEVEL ORCHESTRATION
 // ═══════════════════════════════════════════════════════════
@@ -3270,6 +3478,20 @@ function removeAdvUpsell(warnIfMissing = false) {
 	}
 }
 
+let lastSidebarClickTime = 0
+function ensureSidebarOpen() {
+	const now = Date.now()
+	if (now - lastSidebarClickTime < 3000) return
+	const openButton = document.querySelector(
+		'button.side-nav-sparkle-button[aria-label="Open sidebar"]',
+	)
+	if (openButton && openButton.offsetParent !== null) {
+		lastSidebarClickTime = now
+		openButton.click()
+		console.log("[GMT] Sidebar persistence: Sidebar was closed. Opening it now.")
+	}
+}
+
 let lastUrl = location.href
 
 let syncTimeout = null
@@ -3280,6 +3502,7 @@ function startObservers() {
 		return
 	}
 	ensureTooltip()
+	ensureSidebarOpen()
 	new MutationObserver((mutations) => {
 		// Check if mutations only contain typing/editing events or temp sync elements
 		let isOnlyTypingOrTemp = true
@@ -3312,6 +3535,7 @@ function startObservers() {
 		// Debounce DOM-heavy callbacks to avoid thrashing during rapid mutations
 		if (observerTimeout) clearTimeout(observerTimeout)
 		observerTimeout = setTimeout(() => {
+			ensureSidebarOpen()
 			processEmbeddedTimestamps()
 			updateSidebarDOM()
 			updateTabTitle()

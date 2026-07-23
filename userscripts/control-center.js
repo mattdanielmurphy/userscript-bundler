@@ -8,6 +8,31 @@
 (function () {
 	"use strict";
 
+	function setSafeHTML(element, html) {
+		if (!element) return;
+		if (!html) {
+			element.replaceChildren();
+			return;
+		}
+		if (typeof window !== "undefined" && window.trustedTypes) {
+			try {
+				const policy = window.trustedTypes.defaultPolicy ||
+					(window.trustedTypes.createPolicy ? window.trustedTypes.createPolicy("uscc-policy", { createHTML: (s) => s }) : null);
+				if (policy) {
+					element.innerHTML = policy.createHTML(html);
+					return;
+				}
+			} catch (e) {}
+		}
+		try {
+			const parser = new DOMParser();
+			const parsed = parser.parseFromString(html, "text/html");
+			element.replaceChildren(...parsed.body.childNodes);
+		} catch (e) {
+			element.innerHTML = html;
+		}
+	}
+
 	const SERVER_BASE = "http://127.0.0.1:3033";
 	const STORAGE_KEY = "uscc_settings_v1";
 
@@ -283,7 +308,7 @@
 		const overlay = document.createElement("div");
 		overlay.className = "overlay";
 
-		overlay.innerHTML = `
+		setSafeHTML(overlay, `
 			<div class="modal">
 				<div class="header">
 					<h2>⚙️ Userscript Control Center</h2>
@@ -303,7 +328,7 @@
 					<span id="uscc-status-right">Alt+Shift+U</span>
 				</div>
 			</div>
-		`;
+		`);
 
 		shadowRoot.appendChild(overlay);
 
@@ -343,12 +368,12 @@
 		needsReload = true;
 		const container = shadowRoot.getElementById("uscc-banner-container");
 		container.style.display = "block";
-		container.innerHTML = `
+		setSafeHTML(container, `
 			<div class="reload-banner">
 				<span>⚠️ ${escapeHTML(message)}</span>
 				<button class="btn btn-primary" id="uscc-banner-reload">Reload Now</button>
 			</div>
-		`;
+		`);
 		shadowRoot.getElementById("uscc-banner-reload").onclick = () => window.location.reload();
 	}
 
@@ -374,10 +399,10 @@
 			const settings = await loadSettings();
 			cachedData = data;
 
-			bodyEl.innerHTML = "";
+			setSafeHTML(bodyEl, "");
 
 			if (!data.scripts || data.scripts.length === 0) {
-				bodyEl.innerHTML = `<div style="text-align: center; padding: 40px;">No registered scripts found in server manifest.</div>`;
+				setSafeHTML(bodyEl, `<div style="text-align: center; padding: 40px;">No registered scripts found in server manifest.</div>`);
 				return;
 			}
 
@@ -405,7 +430,7 @@
 
 				const headSha = script.git?.head?.sha ? script.git.head.sha.slice(0, 7) : "unknown";
 
-				card.innerHTML = `
+				setSafeHTML(card, `
 					<div class="script-top">
 						<div class="script-info">
 							<div class="script-name">
@@ -429,7 +454,7 @@
 						<button class="btn history-btn">📜 History & Rollback</button>
 					</div>
 					<div class="history-container" style="display: none;"></div>
-				`;
+				`);
 
 				// Toggle listener
 				card.querySelector(".enable-toggle").onchange = async (e) => {
@@ -449,37 +474,37 @@
 						return;
 					}
 					container.style.display = "block";
-					container.innerHTML = `<div style="padding: 8px; color: #888;">Loading commit history...</div>`;
+					setSafeHTML(container, `<div style="padding: 8px; color: #888;">Loading commit history...</div>`);
 
 					try {
 						const histData = await apiFetch(`/api/userscripts/${script.id}/history?limit=15`);
 						renderHistoryPanel(container, script, histData.commits);
 					} catch (err) {
-						container.innerHTML = `<div style="padding: 8px; color: #ef4444;">Failed to load history: ${escapeHTML(err.message)}</div>`;
+						setSafeHTML(container, `<div style="padding: 8px; color: #ef4444;">Failed to load history: ${escapeHTML(err.message)}</div>`);
 					}
 				};
 
 				bodyEl.appendChild(card);
 			});
 		} catch (err) {
-			bodyEl.innerHTML = `
+			setSafeHTML(bodyEl, `
 				<div style="padding: 24px; background: #2d1818; border: 1px solid #7f1d1d; border-radius: 8px; color: #fca5a5;">
 					<strong>Error connecting to Control API:</strong><br />
 					${escapeHTML(err.message)}
 					<br /><br />
 					Ensure <code>local-automation-server</code> is running on <code>127.0.0.1:3033</code>.
 				</div>
-			`;
+			`);
 		}
 	}
 
 	function renderHistoryPanel(container, script, commits) {
-		container.innerHTML = "";
+		setSafeHTML(container, "");
 		const panel = document.createElement("div");
 		panel.className = "history-panel";
 
 		if (!commits || commits.length === 0) {
-			panel.innerHTML = `<div style="color: #777;">No history found for this script's allowed paths.</div>`;
+			setSafeHTML(panel, `<div style="color: #777;">No history found for this script's allowed paths.</div>`);
 			container.appendChild(panel);
 			return;
 		}
@@ -490,7 +515,7 @@
 
 			const headMarker = c.isHead ? `<span class="badge badge-matched" style="font-size: 9px;">CURRENT HEAD</span>` : "";
 
-			item.innerHTML = `
+			setSafeHTML(item, `
 				<div class="commit-meta">
 					<div class="commit-subject">${escapeHTML(c.subject)} ${headMarker}</div>
 					<div class="commit-subtext">${escapeHTML(c.shortSha)} • ${escapeHTML(c.author)} • ${new Date(c.date).toLocaleString()}</div>
@@ -498,7 +523,7 @@
 				<div>
 					${!c.isHead ? `<button class="btn btn-primary restore-btn">Restore</button>` : ""}
 				</div>
-			`;
+			`);
 
 			if (!c.isHead) {
 				item.querySelector(".restore-btn").onclick = async () => {

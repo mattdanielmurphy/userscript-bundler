@@ -92,12 +92,20 @@
                         cb.style.cssText =
                             'margin-right: 10px; margin-top: 3px; width: 18px; height: 18px; cursor: pointer; flex-shrink: 0; position: relative; z-index: 10;'
 
-                        cb.checked = localStorage.getItem(key) === 'true'
+                        let isChecked = false
+                        try {
+                            isChecked = typeof window !== 'undefined' && window.localStorage && localStorage.getItem(key) === 'true'
+                        } catch (e) {}
+                        cb.checked = isChecked
                         if (cb.checked) el.style.opacity = '0.5'
 
                         cb.onclick = (e) => e.stopPropagation()
                         cb.onchange = () => {
-                            localStorage.setItem(key, cb.checked)
+                            try {
+                                if (typeof window !== 'undefined' && window.localStorage) {
+                                    localStorage.setItem(key, cb.checked)
+                                }
+                            } catch (e) {}
                             el.style.opacity = cb.checked ? '0.5' : '1'
                         }
 
@@ -1963,41 +1971,66 @@
         `
 
         const styleEl = document.createElement('style')
-        styleEl.innerHTML = styles
+        styleEl.textContent = styles
         document.head.appendChild(styleEl)
+
+        function setSafeHTML(element, html) {
+            if (typeof gm !== 'undefined' && gm.setSafeHTML) {
+                gm.setSafeHTML(element, html);
+                return;
+            }
+            if (!element) return;
+            if (!html) {
+                element.replaceChildren();
+                return;
+            }
+            if (typeof window !== "undefined" && window.trustedTypes) {
+                try {
+                    const policy = window.trustedTypes.defaultPolicy ||
+                        (window.trustedTypes.createPolicy ? window.trustedTypes.createPolicy("d2l-safe-policy", { createHTML: (s) => s }) : null);
+                    if (policy) {
+                        element.innerHTML = policy.createHTML(html);
+                        return;
+                    }
+                } catch (e) {}
+            }
+            try {
+                const parser = new DOMParser();
+                const parsed = parser.parseFromString(html, "text/html");
+                element.replaceChildren(...parsed.body.childNodes);
+            } catch (e) {
+                element.innerHTML = html;
+            }
+        }
 
         function createUI() {
             const btn = document.createElement('button')
             btn.id = 'd2l-dl-btn'
-            btn.innerHTML =
-                '<div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg></div><div class="text">Content Tools</div>'
+            setSafeHTML(btn, '<div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg></div><div class="text">Content Tools</div>')
             document.body.appendChild(btn)
 
             const scriptBtn = document.createElement('button')
             scriptBtn.id = 'd2l-script-btn'
-            scriptBtn.innerHTML =
-                '<div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg></div><div class="text">Save Script</div>'
+            setSafeHTML(scriptBtn, '<div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg></div><div class="text">Save Script</div>')
             document.body.appendChild(scriptBtn)
 
             const promptBtn = document.createElement('button')
             promptBtn.id = 'd2l-prompt-btn'
-            promptBtn.innerHTML =
-                '<div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect></svg></div><div class="text">Copy Prompt</div>'
+            setSafeHTML(promptBtn, '<div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect></svg></div><div class="text">Copy Prompt</div>')
             document.body.appendChild(promptBtn)
 
             const answersBtn = document.createElement('button')
             answersBtn.id = 'd2l-answers-btn'
-            answersBtn.innerHTML =
-                '<div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"></path><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg></div><div class="text">Copy All Answers</div>'
+            setSafeHTML(answersBtn, '<div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"></path><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg></div><div class="text">Copy All Answers</div>')
             document.body.appendChild(answersBtn)
 
             const automationBar = document.createElement('div')
             automationBar.id = 'd2l-automation-bar'
-            automationBar.innerHTML = `
+            setSafeHTML(automationBar, `
                 <span class="title">Automation</span>
                 <button class="btn" id="d2l-sim-time-btn" type="button">Sim time</button>
                 <span class="status" id="d2l-automation-status">Idle</span>
-            `
+            `)
             document.body.appendChild(automationBar)
 
             const setAutomationStatus = (text) => {
@@ -2799,7 +2832,7 @@ y = 1
                     })),
                 ]
 
-                dialog.innerHTML = `
+                setSafeHTML(dialog, `
                     <h2>Content Tools</h2>
                     <p>Select a frame to download images (ZIP) or take a snapshot.</p>
                     <div class="d2l-dl-frame-list">
@@ -2814,8 +2847,8 @@ y = 1
                                 (f, i) => `
                             <div class="d2l-dl-frame-item" data-index="${i}">
                                 <div class="info">
-                                    <div class="title">${f.name}</div>
-                                    <div class="desc">${f.desc}</div>
+                                    <div class="title">${escapeHTML(f.name)}</div>
+                                    <div class="desc">${escapeHTML(f.desc)}</div>
                                 </div>
                                 <div class="d2l-dl-item-actions">
                                     <div class="d2l-dl-action-icon snapshot-btn" title="Take Snapshot" data-index="${i}">
@@ -2833,7 +2866,7 @@ y = 1
                     <div style="display:flex; justify-content:space-between">
                         <button id="d2l-dl-close" style="background:none; border:none; color:#555; cursor:pointer; font-size:11px">Close</button>
                     </div>
-                `
+                `)
 
                 overlay.classList.add('visible')
                 dialog.classList.add('visible')
@@ -3054,8 +3087,7 @@ y = 1
             if (!answersBtn) {
                 answersBtn = document.createElement('button')
                 answersBtn.id = 'd2l-answers-btn'
-                answersBtn.innerHTML =
-                    '<div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"></path><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg></div><div class="text">Copy All Answers</div>'
+                setSafeHTML(answersBtn, '<div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"></path><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg></div><div class="text">Copy All Answers</div>')
                 answersBtn.onclick = () => {
                     void runCopyAllAnswersWithButtonFeedback(answersBtn)
                 }

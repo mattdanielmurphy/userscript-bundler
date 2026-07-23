@@ -7,6 +7,7 @@
     "matches": [
       "*://*/*"
     ],
+    "noframes": true,
     "file": "control-center.js",
     "sharedFiles": []
   },
@@ -19,16 +20,16 @@
       "https://gemini.google.com/*"
     ],
     "files": [
-      "gemini-thread-saver/00-bootstrap.js",
-      "gemini-thread-saver/01-shared.js",
-      "gemini-thread-saver/02-token-usage.js",
-      "gemini-thread-saver/03-timestamps.js",
-      "gemini-thread-saver/04-sidebar-dates.js",
-      "gemini-thread-saver/05-prompt-tools.js",
-      "gemini-thread-saver/06-archive.js",
-      "gemini-thread-saver/07-terminal.js",
-      "gemini-thread-saver/08-model-optimizer.js",
-      "gemini-thread-saver/09-page-observer.js"
+      "gemini-enhancements/00-bootstrap.js",
+      "gemini-enhancements/01-shared.js",
+      "gemini-enhancements/02-token-usage.js",
+      "gemini-enhancements/03-timestamps.js",
+      "gemini-enhancements/04-sidebar-dates.js",
+      "gemini-enhancements/05-prompt-tools.js",
+      "gemini-enhancements/06-archive.js",
+      "gemini-enhancements/07-terminal.js",
+      "gemini-enhancements/08-model-optimizer.js",
+      "gemini-enhancements/09-page-observer.js"
     ],
     "sharedFiles": []
   },
@@ -49,7 +50,11 @@
     "description": "Image downloader and content tools for D2L courseware",
     "kind": "standalone",
     "matches": [
-      "*://*/*"
+      "https://*.onlinelearningbc.com/d2l/*",
+      "https://*.onlinelearningbc.com/content/*",
+      "https://*.studyforge.net/*",
+      "https://d2l.sd44.bc.ca/*",
+      "*://*.contentconnections.ca/*"
     ],
     "file": "d2l-content-tools.user.js",
     "sharedFiles": []
@@ -71,7 +76,9 @@
     "description": "Lesson capture automation and dark mode for ContentConnections",
     "kind": "standalone",
     "matches": [
-      "*://*/*"
+      "*://contentconnections.ca/Practice/*",
+      "*://resources.contentconnections.ca/Practice/*",
+      "*://resources.contentconnections.ca/PlayerView/*"
     ],
     "file": "contentconnections.js",
     "sharedFiles": []
@@ -82,7 +89,7 @@
     "description": "StudyForge frame and slide capture automation",
     "kind": "standalone",
     "matches": [
-      "*://*/*"
+      "https://*.studyforge.net/*"
     ],
     "file": "studyforge-frame-downloader.user.js",
     "sharedFiles": []
@@ -216,7 +223,7 @@
     "description": "Enhancements for embedded Apple Music players",
     "kind": "standalone",
     "matches": [
-      "*://*/*"
+      "https://embed.music.apple.com/*"
     ],
     "file": "apple-music-embedded-player.user.js",
     "sharedFiles": []

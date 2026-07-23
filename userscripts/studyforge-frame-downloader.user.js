@@ -1260,7 +1260,7 @@ body {
     `
 
     const styleEl = document.createElement('style')
-    styleEl.innerHTML = styles
+    styleEl.textContent = styles
     document.head.appendChild(styleEl)
 
     function refreshCounter() {

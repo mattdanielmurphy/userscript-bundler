@@ -94,9 +94,23 @@ function processCommandReplacement(editor) {
 	}
 }
 
+let isPrependingPrompt = false
+
+function hasAlreadyPrepended(text) {
+	if (!text) return false
+	return (
+		text.includes("[SYSTEM CONTEXT & DIRECTIVES:") ||
+		text.includes("[context to this point is") ||
+		EMBED_RE.test(text)
+	)
+}
+
 document.addEventListener(
 	"click",
 	function (e) {
+		if (e.isTrusted === false) return
+		if (isPrependingPrompt) return
+
 		const btn = getSendButton(e.target)
 		if (!btn) return
 		const editor = document.querySelector(
@@ -106,7 +120,12 @@ document.addEventListener(
 
 		// Avoid the read-replace cycle that can double newlines in contenteditable
 		let currentText = editor.innerText || ""
-		if (!currentText.trim() || EMBED_RE.test(currentText)) return
+		if (!currentText.trim() || hasAlreadyPrepended(currentText)) return
+
+		isPrependingPrompt = true
+		setTimeout(() => {
+			isPrependingPrompt = false
+		}, 500)
 
 		e.stopImmediatePropagation()
 		e.preventDefault()
@@ -135,10 +154,12 @@ document.addEventListener(
 		if (isNewThread) {
 			systemPrefix = `[SYSTEM CONTEXT & DIRECTIVES:
 1. Primary User Vault: /Users/matt/Library/Mobile Documents/iCloud~md~obsidian/Documents/Personal/
-2. Note-Taking Directive: When asked to "make a note about this", format a complete markdown note with frontmatter, high-level summary, detailed bullet points, and thread link. Output a single copy-pasteable bash command appending to the Personal vault.
-3. Fact-Checking Directive: When asked to verify/fact-check claims, perform Information Sufficiency Check, Source & Context Audit, and define Explicit Assumptions & Boundaries.
-4. Tone & Spoilers: No sycophantic praise or routine filler ("that's very insightful"). No spoilers for movies/books/games.
-5. No YouTube links in responses.]\n\n`
+2. Strict Media & Story Spoilers Directive: STRICT NO SPOILERS POLICY. You MUST NOT under any circumstances reveal plot twists, endings, key character fates, deaths, betrayals, secret identities, major narrative developments, or unreleased details for movies, TV shows, books, anime, games, or story-driven media. If asked about media, err heavily on the side of caution. Give zero hints or foreshadowing of major events unless the user explicitly requests spoilers with confirmation.
+3. Tone, Sycophancy & Banned Buzzwords: No sycophantic praise or routine filler ("that's very insightful", "great question", "I understand..."). NEVER use banned buzzwords: "glitch in the matrix", "nuclear option", "final boss", "game changer", "level up", "cheat code", "you've hit on", "unlocking the potential".
+4. Note-Taking Directive: When asked to "make a note about this", format a complete markdown note with frontmatter, high-level summary, detailed bulleted breakdown, expanded key details, and thread link. Output a single copy-pasteable bash command or file write appending to the Personal vault.
+5. Fact-Checking Directive: When asked to verify/fact-check claims, perform Information Sufficiency Check, Source & Context Audit, and define Explicit Assumptions & Boundaries.
+6. Local Environment & Tooling Rules: Default JS package manager is Bun (never npm/pnpm). Use ./tmp for local script files. Safe file removal via mv ~/.Trash/ (never rm).
+7. No YouTube links in responses.]\n\n`
 		}
 
 		document.execCommand("insertText", false, systemPrefix + timestamp)
@@ -156,6 +177,9 @@ document.addEventListener(
 document.addEventListener(
 	"keydown",
 	function (e) {
+		if (e.isTrusted === false) return
+		if (isPrependingPrompt) return
+
 		if (e.key !== "Enter" || e.shiftKey || e.ctrlKey || e.metaKey || e.altKey)
 			return
 
@@ -168,7 +192,12 @@ document.addEventListener(
 		}
 
 		const currentText = editor.innerText || ""
-		if (!currentText.trim() || EMBED_RE.test(currentText)) return
+		if (!currentText.trim() || hasAlreadyPrepended(currentText)) return
+
+		isPrependingPrompt = true
+		setTimeout(() => {
+			isPrependingPrompt = false
+		}, 500)
 
 		e.stopImmediatePropagation()
 		e.preventDefault()
@@ -197,10 +226,12 @@ document.addEventListener(
 		if (isNewThread) {
 			systemPrefix = `[SYSTEM CONTEXT & DIRECTIVES:
 1. Primary User Vault: /Users/matt/Library/Mobile Documents/iCloud~md~obsidian/Documents/Personal/
-2. Note-Taking Directive: When asked to "make a note about this", format a complete markdown note with frontmatter, high-level summary, detailed bullet points, and thread link. Output a single copy-pasteable bash command appending to the Personal vault.
-3. Fact-Checking Directive: When asked to verify/fact-check claims, perform Information Sufficiency Check, Source & Context Audit, and define Explicit Assumptions & Boundaries.
-4. Tone & Spoilers: No sycophantic praise or routine filler ("that's very insightful"). No spoilers for movies/books/games.
-5. No YouTube links in responses.]\n\n`
+2. Strict Media & Story Spoilers Directive: STRICT NO SPOILERS POLICY. You MUST NOT under any circumstances reveal plot twists, endings, key character fates, deaths, betrayals, secret identities, major narrative developments, or unreleased details for movies, TV shows, books, anime, games, or story-driven media. If asked about media, err heavily on the side of caution. Give zero hints or foreshadowing of major events unless the user explicitly requests spoilers with confirmation.
+3. Tone, Sycophancy & Banned Buzzwords: No sycophantic praise or routine filler ("that's very insightful", "great question", "I understand..."). NEVER use banned buzzwords: "glitch in the matrix", "nuclear option", "final boss", "game changer", "level up", "cheat code", "you've hit on", "unlocking the potential".
+4. Note-Taking Directive: When asked to "make a note about this", format a complete markdown note with frontmatter, high-level summary, detailed bulleted breakdown, expanded key details, and thread link. Output a single copy-pasteable bash command or file write appending to the Personal vault.
+5. Fact-Checking Directive: When asked to verify/fact-check claims, perform Information Sufficiency Check, Source & Context Audit, and define Explicit Assumptions & Boundaries.
+6. Local Environment & Tooling Rules: Default JS package manager is Bun (never npm/pnpm). Use ./tmp for local script files. Safe file removal via mv ~/.Trash/ (never rm).
+7. No YouTube links in responses.]\n\n`
 		}
 
 		document.execCommand("insertText", false, systemPrefix + timestamp)
@@ -927,3 +958,114 @@ function injectUI() {
 		})
 	}
 }
+
+// ═══════════════════════════════════════════════════════════
+// KEYWORD-BASED CONTEXT CHIP DETECTOR
+// ═══════════════════════════════════════════════════════════
+window.gmtContexts = window.gmtContexts || {}
+
+const KEYWORD_CONTEXT_DEFINITIONS = [
+	{
+		id: "kw-mac-apps",
+		title: "Mac Apps & Automation Context",
+		keywords: ["mac", "macos", "installed app", "installed apps", "app list", "automation", "hammerspoon", "raycast", "applescript", "shortcuts", "tcc", "system settings"],
+		output: `[Mac Environment & Installed Applications Context]
+Primary Directory: /Users/matt
+Installed Development & Utility Apps:
+- Raycast (Launcher & Extension Runner)
+- Hammerspoon (Lua Desktop & Window Automation)
+- Obsidian (Personal Vault & Project Notes)
+- Xcode & Command Line Tools (macOS Development)
+- Docker Desktop & Container Tools
+- iTerm2 & Terminal (Zsh shell)
+- VS Code & Antigravity / Cursor
+- CleanShot X (Screen capture & recording)
+- Karabiner-Elements (Keyboard remapping)
+- Homebrew (/opt/homebrew)
+- Bun, Node.js, Python 3.12, Rust / Cargo`
+	},
+	{
+		id: "kw-obsidian-vault",
+		title: "Obsidian Vault & Notes Context",
+		keywords: ["obsidian", "vault", "project notes", "global todos", "make a note", "note taking", "markdown note"],
+		output: `[Obsidian Vault Context]
+Primary User Vault: /Users/matt/Library/Mobile Documents/iCloud~md~obsidian/Documents/Personal/
+Project Notes Folder: Development/Project Notes/
+Global Todos File: Development/Project Notes/Global Todos.md
+Note Format: YAML Frontmatter (tags, date), # Title, High-Level Summary, Bulleted Breakdown, Expanded Details, Thread Link.`
+	},
+	{
+		id: "kw-ai-os",
+		title: "AI-OS Protocols Context",
+		keywords: ["ai-os", "aios", "agent rules", "ag_context", "preflight", "auto-commit", "bun", "subagent"],
+		output: `[AI-OS Protocols Context]
+Project Root: /Users/matt/projects/ai-os
+Preflight Routine: python3 /Users/matt/projects/ai-os/scripts/preflight.py
+Auto-Commit Routine: python3 /Users/matt/projects/ai-os/scripts/auto_commit.py
+Rules Summary: Bun is required for JS projects; ./tmp for temporary scripts; mv ~/.Trash/ for deletions; no heredocs; concise token-efficient outputs.`
+	},
+	{
+		id: "kw-terminal-cli",
+		title: "Terminal & CLI Context",
+		keywords: ["terminal", "cli", "zsh", "bash", "tmux", "command", "shell"],
+		output: `[Terminal & Local Execution Context]
+Shell: Zsh on macOS (/bin/zsh)
+Local Command Executor Service: http://127.0.0.1:3033/run-command
+Headers: x-gemini-thread-saver-key (requires secret configuration)
+Inline Terminal Sessions: tmux background sessions monitored via HTTP`
+	}
+]
+
+const KeywordContextManager = {
+	scanInput(text) {
+		if (!text) text = ""
+		const lower = text.toLowerCase()
+
+		KEYWORD_CONTEXT_DEFINITIONS.forEach((def) => {
+			const existing = window.gmtContexts[def.id]
+			const matched = def.keywords.some((kw) => lower.includes(kw))
+
+			if (matched) {
+				if (!existing) {
+					window.gmtContexts[def.id] = {
+						id: def.id,
+						active: true,
+						title: def.title,
+						command: def.title,
+						output: def.output,
+						isKeyword: true,
+						userDismissed: false,
+					}
+				} else if (!existing.userDismissed) {
+					existing.active = true
+				}
+			} else {
+				if (existing && existing.isKeyword && !existing.userDismissed) {
+					existing.active = false
+				}
+			}
+		})
+
+		if (typeof renderContextPills === "function") {
+			renderContextPills()
+		} else if (typeof terminalManager !== "undefined" && terminalManager.renderContextPills) {
+			terminalManager.renderContextPills()
+		}
+	},
+}
+
+let keywordScanDebounceTimer = null
+document.addEventListener(
+	"input",
+	(e) => {
+		const editor = e.target.closest && e.target.closest('.ql-editor[contenteditable="true"]')
+		if (editor) {
+			clearTimeout(keywordScanDebounceTimer)
+			keywordScanDebounceTimer = setTimeout(() => {
+				KeywordContextManager.scanInput(editor.innerText || "")
+			}, 300)
+		}
+	},
+	true,
+)
+

@@ -17,8 +17,8 @@
 // ==/UserScript==
 
 /**
- * Gemini Thread Saver - Grouped Source
- * All files in the gemini-thread-saver group are concatenated by bundler.js
+ * Gemini Enhancements - Grouped Source
+ * All files in the gemini-enhancements group are concatenated by bundler.js
  * into a single shared lexical scope inside this outer IIFE.
  */
 (function () {
