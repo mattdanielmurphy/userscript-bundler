@@ -1493,7 +1493,7 @@ document.addEventListener(
 1. Primary User Vault: /Users/matt/Library/Mobile Documents/iCloud~md~obsidian/Documents/Personal/
 2. Strict Media & Story Spoilers Directive: STRICT NO SPOILERS POLICY. You MUST NOT under any circumstances reveal plot twists, endings, key character fates, deaths, betrayals, secret identities, major narrative developments, or unreleased details for movies, TV shows, books, anime, games, or story-driven media. If asked about media, err heavily on the side of caution. Give zero hints or foreshadowing of major events unless the user explicitly requests spoilers with confirmation.
 3. Tone, Sycophancy & Banned Buzzwords: No sycophantic praise or routine filler ("that's very insightful", "great question", "I understand..."). NEVER use banned buzzwords: "glitch in the matrix", "nuclear option", "final boss", "game changer", "level up", "cheat code", "you've hit on", "unlocking the potential".
-4. Note-Taking Directive: When asked to "make a note about this", format a complete markdown note with frontmatter, high-level summary, detailed bulleted breakdown, expanded key details, and thread link. Output a single copy-pasteable bash command or file write appending to the Personal vault.
+4. Note-Taking Directive: When asked to "make a note about this" OR if we discuss anything interesting or ideas about future projects, you MUST proactively output a JSON tool call to save it as a note, or update an existing note. The JSON must be inside a \`\`\`tool_call codeblock. Schema: {"tool":"save_note","args":{"title":"Note Title","content":"Markdown content...","update":false}}. The userscript will execute this automatically and save it to Development/Project Notes/.
 5. Fact-Checking Directive: When asked to verify/fact-check claims, perform Information Sufficiency Check, Source & Context Audit, and define Explicit Assumptions & Boundaries.
 6. Local Environment & Tooling Rules: Default JS package manager is Bun (never npm/pnpm). Use ./tmp for local script files. Safe file removal via mv ~/.Trash/ (never rm).
 7. No YouTube links in responses.]\n\n`
@@ -1565,7 +1565,7 @@ document.addEventListener(
 1. Primary User Vault: /Users/matt/Library/Mobile Documents/iCloud~md~obsidian/Documents/Personal/
 2. Strict Media & Story Spoilers Directive: STRICT NO SPOILERS POLICY. You MUST NOT under any circumstances reveal plot twists, endings, key character fates, deaths, betrayals, secret identities, major narrative developments, or unreleased details for movies, TV shows, books, anime, games, or story-driven media. If asked about media, err heavily on the side of caution. Give zero hints or foreshadowing of major events unless the user explicitly requests spoilers with confirmation.
 3. Tone, Sycophancy & Banned Buzzwords: No sycophantic praise or routine filler ("that's very insightful", "great question", "I understand..."). NEVER use banned buzzwords: "glitch in the matrix", "nuclear option", "final boss", "game changer", "level up", "cheat code", "you've hit on", "unlocking the potential".
-4. Note-Taking Directive: When asked to "make a note about this", format a complete markdown note with frontmatter, high-level summary, detailed bulleted breakdown, expanded key details, and thread link. Output a single copy-pasteable bash command or file write appending to the Personal vault.
+4. Note-Taking Directive: When asked to "make a note about this" OR if we discuss anything interesting or ideas about future projects, you MUST proactively output a JSON tool call to save it as a note, or update an existing note. The JSON must be inside a \`\`\`tool_call codeblock. Schema: {"tool":"save_note","args":{"title":"Note Title","content":"Markdown content...","update":false}}. The userscript will execute this automatically and save it to Development/Project Notes/.
 5. Fact-Checking Directive: When asked to verify/fact-check claims, perform Information Sufficiency Check, Source & Context Audit, and define Explicit Assumptions & Boundaries.
 6. Local Environment & Tooling Rules: Default JS package manager is Bun (never npm/pnpm). Use ./tmp for local script files. Safe file removal via mv ~/.Trash/ (never rm).
 7. No YouTube links in responses.]\n\n`
@@ -2235,6 +2235,9 @@ function injectUI() {
 	// 1. Inject Phase Selection Pill Dropdown
 	injectPhaseDropdown(promptContainer)
 
+	// 1.5 Inject Quick Actions Pill Dropdown
+	injectQuickActionsDropdown(promptContainer)
+
 	// 2. Hook Input elements for `/` Autocomplete
 	const inputEl = promptContainer.querySelector(
 		'textarea, [contenteditable="true"]',
@@ -2293,6 +2296,166 @@ function injectUI() {
 				}
 			}
 		})
+	}
+}
+
+// Quick Actions Dropdown Logic
+let quickActionsMenu = null
+
+function injectQuickActionsDropdown(promptContainer) {
+	if (promptContainer.querySelector(".aios-quick-actions-container")) return
+
+	const container = document.createElement("div")
+	container.className = "aios-quick-actions-container"
+	container.style.cssText = "position: relative; display: inline-block;"
+
+	const btn = document.createElement("button")
+	btn.className = "aios-phase-select-btn"
+	btn.style.marginRight = "8px"
+
+	const btnSpan = document.createElement("span")
+	btnSpan.textContent = "⚡ Quick Actions"
+	btn.appendChild(btnSpan)
+
+	btn.addEventListener("click", (e) => {
+		e.preventDefault()
+		e.stopPropagation()
+		toggleQuickActionsDropdown(container, btn)
+	})
+
+	container.appendChild(btn)
+
+	const phaseContainer = promptContainer.querySelector(".aios-phase-select-container")
+	if (phaseContainer && phaseContainer.nextSibling) {
+		phaseContainer.parentNode.insertBefore(container, phaseContainer.nextSibling)
+	} else if (phaseContainer) {
+		phaseContainer.parentNode.appendChild(container)
+	} else {
+		promptContainer.appendChild(container)
+	}
+}
+
+function toggleQuickActionsDropdown(container, btn) {
+	if (quickActionsMenu && quickActionsMenu.style.display === "block") {
+		quickActionsMenu.style.display = "none"
+		return
+	}
+
+	if (!quickActionsMenu) {
+		quickActionsMenu = document.createElement("div")
+		quickActionsMenu.className = "aios-dropdown"
+		document.body.appendChild(quickActionsMenu)
+
+		document.addEventListener("click", (e) => {
+			if (!container.contains(e.target) && !quickActionsMenu.contains(e.target)) {
+				quickActionsMenu.style.display = "none"
+			}
+		})
+	}
+
+	quickActionsMenu.textContent = ""
+
+	const actions = [
+		{
+			id: "save_last",
+			name: "Save a note (last response)",
+			desc: "Saves the last AI response. Add instructions in chatbox first to customize.",
+		},
+		{
+			id: "save_summary",
+			name: "Save a note (thread summary)",
+			desc: "Prompts Gemini to summarize this thread and save as a note.",
+		}
+	]
+
+	actions.forEach((a) => {
+		const item = document.createElement("div")
+		item.className = "aios-dropdown-item"
+
+		const content = document.createElement("div")
+		content.className = "aios-dropdown-content"
+		
+		const nameEl = document.createElement("div")
+		nameEl.className = "aios-dropdown-name"
+		nameEl.textContent = a.name
+		
+		const descEl = document.createElement("div")
+		descEl.className = "aios-dropdown-desc"
+		descEl.textContent = a.desc
+		
+		content.appendChild(nameEl)
+		content.appendChild(descEl)
+		item.appendChild(content)
+
+		item.addEventListener("click", () => {
+			quickActionsMenu.style.display = "none"
+			handleQuickAction(a.id)
+		})
+
+		quickActionsMenu.appendChild(item)
+	})
+
+	if (isDarkTheme()) quickActionsMenu.classList.add("aios-dark")
+	else quickActionsMenu.classList.remove("aios-dark")
+
+	const rect = btn.getBoundingClientRect()
+	quickActionsMenu.style.display = "block"
+	quickActionsMenu.style.top = \`\${window.scrollY + rect.top - quickActionsMenu.offsetHeight - 6}px\`
+	quickActionsMenu.style.left = \`\${rect.left}px\`
+}
+
+function handleQuickAction(actionId) {
+	const editor = document.querySelector('.ql-editor[contenteditable="true"]')
+	if (!editor) return
+	const instruction = editor.innerText.trim()
+
+	if (actionId === "save_last" && instruction === "") {
+		// Directly scrape and save
+		const responses = document.querySelectorAll("model-response")
+		if (responses.length === 0) {
+			alert("No AI response found to save.")
+			return
+		}
+		const lastResponse = responses[responses.length - 1]
+		
+		let content = lastResponse.innerText
+		// Try to find the inner text of the actual response body
+		const body = lastResponse.querySelector(".message-content, .model-response-text")
+		if (body) content = body.innerText
+		
+		let title = "Gemini Note - " + new Date().toLocaleDateString("en-CA") + " " + Date.now().toString().slice(-4)
+
+		const pseudoToolCall = {
+			tool: "save_note",
+			args: {
+				title: title,
+				content: content + "\\n\\n---\\nThread Link: " + location.href,
+				update: false
+			}
+		}
+		
+		if (window.executeToolCall) {
+			window.executeToolCall(pseudoToolCall.tool, pseudoToolCall.args)
+		} else {
+			console.warn("Tool call executor not ready")
+		}
+	} else {
+		// Send prompt to Gemini
+		let promptText = ""
+		if (actionId === "save_last") {
+			promptText = "Please save a note about your last response. Output a \`save_note\` tool call."
+			if (instruction) promptText += "\\nInstruction: " + instruction
+		} else {
+			promptText = "Please summarize this entire thread and save it as a note. Output a \`save_note\` tool call."
+			if (instruction) promptText += "\\nInstruction: " + instruction
+		}
+		
+		replaceEditorContent(editor, promptText)
+		
+		setTimeout(() => {
+			const sendBtn = document.querySelector('button[aria-label*="Send" i], button[aria-label*="Submit" i], button.send-button')
+			if (sendBtn) sendBtn.click()
+		}, 100)
 	}
 }
 
@@ -3545,6 +3708,7 @@ function startObservers() {
 			injectUI()
 			scanExecutionPayloads()
 			injectRunButtons()
+			if (typeof window.scanToolCalls === "function") window.scanToolCalls()
 
 			const url = location.href
 			if (url !== lastUrl) {
@@ -3634,6 +3798,7 @@ function startObservers() {
 	injectUI()
 	scanExecutionPayloads()
 	injectRunButtons()
+	if (typeof window.scanToolCalls === "function") window.scanToolCalls()
 	setTimeout(() => {
 		if (autoThreadSync) {
 			exportThreadWithTimestamps()

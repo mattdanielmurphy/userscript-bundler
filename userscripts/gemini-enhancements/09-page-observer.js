@@ -90,6 +90,7 @@ function startObservers() {
 			injectUI()
 			scanExecutionPayloads()
 			injectRunButtons()
+			if (typeof window.scanToolCalls === "function") window.scanToolCalls()
 
 			const url = location.href
 			if (url !== lastUrl) {
@@ -179,6 +180,7 @@ function startObservers() {
 	injectUI()
 	scanExecutionPayloads()
 	injectRunButtons()
+	if (typeof window.scanToolCalls === "function") window.scanToolCalls()
 	setTimeout(() => {
 		if (autoThreadSync) {
 			exportThreadWithTimestamps()
