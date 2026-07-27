@@ -659,6 +659,7 @@
 	}
 
 	// Hotkey: Cmd+Opt+I cycles: closed → open CC → toast + DevTools → repeat
+	// Use capture phase to intercept before Chrome's DevTools handler fires
 	window.addEventListener("keydown", (e) => {
 		if (e.metaKey && e.altKey && (e.key === "i" || e.key === "I")) {
 			if (ccHotkeyState === "closed" || ccHotkeyState === "toast") {
@@ -677,7 +678,7 @@
 		if (e.key === "Escape" && ccHotkeyState === "open") {
 			closeUI(); // sets ccHotkeyState to "closed"
 		}
-	});
+	}, { capture: true });
 
 	// Expose globally for dispatcher invocation if needed
 	window.__USCC_OPEN__ = openUI;
