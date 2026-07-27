@@ -2400,8 +2400,8 @@ function toggleQuickActionsDropdown(container, btn) {
 
 	const rect = btn.getBoundingClientRect()
 	quickActionsMenu.style.display = "block"
-	quickActionsMenu.style.top = \`\${window.scrollY + rect.top - quickActionsMenu.offsetHeight - 6}px\`
-	quickActionsMenu.style.left = \`\${rect.left}px\`
+	quickActionsMenu.style.top = `${window.scrollY + rect.top - quickActionsMenu.offsetHeight - 6}px`
+	quickActionsMenu.style.left = `${rect.left}px`
 }
 
 function handleQuickAction(actionId) {
@@ -2443,10 +2443,10 @@ function handleQuickAction(actionId) {
 		// Send prompt to Gemini
 		let promptText = ""
 		if (actionId === "save_last") {
-			promptText = "Please save a note about your last response. Output a \`save_note\` tool call."
+			promptText = "Please save a note about your last response. Output a `save_note` tool call."
 			if (instruction) promptText += "\\nInstruction: " + instruction
 		} else {
-			promptText = "Please summarize this entire thread and save it as a note. Output a \`save_note\` tool call."
+			promptText = "Please summarize this entire thread and save it as a note. Output a `save_note` tool call."
 			if (instruction) promptText += "\\nInstruction: " + instruction
 		}
 		

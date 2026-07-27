@@ -227,5 +227,16 @@
     ],
     "file": "apple-music-embedded-player.user.js",
     "sharedFiles": []
+  },
+  {
+    "id": "openrouter-credit-reminder",
+    "name": "OpenRouter Credit Reminder",
+    "description": "Show a service fee reminder when adding credits on OpenRouter",
+    "kind": "standalone",
+    "matches": [
+      "https://openrouter.ai/settings/credits"
+    ],
+    "file": "openrouter-credit-reminder.user.js",
+    "sharedFiles": []
   }
 ]

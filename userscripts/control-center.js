@@ -8,6 +8,35 @@
 (function () {
 	"use strict";
 
+	// ── State: tri-state hotkey toggle ─────────────────────────────
+	let ccHotkeyState = "closed"; // "closed" | "open" | "toast"
+	let ccToastEl = null;
+
+	function showToast() {
+		removeToast();
+		ccToastEl = document.createElement("div");
+		ccToastEl.id = "uscc-toast";
+		ccToastEl.textContent = "☕ Control Center — click to reopen";
+		Object.assign(ccToastEl.style, {
+			position: "fixed", bottom: "24px", right: "24px",
+			background: "#1e1e2e", color: "#e2e2f0", padding: "12px 20px",
+			borderRadius: "10px", fontSize: "14px", fontFamily: "sans-serif",
+			cursor: "pointer", zIndex: "100000", boxShadow: "0 6px 24px rgba(0,0,0,0.5)",
+			border: "1px solid #333346"
+		});
+		ccToastEl.onclick = () => {
+			removeToast();
+			openUI();
+			ccHotkeyState = "open";
+		};
+		document.body.appendChild(ccToastEl);
+	}
+
+	function removeToast() {
+		if (ccToastEl && ccToastEl.parentNode) ccToastEl.parentNode.removeChild(ccToastEl);
+		ccToastEl = null;
+	}
+
 	function setSafeHTML(element, html) {
 		if (!element) return;
 		if (!html) {
@@ -316,6 +345,7 @@
 				</div>
 				<div class="toolbar">
 					<input type="text" class="search-input" id="uscc-search" placeholder="Search userscripts..." />
+					<button class="btn" id="uscc-secret">🔑 Set Secret Key</button>
 					<button class="btn" id="uscc-rebuild">🔨 Rebuild Bundle</button>
 					<button class="btn" id="uscc-reload">🔄 Reload Page</button>
 				</div>
@@ -325,7 +355,7 @@
 				</div>
 				<div class="status-bar">
 					<span id="uscc-status-left">Server: 127.0.0.1:3033</span>
-					<span id="uscc-status-right">Alt+Shift+U</span>
+					<span id="uscc-status-right">⌘⌥I</span>
 				</div>
 			</div>
 		`);
@@ -341,6 +371,20 @@
 				closeUI();
 			}
 		});
+
+		shadowRoot.getElementById("uscc-secret").onclick = async () => {
+			const current = await getSecretKey();
+			const input = prompt("Enter local-automation-server secret key (stored in ~/.config/local-automation-server/secret):", current === "default-secret" ? "" : current);
+			if (input !== null && input.trim()) {
+				if (typeof GM !== "undefined" && GM.setValue) {
+					await GM.setValue("uscc_secret_key", input.trim());
+					alert("Secret key saved! Reloading control center...");
+					renderBody();
+				} else {
+					alert("GM.setValue is unavailable. Ensure @grant GM.setValue is in your Tampermonkey loader.");
+				}
+			}
+		};
 
 		shadowRoot.getElementById("uscc-search").oninput = (e) => {
 			filterScripts(e.target.value);
@@ -492,9 +536,26 @@
 					<strong>Error connecting to Control API:</strong><br />
 					${escapeHTML(err.message)}
 					<br /><br />
-					Ensure <code>local-automation-server</code> is running on <code>127.0.0.1:3033</code>.
+					Ensure <code>local-automation-server</code> is running on <code>127.0.0.1:3033</code>.<br /><br />
+					<button class="btn" id="uscc-set-secret-err">🔑 Set Secret Key</button>
 				</div>
 			`);
+			const errSecretBtn = bodyEl.querySelector("#uscc-set-secret-err");
+			if (errSecretBtn) {
+				errSecretBtn.onclick = async () => {
+					const current = await getSecretKey();
+					const input = prompt("Enter local-automation-server secret key (stored in ~/.config/local-automation-server/secret):", current === "default-secret" ? "" : current);
+					if (input !== null && input.trim()) {
+						if (typeof GM !== "undefined" && GM.setValue) {
+							await GM.setValue("uscc_secret_key", input.trim());
+							alert("Secret key saved! Reloading control center...");
+							renderBody();
+						} else {
+							alert("GM.setValue is unavailable. Ensure @grant GM.setValue is in your Tampermonkey loader.");
+						}
+					}
+				};
+			}
 		}
 	}
 
@@ -578,6 +639,7 @@
 
 	function openUI() {
 		createUI();
+		removeToast();
 		const overlay = shadowRoot.querySelector(".overlay");
 		overlay.classList.add("open");
 		renderBody();
@@ -588,6 +650,7 @@
 			const overlay = shadowRoot.querySelector(".overlay");
 			if (overlay) overlay.classList.remove("open");
 		}
+		ccHotkeyState = "closed";
 	}
 
 	// Register Tampermonkey menu command if available
@@ -595,11 +658,24 @@
 		GM_registerMenuCommand("Open Userscript Control Center", openUI);
 	}
 
-	// Hotkey shortcut Alt+Shift+U
+	// Hotkey: Cmd+Opt+I cycles: closed → open CC → toast + DevTools → repeat
 	window.addEventListener("keydown", (e) => {
-		if (e.altKey && e.shiftKey && (e.key === "U" || e.key === "u")) {
-			e.preventDefault();
-			openUI();
+		if (e.metaKey && e.altKey && (e.key === "i" || e.key === "I")) {
+			if (ccHotkeyState === "closed" || ccHotkeyState === "toast") {
+				e.preventDefault(); // block DevTools on first press
+				removeToast();
+				openUI();
+				ccHotkeyState = "open";
+			} else if (ccHotkeyState === "open") {
+				// Do NOT preventDefault — let browser DevTools shortcut fire normally
+				closeUI();            // sets ccHotkeyState to "closed" internally
+				showToast();
+				ccHotkeyState = "toast"; // override closeUI's reset
+			}
+		}
+		// Escape while open → close
+		if (e.key === "Escape" && ccHotkeyState === "open") {
+			closeUI(); // sets ccHotkeyState to "closed"
 		}
 	});
 
