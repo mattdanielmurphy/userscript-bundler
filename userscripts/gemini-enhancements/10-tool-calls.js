@@ -259,19 +259,17 @@ window.scanToolCalls = function() {
 			pill.appendChild(label)
 
 			// On reload: show a "Run" button instead of auto-executing
-			if (isInitialScan) {
-				const runBtn = document.createElement("button")
-				runBtn.className = "gmt-run-btn"
-				runBtn.textContent = "Run"
-				runBtn.title = "Execute this tool call"
-				runBtn.onclick = (e) => {
-					e.stopPropagation()
-					runBtn.textContent = "Running…"
-					runBtn.disabled = true
-					window.executeToolCall(parsed.tool, parsed.args)
-				}
-				pill.appendChild(runBtn)
+			const runBtn = document.createElement("button")
+			runBtn.className = "gmt-run-btn"
+			runBtn.textContent = "Run"
+			runBtn.title = "Execute this tool call"
+			runBtn.onclick = (e) => {
+				e.stopPropagation()
+				runBtn.textContent = "Running…"
+				runBtn.disabled = true
+				window.executeToolCall(parsed.tool, parsed.args)
 			}
+			pill.appendChild(runBtn)
 
 			const originalClone = wrapper.cloneNode(true)
 			originalClone.className = (originalClone.className || "") + " gmt-tool-call-original"
@@ -289,8 +287,8 @@ window.scanToolCalls = function() {
 				wrapper.remove()
 			}
 
-			// Only auto-execute on live (non-reload) scans
-			if (!isInitialScan) {
+			// Only auto-execute if not initial scan and run_automatically is true
+			if (!isInitialScan && parsed.run_automatically === true) {
 				window.executeToolCall(parsed.tool, parsed.args)
 			}
 

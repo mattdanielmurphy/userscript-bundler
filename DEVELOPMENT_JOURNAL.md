@@ -11,3 +11,4 @@
 
 
 - **Fix tool call execution logic:** Updated window.scanToolCalls to always display run button and enforce auto-execution condition. [See agent log](file:///Users/matt/.gemini/antigravity/brain/8130b9a3-f269-4c96-8be9-89a2e0c4d68c/agent-logs/2026-07-28_14-53_tool-calls-fix.md)
+- **Tool Call Directive Update:** Updated `gemini-enhancements/05-prompt-tools.js` to refine the tool call schema and specify `run_automatically` behavior.
