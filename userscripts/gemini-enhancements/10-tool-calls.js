@@ -286,8 +286,8 @@ window.scanToolCalls = function() {
 				wrapper.remove()
 			}
 
-			// Auto-execute if explicitly allowed
-			if (parsed.run_automatically === true) {
+			// Auto-execute if not initial scan and explicitly allowed
+			if (!isInitialScan && parsed.run_automatically === true) {
 				window.executeToolCall(parsed.tool, parsed.args)
 			}
 
