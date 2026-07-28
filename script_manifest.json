@@ -29,6 +29,7 @@
       "gemini-enhancements/06-archive.js",
       "gemini-enhancements/07-terminal.js",
       "gemini-enhancements/08-model-optimizer.js",
+      "gemini-enhancements/10-tool-calls.js",
       "gemini-enhancements/09-page-observer.js"
     ],
     "sharedFiles": []
