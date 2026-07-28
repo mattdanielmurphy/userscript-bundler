@@ -287,7 +287,7 @@ window.scanToolCalls = function() {
 			}
 
 			// Auto-execute if requested
-			if (parsed.run_automatically === true) {
+			if (!isInitialScan && parsed.run_automatically === true) {
 				window.executeToolCall(parsed.tool, parsed.args)
 			}
 
