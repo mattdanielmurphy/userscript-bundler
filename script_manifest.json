@@ -238,5 +238,28 @@
     ],
     "file": "openrouter-credit-reminder.user.js",
     "sharedFiles": []
+  },
+  {
+    "id": "auto-redirect-paywalls",
+    "name": "Auto Redirect Paywalls to Archive",
+    "description": "Automatically redirects paywalled news sites to archive.ph",
+    "kind": "standalone",
+    "matches": [
+      "https://www.theverge.com/*",
+      "https://www.nytimes.com/*",
+      "https://www.wsj.com/*",
+      "https://www.washingtonpost.com/*",
+      "https://www.theatlantic.com/*",
+      "https://www.economist.com/*",
+      "https://www.newyorker.com/*",
+      "https://www.bloomberg.com/*",
+      "https://www.ft.com/*",
+      "https://www.wired.com/*",
+      "https://www.thetimes.co.uk/*",
+      "https://www.businessinsider.com/*",
+      "https://hbr.org/*"
+    ],
+    "file": "auto-redirect-paywalls.user.js",
+    "sharedFiles": []
   }
 ]
