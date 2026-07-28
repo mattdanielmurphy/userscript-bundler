@@ -8,31 +8,70 @@
 (function () {
 	"use strict";
 
-	// ── State: tri-state hotkey toggle ─────────────────────────────
-	let ccHotkeyState = "closed"; // "closed" | "open" | "toast"
+	// ── Toast state ────────────────────────────────────────────────
 	let ccToastEl = null;
+	let ccToastTimer = null;
+	const TOAST_DURATION = 5000; // ms
 
 	function showToast() {
 		removeToast();
+
 		ccToastEl = document.createElement("div");
 		ccToastEl.id = "uscc-toast";
-		ccToastEl.textContent = "☕ Control Center — click to reopen";
 		Object.assign(ccToastEl.style, {
 			position: "fixed", bottom: "24px", right: "24px",
-			background: "#1e1e2e", color: "#e2e2f0", padding: "12px 20px",
+			background: "#1e1e2e", color: "#e2e2f0",
+			padding: "12px 20px 6px 20px",
 			borderRadius: "10px", fontSize: "14px", fontFamily: "sans-serif",
-			cursor: "pointer", zIndex: "100000", boxShadow: "0 6px 24px rgba(0,0,0,0.5)",
-			border: "1px solid #333346"
+			cursor: "pointer", zIndex: "2147483647",
+			boxShadow: "0 6px 24px rgba(0,0,0,0.6)",
+			border: "1px solid #333346", minWidth: "220px",
+			overflow: "hidden", userSelect: "none",
 		});
+
+		const label = document.createElement("div");
+		label.textContent = "⚙️ Userscript Control Center";
+		label.style.cssText = "font-weight: 600; margin-bottom: 4px;";
+
+		const sub = document.createElement("div");
+		sub.textContent = "Click to open";
+		sub.style.cssText = "font-size: 11px; color: #888; margin-bottom: 8px;";
+
+		// Progress bar track
+		const track = document.createElement("div");
+		Object.assign(track.style, {
+			height: "3px", background: "#2a2a3a", borderRadius: "2px",
+			margin: "0 -20px", width: "calc(100% + 40px)",
+		});
+
+		// Progress bar fill (shrinks left→right over TOAST_DURATION)
+		const fill = document.createElement("div");
+		Object.assign(fill.style, {
+			height: "100%", width: "100%", background: "#6366f1",
+			borderRadius: "2px",
+			transition: `width ${TOAST_DURATION}ms linear`,
+		});
+		track.appendChild(fill);
+
+		ccToastEl.append(label, sub, track);
+		document.body.appendChild(ccToastEl);
+
+		// Trigger the CSS transition on next frame
+		requestAnimationFrame(() => requestAnimationFrame(() => {
+			fill.style.width = "0%";
+		}));
+
 		ccToastEl.onclick = () => {
 			removeToast();
 			openUI();
-			ccHotkeyState = "open";
 		};
-		document.body.appendChild(ccToastEl);
+
+		ccToastTimer = setTimeout(removeToast, TOAST_DURATION);
 	}
 
 	function removeToast() {
+		clearTimeout(ccToastTimer);
+		ccToastTimer = null;
 		if (ccToastEl && ccToastEl.parentNode) ccToastEl.parentNode.removeChild(ccToastEl);
 		ccToastEl = null;
 	}
@@ -355,7 +394,7 @@
 				</div>
 				<div class="status-bar">
 					<span id="uscc-status-left">Server: 127.0.0.1:3033</span>
-					<span id="uscc-status-right">⌘⌥I</span>
+					<span id="uscc-status-right">⌘⌥I → toast → click to open</span>
 				</div>
 			</div>
 		`);
@@ -650,7 +689,6 @@
 			const overlay = shadowRoot.querySelector(".overlay");
 			if (overlay) overlay.classList.remove("open");
 		}
-		ccHotkeyState = "closed";
 	}
 
 	// Register Tampermonkey menu command if available
@@ -658,25 +696,22 @@
 		GM_registerMenuCommand("Open Userscript Control Center", openUI);
 	}
 
-	// Hotkey: Cmd+Opt+I cycles: closed → open CC → toast + DevTools → repeat
-	// Use capture phase to intercept before Chrome's DevTools handler fires
+	// Hotkey: Cmd+Opt+I → DevTools opens (browser-level, we can't block it)
+	// AND a toast appears so you can quickly jump to the full Control Center.
+	// Clicking the toast opens the CC modal. Toast auto-dismisses after 5s.
 	window.addEventListener("keydown", (e) => {
 		if (e.metaKey && e.altKey && (e.key === "i" || e.key === "I")) {
-			if (ccHotkeyState === "closed" || ccHotkeyState === "toast") {
-				e.preventDefault(); // block DevTools on first press
-				removeToast();
-				openUI();
-				ccHotkeyState = "open";
-			} else if (ccHotkeyState === "open") {
-				// Do NOT preventDefault — let browser DevTools shortcut fire normally
-				closeUI();            // sets ccHotkeyState to "closed" internally
-				showToast();
-				ccHotkeyState = "toast"; // override closeUI's reset
+			// If CC modal is already open, close it (Esc-equivalent)
+			if (shadowRoot && shadowRoot.querySelector(".overlay.open")) {
+				closeUI();
+				return;
 			}
+			// Otherwise show the toast (DevTools will also open — that's fine)
+			showToast();
 		}
-		// Escape while open → close
-		if (e.key === "Escape" && ccHotkeyState === "open") {
-			closeUI(); // sets ccHotkeyState to "closed"
+		// Escape while modal is open → close
+		if (e.key === "Escape" && shadowRoot && shadowRoot.querySelector(".overlay.open")) {
+			closeUI();
 		}
 	}, { capture: true });
 
