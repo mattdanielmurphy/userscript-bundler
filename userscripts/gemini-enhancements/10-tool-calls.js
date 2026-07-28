@@ -286,10 +286,8 @@ window.scanToolCalls = function() {
 				wrapper.remove()
 			}
 
-			// Auto-execute if requested
-			if (parsed.run_automatically === true) {
-				window.executeToolCall(parsed.tool, parsed.args)
-			}
+					// Auto-execute if requested
+			if (!isInitialScan && parsed.run_automatically === true) { window.executeToolCall(parsed.tool, parsed.args) }
 
 		} catch (e) {
 			// Not valid JSON or still streaming — skip
