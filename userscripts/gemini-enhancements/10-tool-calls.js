@@ -258,7 +258,6 @@ window.scanToolCalls = function() {
 			label.textContent = ` ⚡ ${summary}`
 			pill.appendChild(label)
 
-			// On reload: show a "Run" button instead of auto-executing
 			const runBtn = document.createElement("button")
 			runBtn.className = "gmt-run-btn"
 			runBtn.textContent = "Run"
@@ -287,8 +286,8 @@ window.scanToolCalls = function() {
 				wrapper.remove()
 			}
 
-			// Only auto-execute if not initial scan and run_automatically is true
-			if (!isInitialScan && parsed.run_automatically === true) {
+			// Auto-execute if requested
+			if (parsed.run_automatically === true) {
 				window.executeToolCall(parsed.tool, parsed.args)
 			}
 
