@@ -262,5 +262,16 @@
     ],
     "file": "auto-redirect-paywalls.user.js",
     "sharedFiles": []
+  },
+  {
+    "id": "xkcd-explain",
+    "name": "XKCD Explain Embed",
+    "description": "Embeds the explainxkcd.com page for the current comic at the bottom of the page",
+    "kind": "standalone",
+    "matches": [
+      "https://xkcd.com/*"
+    ],
+    "file": "xkcd-explain.user.js",
+    "sharedFiles": []
   }
 ]
