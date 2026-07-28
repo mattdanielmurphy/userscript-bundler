@@ -712,12 +712,18 @@
 	// This covers docked DevTools (bottom or side). Undocked DevTools won't
 	// trigger a size change but is rare; Alt+I is the manual fallback.
 	const DEVTOOLS_THRESHOLD = 160; // px — smaller gaps are normal browser chrome
-	let devToolsWasOpen = false;
+	let devToolsWasOpen = null; // null = not yet initialized
 
 	function checkDevTools() {
 		const widthDiff = window.outerWidth - window.innerWidth;
 		const heightDiff = window.outerHeight - window.innerHeight;
 		const isOpen = widthDiff > DEVTOOLS_THRESHOLD || heightDiff > DEVTOOLS_THRESHOLD;
+
+		if (devToolsWasOpen === null) {
+			// First tick: record baseline, never show toast on initial load
+			devToolsWasOpen = isOpen;
+			return;
+		}
 
 		if (isOpen && !devToolsWasOpen) {
 			// DevTools just opened — show toast unless CC modal is already open
