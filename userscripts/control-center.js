@@ -8,6 +8,16 @@
 (function () {
 	"use strict";
 
+	const USCC_VERSION = "2026-07-27-b";
+	console.log(
+		`%c[USCC v${USCC_VERSION}] Userscript Control Center loaded.`,
+		"color:#6366f1;font-weight:bold;font-size:12px"
+	);
+	console.log(
+		"%c[USCC] DevTools detection active. Toast appears when DevTools opens (docked). Alt+I = manual trigger.",
+		"color:#888;font-size:11px"
+	);
+
 	// ── Toast state ────────────────────────────────────────────────
 	let ccToastEl = null;
 	let ccToastTimer = null;
@@ -696,18 +706,39 @@
 		GM_registerMenuCommand("Open Userscript Control Center", openUI);
 	}
 
-	// Hotkey: Cmd+Opt+I → DevTools opens (browser-level, we can't block it)
-	// AND a toast appears so you can quickly jump to the full Control Center.
-	// Clicking the toast opens the CC modal. Toast auto-dismisses after 5s.
+	// ── DevTools open detection via window size delta ─────────────────
+	// Cmd+Opt+I is intercepted by Chrome before keydown reaches the page,
+	// so we detect DevTools opening by watching the inner/outer size gap.
+	// This covers docked DevTools (bottom or side). Undocked DevTools won't
+	// trigger a size change but is rare; Alt+I is the manual fallback.
+	const DEVTOOLS_THRESHOLD = 160; // px — smaller gaps are normal browser chrome
+	let devToolsWasOpen = false;
+
+	function checkDevTools() {
+		const widthDiff = window.outerWidth - window.innerWidth;
+		const heightDiff = window.outerHeight - window.innerHeight;
+		const isOpen = widthDiff > DEVTOOLS_THRESHOLD || heightDiff > DEVTOOLS_THRESHOLD;
+
+		if (isOpen && !devToolsWasOpen) {
+			// DevTools just opened — show toast unless CC modal is already open
+			if (!(shadowRoot && shadowRoot.querySelector(".overlay.open"))) {
+				showToast();
+			}
+		}
+		devToolsWasOpen = isOpen;
+	}
+
+	// Poll at ~4fps — cheap, imperceptible
+	setInterval(checkDevTools, 250);
+
+	// Alt+I = manual trigger (in case DevTools is undocked or detection missed)
 	window.addEventListener("keydown", (e) => {
-		if (e.metaKey && e.altKey && (e.key === "i" || e.key === "I")) {
-			// If CC modal is already open, close it (Esc-equivalent)
+		if (e.altKey && !e.metaKey && !e.ctrlKey && (e.key === "i" || e.key === "I")) {
 			if (shadowRoot && shadowRoot.querySelector(".overlay.open")) {
 				closeUI();
-				return;
+			} else {
+				showToast();
 			}
-			// Otherwise show the toast (DevTools will also open — that's fine)
-			showToast();
 		}
 		// Escape while modal is open → close
 		if (e.key === "Escape" && shadowRoot && shadowRoot.querySelector(".overlay.open")) {
@@ -717,4 +748,6 @@
 
 	// Expose globally for dispatcher invocation if needed
 	window.__USCC_OPEN__ = openUI;
+	window.__USCC_VERSION__ = USCC_VERSION;
+    console.log(`USCC Initialized (v${USCC_VERSION})`);
 })();

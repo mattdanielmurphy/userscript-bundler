@@ -12,7 +12,7 @@
         <!-- Path to the Node.js executable -->
         <string>/Users/matt/.local/share/fnm/aliases/default/bin/node</string>
         <!-- Full path to the file watcher script -->
-        <string>/Users/matt/projects/userscript-bundler/watch-and-bundle.js</string>
+        <string>/Users/matt/projects/userscript-bundler/watch-and-bundle.cjs</string>
     </array>
     
     <!-- Keep the process running -->

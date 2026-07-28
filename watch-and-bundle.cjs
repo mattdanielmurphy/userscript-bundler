@@ -12,7 +12,7 @@ const path = require("path")
 const { spawn } = require("child_process")
 const BUNDLE_FILE = "userscript_bundle.js"
 const USERSCRIPTS_DIR = path.join(__dirname, "userscripts")
-const BUNDLER_SCRIPT = path.join(__dirname, "bundler.js")
+const BUNDLER_SCRIPT = path.join(__dirname, "bundler.cjs")
 const LOG_FILE = path.join(__dirname, "watcher.log")
 const ERROR_LOG_FILE = path.join(__dirname, "watcher.err")
 
