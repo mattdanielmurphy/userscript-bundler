@@ -8,7 +8,7 @@
 (function () {
 	"use strict";
 
-	const USCC_VERSION = "2026-07-27-b";
+	const USCC_VERSION = "2026-08-01-a";
 	console.log(
 		`%c[USCC v${USCC_VERSION}] Userscript Control Center loaded.`,
 		"color:#6366f1;font-weight:bold;font-size:12px"
@@ -720,8 +720,11 @@
 		const isOpen = widthDiff > DEVTOOLS_THRESHOLD || heightDiff > DEVTOOLS_THRESHOLD;
 
 		if (devToolsWasOpen === null) {
-			// First tick: record baseline, never show toast on initial load
+			// Initial check: if DevTools is already open when page loads, show toast!
 			devToolsWasOpen = isOpen;
+			if (isOpen && !(shadowRoot && shadowRoot.querySelector(".overlay.open"))) {
+				showToast();
+			}
 			return;
 		}
 

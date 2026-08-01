@@ -1493,7 +1493,7 @@ document.addEventListener(
 1. Primary User Vault: /Users/matt/Library/Mobile Documents/iCloud~md~obsidian/Documents/Personal/
 2. Strict Media & Story Spoilers Directive: STRICT NO SPOILERS POLICY. You MUST NOT under any circumstances reveal plot twists, endings, key character fates, deaths, betrayals, secret identities, major narrative developments, or unreleased details for movies, TV shows, books, anime, games, or story-driven media. If asked about media, err heavily on the side of caution. Give zero hints or foreshadowing of major events unless the user explicitly requests spoilers with confirmation.
 3. Tone, Sycophancy & Banned Buzzwords: No sycophantic praise or routine filler ("that's very insightful", "great question", "I understand..."). NEVER use banned buzzwords: "glitch in the matrix", "nuclear option", "final boss", "game changer", "level up", "cheat code", "you've hit on", "unlocking the potential".
-4. Note-Taking Directive: When asked to "make a note about this" OR if we discuss anything interesting or ideas about future projects, you MUST proactively output a JSON tool call to save it as a note, or update an existing note. The JSON must be inside a \`\`\`tool_call codeblock. Schema: {"tool":"save_note","args":{"title":"Note Title","content":"Markdown content...","update":false}}. The userscript will execute this automatically and save it to Development/Project Notes/.
+4. Tool Call Directive: You can output JSON tool calls inside a \`\`\`tool_call codeblock. Schema: {"tool":"save_note","run_automatically":true,"args":{"title":"...","content":"..."}}. Set "run_automatically": true ONLY if the tool should execute immediately without user confirmation (e.g. proactive note-taking). Set to false if it's a suggested action for the user to trigger manually.
 5. Fact-Checking Directive: When asked to verify/fact-check claims, perform Information Sufficiency Check, Source & Context Audit, and define Explicit Assumptions & Boundaries.
 6. Local Environment & Tooling Rules: Default JS package manager is Bun (never npm/pnpm). Use ./tmp for local script files. Safe file removal via mv ~/.Trash/ (never rm).
 7. No YouTube links in responses.]\n\n`
@@ -1565,7 +1565,7 @@ document.addEventListener(
 1. Primary User Vault: /Users/matt/Library/Mobile Documents/iCloud~md~obsidian/Documents/Personal/
 2. Strict Media & Story Spoilers Directive: STRICT NO SPOILERS POLICY. You MUST NOT under any circumstances reveal plot twists, endings, key character fates, deaths, betrayals, secret identities, major narrative developments, or unreleased details for movies, TV shows, books, anime, games, or story-driven media. If asked about media, err heavily on the side of caution. Give zero hints or foreshadowing of major events unless the user explicitly requests spoilers with confirmation.
 3. Tone, Sycophancy & Banned Buzzwords: No sycophantic praise or routine filler ("that's very insightful", "great question", "I understand..."). NEVER use banned buzzwords: "glitch in the matrix", "nuclear option", "final boss", "game changer", "level up", "cheat code", "you've hit on", "unlocking the potential".
-4. Note-Taking Directive: When asked to "make a note about this" OR if we discuss anything interesting or ideas about future projects, you MUST proactively output a JSON tool call to save it as a note, or update an existing note. The JSON must be inside a \`\`\`tool_call codeblock. Schema: {"tool":"save_note","args":{"title":"Note Title","content":"Markdown content...","update":false}}. The userscript will execute this automatically and save it to Development/Project Notes/.
+4. Tool Call Directive: You can output JSON tool calls inside a \`\`\`tool_call codeblock. Schema: {"tool":"save_note","run_automatically":true,"args":{"title":"...","content":"..."}}. Set "run_automatically": true ONLY if the tool should execute immediately without user confirmation (e.g. proactive note-taking). Set to false if it's a suggested action for the user to trigger manually.
 5. Fact-Checking Directive: When asked to verify/fact-check claims, perform Information Sufficiency Check, Source & Context Audit, and define Explicit Assumptions & Boundaries.
 6. Local Environment & Tooling Rules: Default JS package manager is Bun (never npm/pnpm). Use ./tmp for local script files. Safe file removal via mv ~/.Trash/ (never rm).
 7. No YouTube links in responses.]\n\n`
@@ -3876,20 +3876,17 @@ window.scanToolCalls = function() {
 			label.textContent = ` ⚡ ${summary}`
 			pill.appendChild(label)
 
-			// On reload: show a "Run" button instead of auto-executing
-			if (isInitialScan) {
-				const runBtn = document.createElement("button")
-				runBtn.className = "gmt-run-btn"
-				runBtn.textContent = "Run"
-				runBtn.title = "Execute this tool call"
-				runBtn.onclick = (e) => {
-					e.stopPropagation()
-					runBtn.textContent = "Running…"
-					runBtn.disabled = true
-					window.executeToolCall(parsed.tool, parsed.args)
-				}
-				pill.appendChild(runBtn)
+			const runBtn = document.createElement("button")
+			runBtn.className = "gmt-run-btn"
+			runBtn.textContent = "Run"
+			runBtn.title = "Execute this tool call"
+			runBtn.onclick = (e) => {
+				e.stopPropagation()
+				runBtn.textContent = "Running…"
+				runBtn.disabled = true
+				window.executeToolCall(parsed.tool, parsed.args)
 			}
+			pill.appendChild(runBtn)
 
 			const originalClone = wrapper.cloneNode(true)
 			originalClone.className = (originalClone.className || "") + " gmt-tool-call-original"
@@ -3907,8 +3904,8 @@ window.scanToolCalls = function() {
 				wrapper.remove()
 			}
 
-			// Only auto-execute on live (non-reload) scans
-			if (!isInitialScan) {
+			// Auto-execute if not initial scan and explicitly allowed
+			if (!isInitialScan && parsed.run_automatically === true) {
 				window.executeToolCall(parsed.tool, parsed.args)
 			}
 
@@ -3916,7 +3913,6 @@ window.scanToolCalls = function() {
 			// Not valid JSON or still streaming — skip
 		}
 	})
-
 	// Mark initial scan done after first pass
 	if (isInitialScan) {
 		document.body.dataset.gmtInitialScanDone = "true"

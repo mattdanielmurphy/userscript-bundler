@@ -91,8 +91,15 @@ function runBundler() {
 			pbcopy.stdin.write(fullError);
 			pbcopy.stdin.end();
 
-			// Send macOS notification using terminal-notifier in user context
-			spawn("/bin/launchctl", ["asuser", uid.toString(), "/usr/local/bin/terminal-notifier", "-title", "Userscript Bundler", "-message", "Bundle failed. Log copied to clipboard."]);
+			// macOS notification: try osascript (native, no dependency), fall back to terminal-notifier
+			const script = spawn("/bin/launchctl", ["asuser", uid.toString(), "/usr/bin/osascript", "-e",
+				`display notification "Bundle failed — error copied to clipboard." with title "Userscript Bundler" subtitle "❌ Build Error"`
+			]);
+			script.on("error", () => {
+				// Try terminal-notifier if osascript is unavailable
+				spawn("/bin/launchctl", ["asuser", uid.toString(), "/usr/local/bin/terminal-notifier",
+					"-title", "Userscript Bundler", "-message", "Bundle failed. Log copied to clipboard."]);
+			});
 		}
 	})
 
