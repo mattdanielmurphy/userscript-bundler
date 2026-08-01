@@ -8,7 +8,7 @@
 (function () {
 	"use strict";
 
-	const USCC_VERSION = "2026-08-01-b";
+	const USCC_VERSION = "2026-08-01-d";
 	console.log(
 		`%c[USCC v${USCC_VERSION}] Userscript Control Center loaded.`,
 		"color:#6366f1;font-weight:bold;font-size:12px"
@@ -706,42 +706,45 @@
 		GM_registerMenuCommand("Open Userscript Control Center", openUI);
 	}
 
-	// ── DevTools open detection via window size delta ─────────────────
-	// Cmd+Opt+I is intercepted by Chrome before keydown reaches the page,
-	// so we detect DevTools opening by watching the inner/outer size gap.
-	// This covers docked DevTools (bottom or side). Undocked DevTools won't
-	// trigger a size change but is rare; Alt+I is the manual fallback.
-	const DEVTOOLS_THRESHOLD = 160; // px — smaller gaps are normal browser chrome
-	let devToolsWasOpen = false; // default to false
+	// ── Persistent Trigger Pill ──────────────────────────────────────────
+	function createTriggerPill() {
+		if (document.getElementById("uscc-trigger-pill")) return;
+		const pill = document.createElement("div");
+		pill.id = "uscc-trigger-pill";
+		pill.textContent = "⚙️ Control Center";
+		Object.assign(pill.style, {
+			position: "fixed", bottom: "20px", right: "20px",
+			background: "#1e1e2e", color: "#a6adc8",
+			border: "1px solid #313244", borderRadius: "20px",
+			padding: "6px 12px", fontSize: "12px", fontFamily: "sans-serif",
+			cursor: "pointer", zIndex: "2147483646",
+			boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
+			userSelect: "none", opacity: "0.7",
+			transition: "opacity 0.2s ease, border-color 0.2s ease, transform 0.2s ease",
+		});
 
-	function checkDevTools() {
-		const widthDiff = window.outerWidth - window.innerWidth;
-		const heightDiff = window.outerHeight - window.innerHeight;
-		const isOpen = widthDiff > DEVTOOLS_THRESHOLD || heightDiff > DEVTOOLS_THRESHOLD;
+		pill.onmouseenter = () => { pill.style.opacity = "1"; pill.style.borderColor = "#6366f1"; };
+		pill.onmouseleave = () => { pill.style.opacity = "0.7"; pill.style.borderColor = "#313244"; };
+		pill.onclick = () => openUI();
 
-		if (isOpen && !devToolsWasOpen) {
-			// DevTools just opened — show toast unless CC modal is already open
-			if (!(shadowRoot && shadowRoot.querySelector(".overlay.open"))) {
-				showToast();
-			}
-		}
-		devToolsWasOpen = isOpen;
+		document.body ? document.body.appendChild(pill) : window.addEventListener("DOMContentLoaded", () => document.body.appendChild(pill));
 	}
 
-	// Poll at ~4fps — cheap, imperceptible
-	setInterval(checkDevTools, 250);
-	window.addEventListener("resize", checkDevTools);
+	if (document.readyState === "loading") {
+		window.addEventListener("DOMContentLoaded", createTriggerPill);
+	} else {
+		createTriggerPill();
+	}
 
-	// Alt+I = manual trigger (in case DevTools is undocked or detection missed)
+	// Alt+I = manual keyboard trigger
 	window.addEventListener("keydown", (e) => {
 		if (e.altKey && !e.metaKey && !e.ctrlKey && (e.key === "i" || e.key === "I")) {
 			if (shadowRoot && shadowRoot.querySelector(".overlay.open")) {
 				closeUI();
 			} else {
-				showToast();
+				openUI();
 			}
 		}
-		// Escape while modal is open → close
 		if (e.key === "Escape" && shadowRoot && shadowRoot.querySelector(".overlay.open")) {
 			closeUI();
 		}
