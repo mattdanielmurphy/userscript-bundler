@@ -8,7 +8,7 @@
 (function () {
 	"use strict";
 
-	const USCC_VERSION = "2026-08-01-d";
+	const USCC_VERSION = "2026-08-01-e";
 	console.log(
 		`%c[USCC v${USCC_VERSION}] Userscript Control Center loaded.`,
 		"color:#6366f1;font-weight:bold;font-size:12px"
@@ -754,4 +754,27 @@
 	window.__USCC_OPEN__ = openUI;
 	window.__USCC_VERSION__ = USCC_VERSION;
     console.log(`USCC Initialized (v${USCC_VERSION})`);
+
+	// ── Piggyback on Cmd+Option+I / Cmd+Option+J / Cmd+Option+C / F12 ───────────
+	let lastShortcutTrigger = 0;
+
+	function handleDevToolsShortcut(e) {
+		const isCmdAltI = e.metaKey && e.altKey && (e.code === "KeyI" || e.key.toLowerCase() === "i");
+		const isCmdAltJ = e.metaKey && e.altKey && (e.code === "KeyJ" || e.key.toLowerCase() === "j");
+		const isCmdAltC = e.metaKey && e.altKey && (e.code === "KeyC" || e.key.toLowerCase() === "c");
+		const isF12 = e.key === "F12";
+
+		if (isCmdAltI || isCmdAltJ || isCmdAltC || isF12) {
+			const now = Date.now();
+			if (now - lastShortcutTrigger > 300) {
+				lastShortcutTrigger = now;
+				if (!(shadowRoot && shadowRoot.querySelector(".overlay.open"))) {
+					showToast();
+				}
+			}
+		}
+	}
+
+	window.addEventListener("keydown", handleDevToolsShortcut, { capture: true, passive: true });
+	window.addEventListener("keyup", handleDevToolsShortcut, { capture: true, passive: true });
 })();
