@@ -8,7 +8,7 @@
 (function () {
 	"use strict";
 
-	const USCC_VERSION = "2026-08-01-a";
+	const USCC_VERSION = "2026-08-01-b";
 	console.log(
 		`%c[USCC v${USCC_VERSION}] Userscript Control Center loaded.`,
 		"color:#6366f1;font-weight:bold;font-size:12px"
@@ -712,21 +712,12 @@
 	// This covers docked DevTools (bottom or side). Undocked DevTools won't
 	// trigger a size change but is rare; Alt+I is the manual fallback.
 	const DEVTOOLS_THRESHOLD = 160; // px — smaller gaps are normal browser chrome
-	let devToolsWasOpen = null; // null = not yet initialized
+	let devToolsWasOpen = false; // default to false
 
 	function checkDevTools() {
 		const widthDiff = window.outerWidth - window.innerWidth;
 		const heightDiff = window.outerHeight - window.innerHeight;
 		const isOpen = widthDiff > DEVTOOLS_THRESHOLD || heightDiff > DEVTOOLS_THRESHOLD;
-
-		if (devToolsWasOpen === null) {
-			// Initial check: if DevTools is already open when page loads, show toast!
-			devToolsWasOpen = isOpen;
-			if (isOpen && !(shadowRoot && shadowRoot.querySelector(".overlay.open"))) {
-				showToast();
-			}
-			return;
-		}
 
 		if (isOpen && !devToolsWasOpen) {
 			// DevTools just opened — show toast unless CC modal is already open
@@ -739,6 +730,7 @@
 
 	// Poll at ~4fps — cheap, imperceptible
 	setInterval(checkDevTools, 250);
+	window.addEventListener("resize", checkDevTools);
 
 	// Alt+I = manual trigger (in case DevTools is undocked or detection missed)
 	window.addEventListener("keydown", (e) => {
