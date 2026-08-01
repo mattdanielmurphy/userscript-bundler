@@ -8,7 +8,7 @@
 (function () {
 	"use strict";
 
-	const USCC_VERSION = "2026-08-01-e";
+	const USCC_VERSION = "2026-08-01-f";
 	console.log(
 		`%c[USCC v${USCC_VERSION}] Userscript Control Center loaded.`,
 		"color:#6366f1;font-weight:bold;font-size:12px"
@@ -706,35 +706,6 @@
 		GM_registerMenuCommand("Open Userscript Control Center", openUI);
 	}
 
-	// ── Persistent Trigger Pill ──────────────────────────────────────────
-	function createTriggerPill() {
-		if (document.getElementById("uscc-trigger-pill")) return;
-		const pill = document.createElement("div");
-		pill.id = "uscc-trigger-pill";
-		pill.textContent = "⚙️ Control Center";
-		Object.assign(pill.style, {
-			position: "fixed", bottom: "20px", right: "20px",
-			background: "#1e1e2e", color: "#a6adc8",
-			border: "1px solid #313244", borderRadius: "20px",
-			padding: "6px 12px", fontSize: "12px", fontFamily: "sans-serif",
-			cursor: "pointer", zIndex: "2147483646",
-			boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
-			userSelect: "none", opacity: "0.7",
-			transition: "opacity 0.2s ease, border-color 0.2s ease, transform 0.2s ease",
-		});
-
-		pill.onmouseenter = () => { pill.style.opacity = "1"; pill.style.borderColor = "#6366f1"; };
-		pill.onmouseleave = () => { pill.style.opacity = "0.7"; pill.style.borderColor = "#313244"; };
-		pill.onclick = () => openUI();
-
-		document.body ? document.body.appendChild(pill) : window.addEventListener("DOMContentLoaded", () => document.body.appendChild(pill));
-	}
-
-	if (document.readyState === "loading") {
-		window.addEventListener("DOMContentLoaded", createTriggerPill);
-	} else {
-		createTriggerPill();
-	}
 
 	// Alt+I = manual keyboard trigger
 	window.addEventListener("keydown", (e) => {
