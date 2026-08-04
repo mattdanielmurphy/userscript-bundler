@@ -509,10 +509,14 @@
 					}
 
 					transcriptContainer =
+						activePanel.querySelector(".ytSectionListRendererContents") ||
+						activePanel.querySelector("#contents") ||
 						activePanel.querySelector("#segments-container") ||
 						activePanel.querySelector("ytd-transcript-segment-list-renderer") ||
 						activePanel.querySelector("ytd-macro-markers-list-renderer") ||
-						activePanel.querySelector("ytd-transcript-renderer")
+						activePanel.querySelector("ytd-transcript-renderer") ||
+						activePanel.querySelector("#content") ||
+						activePanel
 				}
 
 				// B. Try standard selectors globally
@@ -557,7 +561,7 @@
 			// 2. Wait for content to load (Replacing hardcoded delays with MutationObserver)
 			await new Promise((resolve) => {
 				const checkReady = () => {
-					const hasSegments = transcriptContainer.querySelector("ytd-transcript-segment-renderer, transcript-segment-view-model, ytw-transcript-segment-view-model, .ytw-transcript-segment-view-model")
+					const hasSegments = transcriptContainer.querySelector("ytd-transcript-segment-renderer, transcript-segment-view-model, ytw-transcript-segment-view-model, .ytw-transcript-segment-view-model, macro-markers-panel-item-view-model, .ytwMacroMarkersPanelItemViewModelHost")
 					const isLoading = transcriptContainer.querySelector("tp-yt-paper-spinner, #spinner, ytd-continuation-item-renderer, #loading-message")
 					return hasSegments && !isLoading
 				}
