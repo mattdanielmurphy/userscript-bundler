@@ -262,6 +262,7 @@ const terminalManager = {
 		outputEl.style.cssText =
 			"margin: 0; white-space: pre-wrap; word-wrap: break-word;"
 		outputEl.innerText = "Loading..."
+		outputEl.style.whiteSpace = "pre-wrap"
 
 		const inputForm = document.createElement("form")
 		inputForm.style.cssText = "display: flex; gap: 8px; margin-top: 8px;"
@@ -283,6 +284,7 @@ const terminalManager = {
 			e.preventDefault()
 			this.sendInput(session, inputField.value)
 			inputField.value = ""
+			setTimeout(() => this.poll(session, outputEl), 100)
 		}
 
 		container.appendChild(header)
@@ -306,9 +308,9 @@ const terminalManager = {
 					try {
 						const data = JSON.parse(res.responseText)
 						if (data.ok && typeof data.output === "string") {
-							outputEl.innerText = data.output || "(empty output)"
+							outputEl.innerText = data.output.trimEnd()
 							outputEl.scrollTop = outputEl.scrollHeight
-							this.updateContextPill(session, data.output)
+							this.updateContextPill(session, data.output.trimEnd())
 						}
 					} catch (e) {}
 				},

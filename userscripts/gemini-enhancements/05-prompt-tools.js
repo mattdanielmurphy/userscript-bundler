@@ -1020,6 +1020,11 @@ function toggleQuickActionsDropdown(container, btn) {
 
 	const actions = [
 		{
+			id: "toggle_raw_payload",
+			name: isRawPayloadMode ? "✓ Raw Payload Mode (Active)" : "Raw Payload Mode",
+			desc: "Toggle showing exact injected context/directives in user query text.",
+		},
+		{
 			id: "save_last",
 			name: "Save a note (last response)",
 			desc: "Saves the last AI response. Add instructions in chatbox first to customize.",
@@ -1068,6 +1073,14 @@ function toggleQuickActionsDropdown(container, btn) {
 }
 
 function handleQuickAction(actionId) {
+	if (actionId === "toggle_raw_payload") {
+		if (typeof window.toggleRawPayloadMode === "function") {
+			const active = window.toggleRawPayloadMode()
+			console.log(`Raw payload mode toggled: ${active}`)
+		}
+		return
+	}
+
 	const editor = document.querySelector('.ql-editor[contenteditable="true"]')
 	if (!editor) return
 	const instruction = editor.innerText.trim()

@@ -181,44 +181,79 @@ function parseEmbeddedUnix(dateStr, timeStr, offsetHours) {
 	return Math.floor((ms - offsetHours * 3600000) / 1000)
 }
 
+const SYSTEM_DIRECTIVE_RE = /\[SYSTEM CONTEXT & DIRECTIVES:[\s\S]*?\]\s*/
+let isRawPayloadMode = false
+
+window.toggleRawPayloadMode = function(enable) {
+	isRawPayloadMode = enable !== undefined ? enable : !isRawPayloadMode
+	console.log(`[GMT] Raw payload mode set to: ${isRawPayloadMode}`)
+	document.querySelectorAll("p.query-text-line").forEach((p) => {
+		if (!p.dataset.rawContent) return
+		if (isRawPayloadMode) {
+			p.innerText = p.dataset.rawContent
+		} else if (p.dataset.cleanContent !== undefined) {
+			p.innerText = p.dataset.cleanContent
+		}
+	})
+	return isRawPayloadMode
+}
+
 function processEmbeddedTimestamps() {
 	const nodes = document.querySelectorAll("p.query-text-line")
 	if (nodes.length === 0) return
 	nodes.forEach((p, i) => {
-		const raw = p.innerText || p.textContent || ""
+		const raw = p.dataset.rawContent || p.innerText || p.textContent || ""
+		if (!p.dataset.rawContent) {
+			p.dataset.rawContent = raw
+		}
+		const sysMatch = raw.match(SYSTEM_DIRECTIVE_RE)
 		const match = raw.match(EMBED_RE)
-		if (!match) return
+
 		const userQuery = p.closest("user-query")
 		if (!userQuery) {
+			if (!match && !sysMatch) return
 			console.warn(`[GMT] [${i}] no user-query ancestor`)
 			return
 		}
 		const container = userQuery.parentElement
-		if (!container) {
-			console.warn(`[GMT] [${i}] no container`)
-			return
+
+		let cleanText = raw
+		if (sysMatch) {
+			cleanText = cleanText.replace(SYSTEM_DIRECTIVE_RE, "")
 		}
-		if (
-			exactContainers.has(container) ||
-			container.querySelector(".gm-timestamp")
-		)
-			return
-		const unix = parseEmbeddedUnix(match[1], match[2], parseFloat(match[4]))
-
-		const contextMatch = raw.match(/\[context to this point is (\d+|\*)\]/)
-		const queryTextEl = p.closest(".query-text")
-		if (contextMatch && queryTextEl) {
-			queryTextEl.dataset.contextAnchor = contextMatch[1]
+		if (match) {
+			if (
+				container &&
+				!exactContainers.has(container) &&
+				!container.querySelector(".gm-timestamp")
+			) {
+				const unix = parseEmbeddedUnix(
+					match[1],
+					match[2],
+					parseFloat(match[4]),
+				)
+				exactContainers.add(container)
+				injectTimestamp(container, unix, false)
+			}
+			const contextMatch = cleanText.match(
+				/\[context to this point is (\d+|\*)\]/,
+			)
+			const queryTextEl = p.closest(".query-text")
+			if (contextMatch && queryTextEl) {
+				queryTextEl.dataset.contextAnchor = contextMatch[1]
+			}
+			cleanText = cleanText.replace(EMBED_RE, "")
+			cleanText = cleanText.replace(
+				/\[context to this point is (\d+|\*)\]\s*/,
+				"",
+			)
 		}
 
-		let cleanText = raw.replace(EMBED_RE, "")
-		cleanText = cleanText.replace(
-			/\[context to this point is (\d+|\*)\]\s*/,
-			"",
-		)
-		p.innerText = cleanText.trim()
-
-		exactContainers.add(container)
-		injectTimestamp(container, unix, false)
+		p.dataset.cleanContent = cleanText.trim()
+		if (isRawPayloadMode) {
+			p.innerText = p.dataset.rawContent
+		} else {
+			p.innerText = p.dataset.cleanContent
+		}
 	})
 }
