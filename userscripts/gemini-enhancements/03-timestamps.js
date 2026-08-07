@@ -187,73 +187,114 @@ let isRawPayloadMode = false
 window.toggleRawPayloadMode = function(enable) {
 	isRawPayloadMode = enable !== undefined ? enable : !isRawPayloadMode
 	console.log(`[GMT] Raw payload mode set to: ${isRawPayloadMode}`)
-	document.querySelectorAll("p.query-text-line").forEach((p) => {
-		if (!p.dataset.rawContent) return
+	document.querySelectorAll("p.query-text-line, user-query p").forEach((p) => {
+		if (p.dataset.rawContent === undefined) return
 		if (isRawPayloadMode) {
 			p.innerText = p.dataset.rawContent
+			p.style.display = ""
 		} else if (p.dataset.cleanContent !== undefined) {
 			p.innerText = p.dataset.cleanContent
+			if (p.dataset.cleanContent === "") {
+				p.style.display = "none"
+			} else {
+				p.style.display = ""
+			}
 		}
 	})
 	return isRawPayloadMode
 }
 
 function processEmbeddedTimestamps() {
-	const nodes = document.querySelectorAll("p.query-text-line")
-	if (nodes.length === 0) return
-	nodes.forEach((p, i) => {
-		const raw = p.dataset.rawContent || p.innerText || p.textContent || ""
-		if (!p.dataset.rawContent) {
-			p.dataset.rawContent = raw
-		}
-		const sysMatch = raw.match(SYSTEM_DIRECTIVE_RE)
-		const match = raw.match(EMBED_RE)
+	const userQueries = document.querySelectorAll(
+		"user-query, .user-query, [data-test-id='user-query']",
+	)
+	const containers =
+		userQueries.length > 0 ?
+			Array.from(userQueries)
+		:	Array.from(document.querySelectorAll(".query-text"))
+	if (containers.length === 0) return
 
-		const userQuery = p.closest("user-query")
-		if (!userQuery) {
-			if (!match && !sysMatch) return
-			console.warn(`[GMT] [${i}] no user-query ancestor`)
-			return
-		}
-		const container = userQuery.parentElement
+	containers.forEach((container) => {
+		const pNodes = container.querySelectorAll("p.query-text-line, p")
+		if (pNodes.length === 0) return
 
-		let cleanText = raw
-		if (sysMatch) {
-			cleanText = cleanText.replace(SYSTEM_DIRECTIVE_RE, "")
-		}
-		if (match) {
+		pNodes.forEach((p) => {
+			if (p.dataset.rawContent === undefined) {
+				p.dataset.rawContent = p.innerText || p.textContent || ""
+			}
+		})
+
+		let insideSysDirective = false
+
+		pNodes.forEach((p) => {
+			const raw = p.dataset.rawContent
+			let cleanText = raw
+
 			if (
-				container &&
-				!exactContainers.has(container) &&
-				!container.querySelector(".gm-timestamp")
+				!insideSysDirective &&
+				cleanText.includes("[SYSTEM CONTEXT & DIRECTIVES:")
 			) {
-				const unix = parseEmbeddedUnix(
-					match[1],
-					match[2],
-					parseFloat(match[4]),
-				)
-				exactContainers.add(container)
-				injectTimestamp(container, unix, false)
+				insideSysDirective = true
 			}
-			const contextMatch = cleanText.match(
-				/\[context to this point is (\d+|\*)\]/,
-			)
-			const queryTextEl = p.closest(".query-text")
-			if (contextMatch && queryTextEl) {
-				queryTextEl.dataset.contextAnchor = contextMatch[1]
-			}
-			cleanText = cleanText.replace(EMBED_RE, "")
-			cleanText = cleanText.replace(
-				/\[context to this point is (\d+|\*)\]\s*/,
-				"",
-			)
-		}
 
-		p.dataset.cleanContent = cleanText.trim()
-		if (isRawPayloadMode) {
-			p.innerText = p.dataset.rawContent
-		} else {
-			p.innerText = p.dataset.cleanContent
-		}
+			if (insideSysDirective) {
+				if (cleanText.includes("]")) {
+					const sysEndIdx = cleanText.indexOf("]")
+					cleanText = cleanText.substring(sysEndIdx + 1)
+					insideSysDirective = false
+				} else {
+					cleanText = ""
+				}
+			}
+
+			cleanText = cleanText.replace(SYSTEM_DIRECTIVE_RE, "")
+			const match = cleanText.match(EMBED_RE)
+
+			const timeContainer =
+				container.closest("user-query")?.parentElement ||
+				container.parentElement ||
+				container
+
+			if (match) {
+				if (
+					timeContainer &&
+					!exactContainers.has(timeContainer) &&
+					!timeContainer.querySelector(".gm-timestamp")
+				) {
+					const unix = parseEmbeddedUnix(
+						match[1],
+						match[2],
+						parseFloat(match[4]),
+					)
+					exactContainers.add(timeContainer)
+					injectTimestamp(timeContainer, unix, false)
+				}
+				const contextMatch = cleanText.match(
+					/\[context to this point is (\d+|\*)\]/,
+				)
+				const queryTextEl = p.closest(".query-text")
+				if (contextMatch && queryTextEl) {
+					queryTextEl.dataset.contextAnchor = contextMatch[1]
+				}
+				cleanText = cleanText.replace(EMBED_RE, "")
+				cleanText = cleanText.replace(
+					/\[context to this point is (\d+|\*)\]\s*/,
+					"",
+				)
+			}
+
+			p.dataset.cleanContent = cleanText.trim()
+			if (isRawPayloadMode) {
+				p.innerText = p.dataset.rawContent
+				p.style.display = ""
+			} else {
+				p.innerText = p.dataset.cleanContent
+				if (p.dataset.cleanContent === "") {
+					p.style.display = "none"
+				} else {
+					p.style.display = ""
+				}
+			}
+		})
 	})
 }
