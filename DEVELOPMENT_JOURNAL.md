@@ -14,3 +14,7 @@
 - **Tool Call Directive Update:** Updated `gemini-enhancements/05-prompt-tools.js` to refine the tool call schema and specify `run_automatically` behavior.
 - **Refine tool execution logic:** Updated  to enable run button unconditionally and adjust auto-execute condition. [2026-07-28_15-00-refine-tool-execution.md](file:///Users/matt/.gemini/antigravity/brain/7ac774e3-9dea-4924-b8df-c7a48b731a2d/2026-07-28_15-00-refine-tool-execution.md)
 - **Refine tool execution logic:** Updated 10-tool-calls.js to enable run button unconditionally and adjust auto-execute condition. [2026-07-28_15-00-refine-tool-execution.md](file:///Users/matt/.gemini/antigravity/brain/7ac774e3-9dea-4924-b8df-c7a48b731a2d/2026-07-28_15-00-refine-tool-execution.md)
+
+
+## 2026-08-06
+- **Fix Multi-Line System Directive Stripping:** Updated `03-timestamps.js` to track multi-line `[SYSTEM CONTEXT & DIRECTIVES:]` state across paragraph nodes in `user-query` containers and hide system directive lines from prompt display. See [agent-logs/2026-08-06_19-56_fix_system_directives_stripping.md](file:///Users/matt/projects/userscript-bundler/agent-logs/2026-08-06_19-56_fix_system_directives_stripping.md).
