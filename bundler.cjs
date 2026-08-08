@@ -16,8 +16,19 @@ const vm = require("vm")
 // Constants
 const MANIFEST_FILE = "script_manifest.json"
 const OUTPUT_FILE = "userscript_bundle.js"
+const OUTPUT_USER_FILE = "userscript_bundle.user.js"
 const SOURCE_DIR = "./"
 const USERSCRIPTS_DIR = "./userscripts/"
+const ICLOUD_USERSCRIPTS_DIR = path.join(process.env.HOME || "/Users/matt", "Library/Mobile Documents/com~apple~CloudDocs/Userscripts")
+
+// Baseline grants and connects
+const BASELINE_GRANTS = [
+    "GM.getValue", "GM.setValue", "GM.xmlHttpRequest",
+    "GM_addElement", "GM_addStyle", "GM_getResourceText", "GM_getValue",
+    "GM_registerMenuCommand", "GM_setClipboard", "GM_setValue",
+    "GM_unregisterMenuCommand", "GM_xmlhttpRequest", "unsafeWindow"
+]
+const BASELINE_CONNECTS = ["127.0.0.1"]
 
 // Banner prepended to every compiled standalone userscript so it is impossible
 // to mistake the generated output for an editable source file.
@@ -63,6 +74,29 @@ function encodeVLQ(value) {
 		encoded += VLQ_CHARS[digit]
 	} while (signed > 0)
 	return encoded
+}
+
+/**
+ * Constructs the standard userscript metadata header block.
+ */
+function generateUserscriptHeader(grants, connects) {
+    const lines = [
+        "// ==UserScript==",
+        "// @name         Local Userscript Dynamic Loader",
+        "// @version      0.2",
+        "// @description  Loads local userscripts from bundle in ~/projects/userscript-bundler",
+        "// @match        *://*/*",
+        "// @run-at       document-start"
+    ]
+    
+    // Add unique sorted grants
+    Array.from(new Set([...BASELINE_GRANTS, ...grants])).sort().forEach(g => lines.push(`// @grant        ${g}`))
+    
+    // Add unique sorted connects
+    Array.from(new Set([...BASELINE_CONNECTS, ...connects])).sort().forEach(c => lines.push(`// @connect      ${c}`))
+    
+    lines.push("// ==/UserScript==")
+    return lines.join("\n") + "\n"
 }
 
 /**
@@ -1019,17 +1053,30 @@ window.${functionName} = ${functionName};
 		)
 		const sourceMapUrl = `\n//# sourceURL=userscript_bundle.js\n//# sourceMappingURL=data:application/json;charset=utf-8;base64,${sourceMapBase64}`
 
-		const bundleCode = outputLines.join("\n") + sourceMapUrl
+		const headerBlock = generateUserscriptHeader(allGrants, allConnects)
+		const bundleCode = headerBlock + outputLines.join("\n") + sourceMapUrl
 
 		// Step 6: Write output file
 		console.log(`💾 Writing bundle to: ${OUTPUT_FILE}`)
 		fs.writeFileSync(OUTPUT_FILE, bundleCode, "utf8")
+		fs.writeFileSync(OUTPUT_USER_FILE, bundleCode, "utf8")
 
 		const stats = fs.statSync(OUTPUT_FILE)
 		console.log("🎉 Bundling completed successfully!")
 		console.log(
 			`📊 Stats: ${(stats.size / 1024).toFixed(2)} KB, ${processedManifest.length} scripts`,
 		)
+
+		// Step 6b: One-way sync to Safari Userscripts iCloud directory
+		if (fs.existsSync(ICLOUD_USERSCRIPTS_DIR)) {
+			try {
+				const icloudDest = path.join(ICLOUD_USERSCRIPTS_DIR, OUTPUT_USER_FILE)
+				fs.writeFileSync(icloudDest, bundleCode, "utf8")
+				console.log(`☁️  [Sync] One-way synced standalone bundle to iCloud: ${icloudDest}`)
+			} catch (syncErr) {
+				console.warn(`⚠️  [Sync] Failed to copy to iCloud: ${syncErr.message}`)
+			}
+		}
 
 		// Step 7: Compile multi-module (grouped) userscripts into standalone files
 		const COMPILED_DIR = path.join(__dirname, "compiled")

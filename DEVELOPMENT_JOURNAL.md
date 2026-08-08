@@ -18,3 +18,7 @@
 
 ## 2026-08-06
 - **Fix Multi-Line System Directive Stripping:** Updated `03-timestamps.js` to track multi-line `[SYSTEM CONTEXT & DIRECTIVES:]` state across paragraph nodes in `user-query` containers and hide system directive lines from prompt display. See [agent-logs/2026-08-06_19-56_fix_system_directives_stripping.md](file:///Users/matt/projects/userscript-bundler/agent-logs/2026-08-06_19-56_fix_system_directives_stripping.md).
+
+## 2026-08-08
+- **iCloud Userscripts One-Way Sync:** Added `generateUserscriptHeader` with baseline GM grants/connects to `bundler.cjs` and automated one-way sync of `userscript_bundle.user.js` into Safari's iCloud Userscripts directory. See [agent-logs/2026-08-08_14-16_icloud-userscript-sync.md](file:///Users/matt/projects/userscript-bundler/agent-logs/2026-08-08_14-16_icloud-userscript-sync.md).
+

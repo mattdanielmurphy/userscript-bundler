@@ -399,6 +399,86 @@
 	// --- 6. YOUTUBE GET TRANSCRIPT BUTTON (Watch Page Only) ---
 	let _transcriptInterval = null
 
+	async function getCompleteTranscript() {
+		// Ensure transcript panel is active
+		let showTranscriptBtn = document.querySelector('button[aria-label="Show transcript"]')
+		if (showTranscriptBtn) showTranscriptBtn.click()
+		
+		await new Promise(r => setTimeout(r, 1000))
+		
+		const container = document.querySelector("#segments-container")
+		if (!container) return null
+		
+		const nodes = container.querySelectorAll("ytd-transcript-segment-renderer, transcript-segment-view-model, ytw-transcript-segment-view-model")
+		const segments = []
+		
+		nodes.forEach(n => {
+			const timeEl = n.querySelector(".timestamp, .ytw-transcript-segment-view-model-timestamp")
+			const textEl = n.querySelector(".segment-text, .ytw-transcript-segment-view-model-body")
+			if (timeEl && textEl) {
+				const time = timeEl.innerText.trim()
+				const text = textEl.innerText.trim()
+				const p = time.split(":").map(Number)
+				const sec = p.length === 3 ? p[0]*3600 + p[1]*60 + p[2] : (p.length === 2 ? p[0]*60 + p[1] : p[0])
+				segments.push({ sec, text })
+			}
+		})
+		
+		return segments.sort((a,b) => a.sec - b.sec).map(s => `[${s.sec}s] ${s.text}`).join("\n")
+	}
+
+	function startClipboardWatcher(originalPrompt) {
+		const banner = document.createElement("div")
+		banner.id = "yt-clipboard-waiting-banner"
+		Object.assign(banner.style, {
+			background: "rgba(28,28,28,0.95)",
+			color: "#fff",
+			border: "1px solid #ffd700",
+			padding: "10px 20px",
+			borderRadius: "20px",
+			zIndex: "100000",
+			position: "fixed",
+			top: "20px",
+			left: "50%",
+			transform: "translateX(-50%)",
+			boxShadow: "0 8px 32px rgba(0,0,0,0.6)",
+			fontSize: "14px",
+			textAlign: "center"
+		})
+		banner.textContent = "📋 Prompt + transcript copied! Paste into your LLM. Waiting for JSON on clipboard..."
+		document.body.appendChild(banner)
+
+		const timer = setInterval(checkCb, 800)
+		const focusHandler = () => checkCb()
+		window.addEventListener('focus', focusHandler)
+
+		async function checkCb() {
+			try {
+				const text = await navigator.clipboard.readText()
+				if (text !== originalPrompt) {
+					const parsed = JSON.parse(text)
+					if (Array.isArray(parsed) && parsed.length > 0 && parsed[0].start !== undefined) {
+						clearInterval(timer)
+						window.removeEventListener('focus', focusHandler)
+						Object.assign(banner.style, {
+							cursor: "pointer",
+							background: "#ffd700",
+							color: "#000",
+							fontWeight: "700"
+						})
+						banner.textContent = `✨ JSON ready on clipboard! [▶ Activate Highlight Reel (${parsed.length} segments)]`
+						banner.onclick = () => {
+							if (typeof window.loadHighlightReel === 'function') window.loadHighlightReel(parsed)
+							banner.remove()
+						}
+					}
+				}
+			} catch(e) {}
+		}
+
+		setTimeout(() => { clearInterval(timer); window.removeEventListener('focus', focusHandler); banner.remove() }, 120000)
+	}
+
 	async function setupTranscriptButton() {
 		if (!isWatchPage()) return
 
@@ -429,6 +509,72 @@
 		} else {
 			shareBtn.innerText = "Get transcript"
 		}
+
+		let reelBtn = document.getElementById("yt-highlight-reel-btn")
+		if (!reelBtn) {
+			reelBtn = document.createElement("button")
+			reelBtn.id = "yt-highlight-reel-btn"
+			Object.assign(reelBtn.style, {
+				height: "36px",
+				padding: "0 16px",
+				borderRadius: "18px",
+				marginLeft: "8px",
+				border: "none",
+				background: _isReelActive ? "rgba(255, 215, 0, 0.2)" : "rgba(255, 255, 255, 0.1)",
+				color: "#fff",
+				cursor: "pointer",
+				fontSize: "14px",
+				fontWeight: "500",
+				fontFamily: "Roboto, Arial, sans-serif",
+				display: "inline-flex",
+				alignItems: "center",
+				justifyContent: "center"
+			})
+
+			reelBtn.onclick = async () => {
+				if (_highlightSegments.length === 0) {
+					showToast("⏳ Extracting transcript & building prompt...")
+					const transcriptText = await getCompleteTranscript()
+					if (!transcriptText) {
+						showToast("Could not extract transcript")
+						return
+					}
+					const fullPrompt = `You are a Video Editor creating a tight, high-signal "Highlight Reel / Supercut" of a YouTube video using its transcript.
+
+### Goal:
+Select the most essential soundbites and insights that summarize the video's core arguments, demonstrations, and conclusions.
+
+### Constraints:
+1. Target Cumulative Duration: ~3 to 5 minutes (or ~10-15% of total runtime).
+2. Continuous Soundbites: Each segment must start at the beginning of a complete sentence and end after the thought is fully expressed (do not cut mid-sentence).
+3. Cut Fluff: Completely omit sponsor reads, channel intros/outros, repetitive filler, and low-information chit-chat.
+4. Output Format: Return ONLY a raw JSON array of objects (no markdown code fences, no extra commentary).
+
+### JSON Schema:
+[
+  {
+    "start": 42,
+    "end": 85,
+    "title": "The Core Problem Explained",
+    "tier": 1
+  }
+]
+
+* Note: "start" and "end" MUST be integer seconds from the start of the video.
+
+### Transcript to Analyze:
+` + transcriptText
+					await navigator.clipboard.writeText(fullPrompt)
+					startClipboardWatcher(fullPrompt)
+				} else {
+					if (typeof window.toggleHighlightReel === 'function') {
+						window.toggleHighlightReel()
+					}
+				}
+			}
+			shareBtn.parentNode.insertBefore(reelBtn, shareBtn.nextSibling)
+		}
+		reelBtn.textContent = _isReelActive && _highlightSegments.length > 0 ? `⚡ Reel: ON (${_currentSegmentIndex + 1}/${_highlightSegments.length})` : "⚡ Highlight reel"
 
 		shareBtn.onclick = async function (e) {
 			e.preventDefault()
@@ -786,7 +932,202 @@
 		}
 	}
 
+
+	// --- 8. DYNAMIC HIGHLIGHT REEL ENGINE (Watch Page) ---
+	let _highlightSegments = []
+	let _isReelActive = false
+	let _currentSegmentIndex = -1
+	let _videoEl = null
+	let _reelTimeUpdateHandler = null
+	let _lastSkipFromTime = 0
+	let _lastSkipLeadInTime = 0
+	let _undoSkipPending = false
+	let _skipCooldownUntil = 0
+	let _toastTimeout = null
+
+	function parseTimestamp(ts) {
+		if (typeof ts === "number") return ts
+		const parts = ts.split(":").map(Number)
+		if (parts.length === 2) return parts[0] * 60 + parts[1]
+		if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2]
+		return parseFloat(ts)
+	}
+
+	function initHighlightReelVideoListener() {
+		_videoEl = document.querySelector("video")
+		if (!_videoEl) return
+
+		if (_reelTimeUpdateHandler) _videoEl.removeEventListener("timeupdate", _reelTimeUpdateHandler)
+
+		_reelTimeUpdateHandler = () => {
+			if (!_isReelActive || _highlightSegments.length === 0 || _undoSkipPending) return
+			const cur = _videoEl.currentTime
+			if (cur < _skipCooldownUntil) return
+
+			if (_currentSegmentIndex >= 0 && _currentSegmentIndex < _highlightSegments.length) {
+				const s = _highlightSegments[_currentSegmentIndex]
+				if (cur >= s.start && cur < s.end) {
+					updateScrubberBadge()
+					return
+				}
+			}
+
+			const nextIdx = _highlightSegments.findIndex((s) => s.start > cur)
+			if (nextIdx !== -1) {
+				const nextSegment = _highlightSegments[nextIdx]
+				_lastSkipFromTime = cur
+				_lastSkipLeadInTime = Math.max(0, cur - 4)
+				_undoSkipPending = true
+				_videoEl.currentTime = nextSegment.start
+				showSkipToast(nextSegment)
+				_currentSegmentIndex = nextIdx
+				updateScrubberBadge()
+			} else {
+				_isReelActive = false
+				showToast("🎉 Highlight reel complete!")
+				updateScrubberBadge()
+			}
+		}
+		_videoEl.addEventListener("timeupdate", _reelTimeUpdateHandler)
+	}
+
+	function showSkipToast(nextSegment) {
+		const toast = document.createElement("div")
+		Object.assign(toast.style, {
+			position: "fixed", top: "20px", left: "50%", transform: "translateX(-50%)",
+			backgroundColor: "rgba(28,28,28,0.9)", color: "#fff", padding: "12px 20px",
+			borderRadius: "8px", zIndex: "100000", cursor: "pointer", border: "1px solid #ffd700"
+		})
+		toast.textContent = `⏩ Skipped to "${nextSegment.title || 'Next Segment'}". Press [Enter] or click to undo (5s)...`
+
+		const bar = document.createElement("div")
+		Object.assign(bar.style, { height: "2px", background: "#ffd700", width: "100%", transition: "width 5s linear" })
+		toast.appendChild(bar)
+		document.body.appendChild(toast)
+
+		setTimeout(() => bar.style.width = "0%", 10)
+
+		const cleanup = () => {
+			clearTimeout(_toastTimeout)
+			toast.remove()
+			_undoSkipPending = false
+		}
+
+		_toastTimeout = setTimeout(cleanup, 5000)
+
+		const undo = () => {
+			if (!_undoSkipPending) return
+			_undoSkipPending = false
+			_videoEl.currentTime = _lastSkipLeadInTime
+			_skipCooldownUntil = _videoEl.currentTime + 4
+			cleanup()
+			showToast("⏪ Rewound with 4s context. Resumed.")
+		}
+
+		toast.onclick = undo
+		const keyHandler = (e) => { if(e.key === "Enter") undo() }
+		window.addEventListener("keydown", keyHandler, { once: true })
+	}
+
+	window.loadHighlightReel = (data, autoPlay = true) => {
+		_highlightSegments = data
+			.map((s) => ({ ...s, start: parseTimestamp(s.start), end: parseTimestamp(s.end) }))
+			.sort((a, b) => a.start - b.start)
+		_isReelActive = true
+		_currentSegmentIndex = 0
+		renderHighlightHeatmap()
+		updateReelButton()
+		updateScrubberBadge()
+		if (autoPlay && _highlightSegments.length > 0) {
+			_videoEl.currentTime = _highlightSegments[0].start
+			_videoEl.play()
+		}
+	}
+
+	window.clearHighlightReel = () => {
+		_highlightSegments = []
+		_isReelActive = false
+		_currentSegmentIndex = -1
+		removeHighlightHeatmap()
+		updateReelButton()
+		updateScrubberBadge()
+	}
+
+	window.toggleHighlightReel = () => {
+		_isReelActive = !_isReelActive
+		updateReelButton()
+		updateScrubberBadge()
+		showToast(_isReelActive ? "Highlight Reel Active" : "Highlight Reel Off")
+	}
+
+	window.jumpHighlightRelative = (dir) => {
+		if (_highlightSegments.length === 0) return
+		_currentSegmentIndex = Math.max(0, Math.min(_highlightSegments.length - 1, _currentSegmentIndex + dir))
+		_videoEl.currentTime = _highlightSegments[_currentSegmentIndex].start
+		updateScrubberBadge()
+	}
+
+	function renderHighlightHeatmap() {
+		removeHighlightHeatmap()
+		const progressBar = document.querySelector(".ytp-progress-bar")
+		if (!progressBar) return
+		const container = document.createElement("div")
+		container.id = "yt-highlight-heatmap-container"
+		Object.assign(container.style, { position: "absolute", top: "0", left: "0", width: "100%", height: "100%", pointerEvents: "none", zIndex: "10" })
+		progressBar.appendChild(container)
+		const duration = _videoEl.duration || 1
+		_highlightSegments.forEach((s) => {
+			const bar = document.createElement("div")
+			const left = (s.start / duration) * 100
+			const width = ((s.end - s.start) / duration) * 100
+			Object.assign(bar.style, { position: "absolute", left: `${left}%`, width: `${width}%`, height: "100%", background: "rgba(255, 215, 0, 0.8)" })
+			container.appendChild(bar)
+		})
+	}
+
+	function removeHighlightHeatmap() {
+		const c = document.getElementById("yt-highlight-heatmap-container")
+		if (c) c.remove()
+	}
+
+	function updateReelButton() {
+		const reelBtn = document.getElementById("yt-highlight-reel-btn")
+		if (!reelBtn) return
+		reelBtn.textContent = _isReelActive ? `⚡ Reel: ON (${_currentSegmentIndex + 1}/${_highlightSegments.length})` : "⚡ Highlight reel"
+	}
+
+	function updateScrubberBadge() {
+		let badge = document.getElementById("yt-highlight-scrubber-badge")
+		const leftControls = document.querySelector(".ytp-left-controls")
+		if (!_isReelActive || _highlightSegments.length === 0) {
+			if (badge) badge.remove()
+			return
+		}
+		if (!badge && leftControls) {
+			badge = document.createElement("div")
+			badge.id = "yt-highlight-scrubber-badge"
+			Object.assign(badge.style, {
+				background: "rgba(255, 215, 0, 0.18)", border: "1px solid rgba(255, 215, 0, 0.4)", color: "#ffd700",
+				borderRadius: "4px", padding: "2px 8px", fontSize: "11px", fontWeight: "600",
+				marginLeft: "8px", display: "inline-flex", alignItems: "center"
+			})
+			leftControls.appendChild(badge)
+		}
+		if (badge) {
+			badge.textContent = `⚡ Seg ${_currentSegmentIndex + 1}/${_highlightSegments.length}: ${_highlightSegments[_currentSegmentIndex].title}`
+		}
+	}
+
+	// Keyboard hotkeys
+	document.addEventListener("keydown", (e) => {
+		if (["INPUT", "TEXTAREA"].includes(document.activeElement.tagName)) return
+		if (e.key.toLowerCase() === "h") window.toggleHighlightReel()
+		if (e.key === "[") window.jumpHighlightRelative(-1)
+		if (e.key === "]") window.jumpHighlightRelative(1)
+	})
+
 	// --- 7. YOUTUBE SEARCH EXCLUDE TERMS (Search Page Only) ---
+
 	let resultsObserver = null
 	let _ytExclResizeHandler = null
 	let _ytExclScrollHandler = null
@@ -1459,6 +1800,7 @@ min-height: " +
 			initSearchExclusion()
 		}
 
+
 		if (isWatchPage()) {
 			// Start Max Quality script (event-based logic)
 			initMaxQuality()
@@ -1467,7 +1809,11 @@ min-height: " +
 			if (!_transcriptInterval) {
 				_transcriptInterval = setInterval(setupTranscriptButton, 500)
 			}
+            
+            // Highlight Reel
+            initHighlightReelVideoListener()
 		}
+
 	}
 
 	// 1. Initial setup for features that need to run immediately
