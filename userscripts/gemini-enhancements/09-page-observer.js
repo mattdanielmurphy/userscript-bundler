@@ -187,6 +187,16 @@ function startObservers() {
 		}
 	}, 1500)
 
+	// Consume any prompt that was set before the userscript was ready
+	setTimeout(function() {
+		if (window.__pendingPrompt && typeof window.injectAndSendPrompt === 'function') {
+			const pending = window.__pendingPrompt
+			delete window.__pendingPrompt
+			console.log('[GMT] Consuming __pendingPrompt:', pending.length, 'chars')
+			window.injectAndSendPrompt(pending)
+		}
+	}, 800)
+
 	console.log("[GMT] observers started")
 }
 

@@ -1507,6 +1507,52 @@ function replaceEditorContent(editor, newText) {
 	document.execCommand("insertText", false, newText)
 }
 
+// ─── External Prompt Injection API ────────────────────────────────────────
+// Called by Tauri Axum server (/api/prompt) and main.rs pending_prompt.txt
+window.injectAndSendPrompt = function(text, opts) {
+	opts = opts || {}
+	const autoSend = opts.autoSend !== false // default: true
+
+	// Find Gemini's contenteditable editor — try selectors in priority order
+	const EDITOR_SELECTORS = [
+		'.ql-editor[contenteditable="true"]',
+		'rich-textarea [contenteditable="true"]',
+		'[contenteditable="true"]',
+		'textarea',
+	]
+	let editor = null
+	for (const sel of EDITOR_SELECTORS) {
+		editor = document.querySelector(sel)
+		if (editor) break
+	}
+
+	if (!editor) {
+		console.warn('[GMT] injectAndSendPrompt: No input editor found. Storing as __pendingPrompt.')
+		window.__pendingPrompt = text
+		return false
+	}
+
+	replaceEditorContent(editor, text)
+	console.log('[GMT] injectAndSendPrompt: Injected', text.length, 'chars into editor.')
+
+	if (!autoSend) return true
+
+	// Click the Send button after a short delay for React/Angular state to update
+	setTimeout(function() {
+		const sendBtn = document.querySelector(
+			'button[aria-label*="Send" i], button[aria-label*="Submit" i], button.send-button, button[data-test-id*="send" i]'
+		)
+		if (sendBtn) {
+			sendBtn.click()
+			console.log('[GMT] injectAndSendPrompt: Send button clicked.')
+		} else {
+			console.warn('[GMT] injectAndSendPrompt: Send button not found — text injected but not sent.')
+		}
+	}, 150)
+
+	return true
+}
+
 function processCommandReplacement(editor) {
 	const currentText = editor.innerText || ""
 	let newText = currentText.trim()
@@ -4527,6 +4573,16 @@ function startObservers() {
 			exportThreadWithTimestamps()
 		}
 	}, 1500)
+
+	// Consume any prompt that was set before the userscript was ready
+	setTimeout(function() {
+		if (window.__pendingPrompt && typeof window.injectAndSendPrompt === 'function') {
+			const pending = window.__pendingPrompt
+			delete window.__pendingPrompt
+			console.log('[GMT] Consuming __pendingPrompt:', pending.length, 'chars')
+			window.injectAndSendPrompt(pending)
+		}
+	}, 800)
 
 	console.log("[GMT] observers started")
 }
