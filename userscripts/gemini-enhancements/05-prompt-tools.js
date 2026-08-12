@@ -530,45 +530,80 @@ aiosStyle.textContent = `
         background: rgba(128, 128, 128, 0.4);
     }
 
-    /* Full-width and Compact Table Layout */
+    /* Centered Table & Responsive Breakout Layout */
     .horizontal-scroll-wrapper {
-        width: 100vw !important;
-        max-width: 100vw !important;
+        width: 100% !important;
+        max-width: 100% !important;
         position: relative !important;
-        left: 50% !important;
-        transform: translateX(-50%) !important;
         box-sizing: border-box !important;
-        padding: 0 48px !important;
         display: flex !important;
         justify-content: center !important;
         overflow-x: auto !important;
+        margin: 16px 0 !important;
     }
+
+    @media (min-width: 1024px) {
+        chat-window-content .horizontal-scroll-wrapper {
+            width: calc(100vw - var(--mat-sidenav-content-left-margin, 280px)) !important;
+            max-width: calc(100vw - var(--mat-sidenav-content-left-margin, 280px)) !important;
+            left: 50% !important;
+            transform: translateX(-50%) !important;
+            padding: 0 48px !important;
+        }
+    }
+
     .table-block-component, .table-block, .table-content {
         width: auto !important;
         max-width: 100% !important;
+        margin: 0 auto !important;
     }
+
     table {
         width: auto !important;
-        max-width: 100% !important;
+        max-width: none !important;
+        margin: 0 auto !important;
         border-collapse: collapse !important;
         table-layout: auto !important;
     }
+
     table th, table td {
         padding: 8px 12px !important;
         white-space: normal !important;
-        word-break: break-word !important;
+        overflow-wrap: break-word !important;
+        word-break: normal !important;
         width: auto !important;
-        min-width: 0 !important;
+        min-width: 120px !important;
     }
-    
+
     /* Responsive adjustments for narrower viewports */
     @media (max-width: 1400px) {
         table th, table td {
             padding: 6px 10px !important;
-            font-size: 14px !important; /* reduce font size slightly from default 17px */
-            max-width: 160px !important; /* help trigger wrapping when space is constrained */
+            font-size: 14px !important;
+            min-width: 100px !important;
         }
     }
+
+    immersive-panel .horizontal-scroll-wrapper {
+        width: 100% !important;
+        max-width: 100% !important;
+        left: auto !important;
+        transform: none !important;
+        padding: 0 !important;
+        overflow-x: auto !important;
+    }
+
+    .ai-os-immersive-modal {
+        position: fixed !important;
+        top: 24px !important;
+        left: calc(var(--mat-sidenav-content-left-margin, 280px) + 24px) !important;
+        right: 24px !important;
+        bottom: 24px !important;
+        width: calc(100vw - var(--mat-sidenav-content-left-margin, 280px) - 48px) !important;
+        height: calc(100vh - 48px) !important;
+        z-index: 9999 !important;
+    }
+
 `
 
 function appendStyle(styleEl) {
@@ -931,11 +966,12 @@ function togglePhaseDropdown(container, btn) {
 	phaseDropdownMenu.style.display = "block"
 	phaseDropdownMenu.style.top = `${window.scrollY + rect.top - phaseDropdownMenu.offsetHeight - 6}px`
 	phaseDropdownMenu.style.left = `${rect.left}px`
-	btn.querySelector("svg").style.transform = "rotate(180deg)"
+		btn.querySelector("svg").style.transform = "rotate(180deg)"
 }
 
 // Inject Phase Controls & Listeners
 function injectUI() {
+	injectImmersiveModalButton()
 	const promptContainer = document.querySelector(
 		".input-area-container, .prompt-box-container, form .input-area",
 	)
@@ -1291,3 +1327,57 @@ document.addEventListener(
 	true,
 )
 
+
+function injectImmersiveModalButton() {
+	const panel = document.querySelector('immersive-panel')
+	if (!panel) return
+	
+	const toolbar = panel.querySelector('toolbar')
+	if (!toolbar) return
+
+	if (toolbar.querySelector('.ai-os-expand-btn')) return
+
+	const btn = document.createElement('button')
+	btn.className = 'ai-os-expand-btn'
+	btn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>`
+	btn.style.cssText = "background: transparent; border: none; color: inherit; cursor: pointer; padding: 4px; border-radius: 4px; display: flex; align-items: center; justify-content: center; opacity: 0.7;"
+	btn.title = "Expand/Collapse Panel"
+
+	btn.addEventListener('mouseenter', () => btn.style.opacity = "1")
+	btn.addEventListener('mouseleave', () => btn.style.opacity = "0.7")
+
+	let clickOutsideHandler = null
+
+	btn.addEventListener('click', (e) => {
+		e.stopPropagation()
+		if (panel.classList.contains('ai-os-immersive-modal')) {
+			exitModal()
+		} else {
+			enterModal()
+		}
+	})
+
+	function enterModal() {
+		panel.classList.add('ai-os-immersive-modal')
+		btn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7"/></svg>`
+		
+		// Setup click outside
+		clickOutsideHandler = (event) => {
+			if (!panel.contains(event.target)) {
+				exitModal()
+			}
+		}
+		document.addEventListener('click', clickOutsideHandler, true)
+	}
+
+	function exitModal() {
+		panel.classList.remove('ai-os-immersive-modal')
+		btn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>`
+		if (clickOutsideHandler) {
+			document.removeEventListener('click', clickOutsideHandler, true)
+			clickOutsideHandler = null
+		}
+	}
+
+	toolbar.appendChild(btn)
+}
