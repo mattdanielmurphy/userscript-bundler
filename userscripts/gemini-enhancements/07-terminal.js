@@ -378,7 +378,7 @@ const terminalManager = {
 					display: flex;
 					align-items: center;
 					gap: 6px;
-					cursor: pointer;
+					cursor: default;
 					position: relative;
 				`
 			} else {
@@ -393,7 +393,7 @@ const terminalManager = {
 					display: flex;
 					align-items: center;
 					gap: 6px;
-					cursor: pointer;
+					cursor: default;
 					position: relative;
 				`
 			}
@@ -412,8 +412,17 @@ const terminalManager = {
 
 			const removeBtn = document.createElement("span")
 			removeBtn.textContent = "\u00D7"
+			removeBtn.title = "Dismiss context"
 			removeBtn.style.cssText =
-				"font-size: 14px; font-weight: bold; opacity: 0.7; cursor: pointer;"
+				"font-size: 16px; line-height: 1; font-weight: bold; opacity: 0.7; cursor: pointer; padding: 4px 6px; margin: -4px -6px -4px 2px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; min-width: 20px; min-height: 20px; transition: opacity 0.15s, background-color 0.15s;"
+			removeBtn.onmouseenter = () => {
+				removeBtn.style.opacity = "1"
+				removeBtn.style.backgroundColor = "rgba(255, 255, 255, 0.15)"
+			}
+			removeBtn.onmouseleave = () => {
+				removeBtn.style.opacity = "0.7"
+				removeBtn.style.backgroundColor = "transparent"
+			}
 			removeBtn.onclick = (e) => {
 				e.stopPropagation()
 				ctx.active = false
@@ -490,11 +499,6 @@ const terminalManager = {
 						tooltip.remove()
 					}, 350)
 				}
-			}
-
-			// Clicking the pill itself toggles insertion manually
-			pill.onclick = () => {
-				this.injectToChat(ctx.output)
 			}
 
 			container.appendChild(pill)

@@ -1,3 +1,6 @@
+User Request: For some reason if we inject our custom context payload in front of the query, Gemini just refuses to answer. must be a security thing, trying to protect against an injection attack somehow. Maybe let's first try just reformatting the context payload to see if we can avoid setting off the alarm bells that deny our request. @[userscripts/gemini-enhancements]
+
+--- AG_CONTEXT.md ---
 # Project: Userscript Bundler
 
 ## Overview
@@ -17,7 +20,7 @@ A tool for bundling userscripts, likely with a watcher and auto-bundling capabil
   - **Fix**: Scripts with `@run-at document-start` now execute immediately upon bundle load rather than waiting for `DOMContentLoaded`. This ensures menu commands and early page modifications (like the Gemini timestamp script) work correctly.
   - **Gemini**: Automatically syncs the tab title with the current conversation thread title using `MutationObserver`.
 - **Sync**: `userscript_bundle.js` is strictly ignored and untracked to prevent build artifacts in Git.
-- YouTube Master Script features: Refresh on unavailable, toggle thumbnails, remove members-only (enhanced for sidebar), hide shorts, hide low view videos (<1k), get transcript button (ultra-fast extraction with smart waiting & innerText fallback), search exclusion, max quality, ignore number keys (seeking), and **URL parameter-driven Highlight Reel engine** (supports `?highlights=...`, `&reel=...`, timestamp intervals, labels, JSON/Base64, scrubber heatmaps, auto-skipping, and right-click to copy shareable highlight URLs).
+- YouTube Master Script features: Refresh on unavailable, toggle thumbnails, remove members-only (enhanced for sidebar), hide shorts, hide low view videos (<1k), get transcript button (ultra-fast extraction with smart waiting & innerText fallback), search exclusion, max quality, and ignore number keys (seeking).
 - **Perplexity**: Rate limit display implementation must wait for `document.body` and handle SPA re-renders via `MutationObserver` to ensure reliable injection when running at `@run-at document-start`. Also uses a generalized robust detection system to automatically hide promotional upsell banners (including "Try Computer", "Upgrade to Max", "Upgrade now", "Try this answer with", and their outer layout wrappers) without breaking React virtual DOM reconciliation, and automatically focuses the input field when a new thread is created.
 - TorrentMac script: Removes fake "Download Now" buttons by text content.
 - **Online Learning BC / StudyForge**: YouTube Fullscreen Fix. Uses a "Keymaster + UI" cross-frame messaging architecture to bypass D2L's nested iframe permission restrictions. Includes an 'F' key shortcut.
@@ -26,3 +29,21 @@ A tool for bundling userscripts, likely with a watcher and auto-bundling capabil
 - **ContentConnections Enhancements**: Hides whiteboard/menu, adds "Yes (Show Sol.)" and "No (Skip Sol.)" buttons, and automates next steps based on correctness choice. Includes a **Canvas Capture Automation** (triggered by `Opt+D` on PlayerView pages) to automatically seek and download slides as images, and a **Proper Dark Mode** (canvas inversion, iframe background overrides, general CSS theme, and image inversion for consistency). Includes enhanced practice UI buttons and layout fixes for media controls. **Fixed lesson indexing and implemented recursive lesson capture (auto-advancing to the next lesson until unit completion).**
 - **Forbes Paywall Bypass**: Removes article modals and backdrops, and restores scrolling on forbes.com to bypass paywall.
 
+
+
+--- GitHub Connector Context ---
+Target Private Repository: 'mattdanielmurphy/userscript-bundler'
+IMPORTANT: You have access to my authenticated GitHub account via your GitHub connector. Please use your GitHub connector to directly read, search, and inspect the codebase, files, and documentation in my repository 'mattdanielmurphy/userscript-bundler' (including private files and configs) as needed to construct this plan.
+
+
+Please act as a senior architect and systems planner. Analyze the request and output a detailed, actionable implementation plan for the orchestrator.
+
+The plan MUST include:
+1. Architectural Strategy: High-level overview of the proposed approach.
+2. Data Structures & State Management: Define new data structures or changes to existing state.
+3. API/Interface Contracts: Define function signatures, classes, and expected interface contracts.
+4. Logic Flow & Algorithms: Step-by-step pseudo-code or logic description for the main execution flow.
+5. Error Handling & Edge Cases: Identify potential failure points and mitigation strategies.
+6. Implementation Steps: A list of specific files to modify and the required changes in each, ordered for execution.
+
+DO NOT provide full code implementations. Focus on structural details, signatures, and clear instructions so that downstream agents can implement the changes efficiently without guessing. Ensure all decisions are concrete and leave no gaps in requirements.

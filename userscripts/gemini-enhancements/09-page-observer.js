@@ -24,7 +24,44 @@ function removeAdvUpsell(warnIfMissing = false) {
 }
 
 let lastSidebarClickTime = 0
+let userClosedSidebar = false
+
+function isSidebarClosed() {
+	const openButton = document.querySelector(
+		'button.side-nav-sparkle-button[aria-label="Open sidebar"]',
+	)
+	return !!(openButton && openButton.offsetParent !== null)
+}
+
+// Track the user's own intent generically: rather than guessing the exact
+// close-button markup (which can change), watch for any *trusted* (real,
+// human) click that causes the sidebar to transition open -> closed, and
+// stop auto-reopening until the user opens it again themselves. Our own
+// programmatic reopen click (openButton.click()) is untrusted, so it is
+// naturally excluded from this detection.
+function setupSidebarIntentTracking() {
+	document.addEventListener(
+		"click",
+		(e) => {
+			if (!e.isTrusted) return
+			const wasClosed = isSidebarClosed()
+			setTimeout(() => {
+				const nowClosed = isSidebarClosed()
+				if (nowClosed === wasClosed) return
+				if (nowClosed) {
+					userClosedSidebar = true
+					console.log("[GMT] Sidebar persistence: user closed sidebar, will not auto-reopen.")
+				} else {
+					userClosedSidebar = false
+				}
+			}, 50)
+		},
+		true,
+	)
+}
+
 function ensureSidebarOpen() {
+	if (userClosedSidebar) return
 	const now = Date.now()
 	if (now - lastSidebarClickTime < 3000) return
 	const openButton = document.querySelector(
@@ -47,6 +84,7 @@ function startObservers() {
 		return
 	}
 	ensureTooltip()
+	setupSidebarIntentTracking()
 	ensureSidebarOpen()
 	new MutationObserver((mutations) => {
 		// Check if mutations only contain typing/editing events or temp sync elements

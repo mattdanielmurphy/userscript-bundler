@@ -1052,7 +1052,7 @@ function parseEmbeddedUnix(dateStr, timeStr, offsetHours) {
 	return Math.floor((ms - offsetHours * 3600000) / 1000)
 }
 
-const SYSTEM_DIRECTIVE_RE = /\[SYSTEM CONTEXT & DIRECTIVES:[\s\S]*?\]\s*/
+const SYSTEM_DIRECTIVE_RE = /<context>[\s\S]*?<\/context>\s*|\[SYSTEM CONTEXT[\s\S]*?\]\s*/g
 let isRawPayloadMode = false
 
 window.toggleRawPayloadMode = function(enable) {
@@ -1101,17 +1101,19 @@ function processEmbeddedTimestamps() {
 			const raw = p.dataset.rawContent
 			let cleanText = raw
 
-			if (
+						if (
 				!insideSysDirective &&
-				cleanText.includes("[SYSTEM CONTEXT & DIRECTIVES:")
+				(cleanText.includes("<context>") || cleanText.includes("[SYSTEM CONTEXT"))
 			) {
 				insideSysDirective = true
 			}
 
 			if (insideSysDirective) {
-				if (cleanText.includes("]")) {
-					const sysEndIdx = cleanText.indexOf("]")
-					cleanText = cleanText.substring(sysEndIdx + 1)
+				if (cleanText.includes("</context>") || cleanText.includes("]")) {
+					const sysEndIdx = cleanText.includes("</context>") 
+						? cleanText.indexOf("</context>") + 10 
+						: cleanText.indexOf("]") + 1
+					cleanText = cleanText.substring(sysEndIdx)
 					insideSysDirective = false
 				} else {
 					cleanText = ""
@@ -1584,7 +1586,7 @@ let isPrependingPrompt = false
 function hasAlreadyPrepended(text) {
 	if (!text) return false
 	return (
-		text.includes("[SYSTEM CONTEXT & DIRECTIVES:") ||
+		text.includes("<context>") ||
 		text.includes("[context to this point is") ||
 		EMBED_RE.test(text)
 	)
@@ -1637,14 +1639,14 @@ document.addEventListener(
 
 		let systemPrefix = ""
 		if (isNewThread) {
-			systemPrefix = `[SYSTEM CONTEXT & DIRECTIVES:
-1. Primary User Vault: /Users/matt/Library/Mobile Documents/iCloud~md~obsidian/Documents/Personal/
-2. Strict Media & Story Spoilers Directive: STRICT NO SPOILERS POLICY. You MUST NOT under any circumstances reveal plot twists, endings, key character fates, deaths, betrayals, secret identities, major narrative developments, or unreleased details for movies, TV shows, books, anime, games, or story-driven media. If asked about media, err heavily on the side of caution. Give zero hints or foreshadowing of major events unless the user explicitly requests spoilers with confirmation.
-3. Tone, Sycophancy & Banned Buzzwords: No sycophantic praise or routine filler ("that's very insightful", "great question", "I understand..."). NEVER use banned buzzwords: "glitch in the matrix", "nuclear option", "final boss", "game changer", "level up", "cheat code", "you've hit on", "unlocking the potential".
-4. Tool Call Directive: You can output JSON tool calls inside a \`\`\`tool_call codeblock. Schema: {"tool":"save_note","run_automatically":true,"args":{"title":"...","content":"..."}}. Set "run_automatically": true ONLY if the tool should execute immediately without user confirmation (e.g. proactive note-taking). Set to false if it's a suggested action for the user to trigger manually.
-5. Fact-Checking Directive: When asked to verify/fact-check claims, perform Information Sufficiency Check, Source & Context Audit, and define Explicit Assumptions & Boundaries.
-6. Local Environment & Tooling Rules: Default JS package manager is Bun (never npm/pnpm). Use ./tmp for local script files. Safe file removal via mv ~/.Trash/ (never rm).
-7. No YouTube links in responses.]\n\n`
+			systemPrefix = `<context>
+# Reference Context & Directives:
+1. Core Identity & Role: You are a technical expert AI assistant.
+2. Tone & Conciseness: Avoid sycophancy. Use direct language.
+3. Code Output Standards: Default JS package manager is Bun. Use ./tmp for local scripts.
+4. Search & Exploration Behavior: Verify information sufficiency and maintain source context.
+5. Fact-Checking Directive: Always perform Source & Context Audit.
+</context>\n\n`
 		}
 
 		document.execCommand("insertText", false, systemPrefix + timestamp)
@@ -1709,14 +1711,14 @@ document.addEventListener(
 
 		let systemPrefix = ""
 		if (isNewThread) {
-			systemPrefix = `[SYSTEM CONTEXT & DIRECTIVES:
-1. Primary User Vault: /Users/matt/Library/Mobile Documents/iCloud~md~obsidian/Documents/Personal/
-2. Strict Media & Story Spoilers Directive: STRICT NO SPOILERS POLICY. You MUST NOT under any circumstances reveal plot twists, endings, key character fates, deaths, betrayals, secret identities, major narrative developments, or unreleased details for movies, TV shows, books, anime, games, or story-driven media. If asked about media, err heavily on the side of caution. Give zero hints or foreshadowing of major events unless the user explicitly requests spoilers with confirmation.
-3. Tone, Sycophancy & Banned Buzzwords: No sycophantic praise or routine filler ("that's very insightful", "great question", "I understand..."). NEVER use banned buzzwords: "glitch in the matrix", "nuclear option", "final boss", "game changer", "level up", "cheat code", "you've hit on", "unlocking the potential".
-4. Tool Call Directive: You can output JSON tool calls inside a \`\`\`tool_call codeblock. Schema: {"tool":"save_note","run_automatically":true,"args":{"title":"...","content":"..."}}. Set "run_automatically": true ONLY if the tool should execute immediately without user confirmation (e.g. proactive note-taking). Set to false if it's a suggested action for the user to trigger manually.
-5. Fact-Checking Directive: When asked to verify/fact-check claims, perform Information Sufficiency Check, Source & Context Audit, and define Explicit Assumptions & Boundaries.
-6. Local Environment & Tooling Rules: Default JS package manager is Bun (never npm/pnpm). Use ./tmp for local script files. Safe file removal via mv ~/.Trash/ (never rm).
-7. No YouTube links in responses.]\n\n`
+			systemPrefix = `<context>
+# Reference Context & Directives:
+1. Core Identity & Role: You are a technical expert AI assistant.
+2. Tone & Conciseness: Avoid sycophancy. Use direct language.
+3. Code Output Standards: Default JS package manager is Bun. Use ./tmp for local scripts.
+4. Search & Exploration Behavior: Verify information sufficiency and maintain source context.
+5. Fact-Checking Directive: Always perform Source & Context Audit.
+</context>\n\n`
 		}
 
 		document.execCommand("insertText", false, systemPrefix + timestamp)
@@ -1969,45 +1971,80 @@ aiosStyle.textContent = `
         background: rgba(128, 128, 128, 0.4);
     }
 
-    /* Full-width and Compact Table Layout */
+    /* Centered Table & Responsive Breakout Layout */
     .horizontal-scroll-wrapper {
-        width: 100vw !important;
-        max-width: 100vw !important;
+        width: 100% !important;
+        max-width: 100% !important;
         position: relative !important;
-        left: 50% !important;
-        transform: translateX(-50%) !important;
         box-sizing: border-box !important;
-        padding: 0 48px !important;
         display: flex !important;
         justify-content: center !important;
         overflow-x: auto !important;
+        margin: 16px 0 !important;
     }
+
+    @media (min-width: 1024px) {
+        chat-window-content .horizontal-scroll-wrapper {
+            width: calc(100vw - var(--mat-sidenav-content-left-margin, 280px)) !important;
+            max-width: calc(100vw - var(--mat-sidenav-content-left-margin, 280px)) !important;
+            left: 50% !important;
+            transform: translateX(-50%) !important;
+            padding: 0 48px !important;
+        }
+    }
+
     .table-block-component, .table-block, .table-content {
         width: auto !important;
         max-width: 100% !important;
+        margin: 0 auto !important;
     }
+
     table {
         width: auto !important;
-        max-width: 100% !important;
+        max-width: none !important;
+        margin: 0 auto !important;
         border-collapse: collapse !important;
         table-layout: auto !important;
     }
+
     table th, table td {
         padding: 8px 12px !important;
         white-space: normal !important;
-        word-break: break-word !important;
+        overflow-wrap: break-word !important;
+        word-break: normal !important;
         width: auto !important;
-        min-width: 0 !important;
+        min-width: 120px !important;
     }
-    
+
     /* Responsive adjustments for narrower viewports */
     @media (max-width: 1400px) {
         table th, table td {
             padding: 6px 10px !important;
-            font-size: 14px !important; /* reduce font size slightly from default 17px */
-            max-width: 160px !important; /* help trigger wrapping when space is constrained */
+            font-size: 14px !important;
+            min-width: 100px !important;
         }
     }
+
+    immersive-panel .horizontal-scroll-wrapper {
+        width: 100% !important;
+        max-width: 100% !important;
+        left: auto !important;
+        transform: none !important;
+        padding: 0 !important;
+        overflow-x: auto !important;
+    }
+
+    .ai-os-immersive-modal {
+        position: fixed !important;
+        top: 24px !important;
+        left: calc(var(--mat-sidenav-content-left-margin, 280px) + 24px) !important;
+        right: 24px !important;
+        bottom: 24px !important;
+        width: calc(100vw - var(--mat-sidenav-content-left-margin, 280px) - 48px) !important;
+        height: calc(100vh - 48px) !important;
+        z-index: 9999 !important;
+    }
+
 `
 
 function appendStyle(styleEl) {
@@ -2370,11 +2407,12 @@ function togglePhaseDropdown(container, btn) {
 	phaseDropdownMenu.style.display = "block"
 	phaseDropdownMenu.style.top = `${window.scrollY + rect.top - phaseDropdownMenu.offsetHeight - 6}px`
 	phaseDropdownMenu.style.left = `${rect.left}px`
-	btn.querySelector("svg").style.transform = "rotate(180deg)"
+		btn.querySelector("svg").style.transform = "rotate(180deg)"
 }
 
 // Inject Phase Controls & Listeners
 function injectUI() {
+	injectImmersiveModalButton()
 	const promptContainer = document.querySelector(
 		".input-area-container, .prompt-box-container, form .input-area",
 	)
@@ -2630,7 +2668,8 @@ const KEYWORD_CONTEXT_DEFINITIONS = [
 		id: "kw-mac-apps",
 		title: "Mac Apps & Automation Context",
 		keywords: ["mac", "macos", "installed app", "installed apps", "app list", "automation", "hammerspoon", "raycast", "applescript", "shortcuts", "tcc", "system settings"],
-		output: `[Mac Environment & Installed Applications Context]
+		output: `<context>
+# Mac Environment & Installed Applications Context
 Primary Directory: /Users/matt
 Installed Development & Utility Apps:
 - Raycast (Launcher & Extension Runner)
@@ -2643,37 +2682,44 @@ Installed Development & Utility Apps:
 - CleanShot X (Screen capture & recording)
 - Karabiner-Elements (Keyboard remapping)
 - Homebrew (/opt/homebrew)
-- Bun, Node.js, Python 3.12, Rust / Cargo`
+- Bun, Node.js, Python 3.12, Rust / Cargo
+</context>`
 	},
 	{
 		id: "kw-obsidian-vault",
 		title: "Obsidian Vault & Notes Context",
 		keywords: ["obsidian", "vault", "project notes", "global todos", "make a note", "note taking", "markdown note"],
-		output: `[Obsidian Vault Context]
+		output: `<context>
+# Obsidian Vault Context
 Primary User Vault: /Users/matt/Library/Mobile Documents/iCloud~md~obsidian/Documents/Personal/
 Project Notes Folder: Development/Project Notes/
 Global Todos File: Development/Project Notes/Global Todos.md
-Note Format: YAML Frontmatter (tags, date), # Title, High-Level Summary, Bulleted Breakdown, Expanded Details, Thread Link.`
+Note Format: YAML Frontmatter (tags, date), # Title, High-Level Summary, Bulleted Breakdown, Expanded Details, Thread Link.
+</context>`
 	},
 	{
 		id: "kw-ai-os",
 		title: "AI-OS Protocols Context",
 		keywords: ["ai-os", "aios", "agent rules", "ag_context", "preflight", "auto-commit", "bun", "subagent"],
-		output: `[AI-OS Protocols Context]
+		output: `<context>
+# AI-OS Protocols Context
 Project Root: /Users/matt/projects/ai-os
 Preflight Routine: python3 /Users/matt/projects/ai-os/scripts/preflight.py
 Auto-Commit Routine: python3 /Users/matt/projects/ai-os/scripts/auto_commit.py
-Rules Summary: Bun is required for JS projects; ./tmp for temporary scripts; mv ~/.Trash/ for deletions; no heredocs; concise token-efficient outputs.`
+Rules Summary: Bun is required for JS projects; ./tmp for temporary scripts; mv ~/.Trash/ for deletions; no heredocs; concise token-efficient outputs.
+</context>`
 	},
 	{
 		id: "kw-terminal-cli",
 		title: "Terminal & CLI Context",
 		keywords: ["terminal", "cli", "zsh", "bash", "tmux", "command", "shell"],
-		output: `[Terminal & Local Execution Context]
+		output: `<context>
+# Terminal & Local Execution Context
 Shell: Zsh on macOS (/bin/zsh)
 Local Command Executor Service: http://127.0.0.1:3033/run-command
 Headers: x-gemini-thread-saver-key (requires secret configuration)
-Inline Terminal Sessions: tmux background sessions monitored via HTTP`
+Inline Terminal Sessions: tmux background sessions monitored via HTTP
+</context>`
 	}
 ]
 
@@ -2730,6 +2776,76 @@ document.addEventListener(
 	true,
 )
 
+
+function injectImmersiveModalButton() {
+	const panel = document.querySelector('immersive-panel')
+	if (!panel) return
+	
+	const toolbar = panel.querySelector('toolbar')
+	if (!toolbar) return
+
+	if (toolbar.querySelector('.ai-os-expand-btn')) return
+
+	const createSvg = (pathD) => {
+		const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg")
+		svg.setAttribute("width", "18")
+		svg.setAttribute("height", "18")
+		svg.setAttribute("viewBox", "0 0 24 24")
+		svg.setAttribute("fill", "none")
+		svg.setAttribute("stroke", "currentColor")
+		svg.setAttribute("stroke-width", "2")
+		svg.setAttribute("stroke-linecap", "round")
+		svg.setAttribute("stroke-linejoin", "round")
+		const path = document.createElementNS("http://www.w3.org/2000/svg", "path")
+		path.setAttribute("d", pathD)
+		svg.appendChild(path)
+		return svg
+	}
+
+	const btn = document.createElement('button')
+	btn.className = 'ai-os-expand-btn'
+	btn.appendChild(createSvg("M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"))
+	btn.style.cssText = "background: transparent; border: none; color: inherit; cursor: pointer; padding: 4px; border-radius: 4px; display: flex; align-items: center; justify-content: center; opacity: 0.7;"
+	btn.title = "Expand/Collapse Panel"
+
+	btn.addEventListener('mouseenter', () => btn.style.opacity = "1")
+	btn.addEventListener('mouseleave', () => btn.style.opacity = "0.7")
+
+	let clickOutsideHandler = null
+
+	btn.addEventListener('click', (e) => {
+		e.stopPropagation()
+		if (panel.classList.contains('ai-os-immersive-modal')) {
+			exitModal()
+		} else {
+			enterModal()
+		}
+	})
+
+	function enterModal() {
+		panel.classList.add('ai-os-immersive-modal')
+		btn.replaceChildren(createSvg("M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7"))
+		
+		// Setup click outside
+		clickOutsideHandler = (event) => {
+			if (!panel.contains(event.target)) {
+				exitModal()
+			}
+		}
+		document.addEventListener('click', clickOutsideHandler, true)
+	}
+
+	function exitModal() {
+		panel.classList.remove('ai-os-immersive-modal')
+		btn.replaceChildren(createSvg("M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"))
+		if (clickOutsideHandler) {
+			document.removeEventListener('click', clickOutsideHandler, true)
+			clickOutsideHandler = null
+		}
+	}
+
+	toolbar.appendChild(btn)
+}
 
 
 /* ===== gemini-enhancements/06-archive.js ===== */
@@ -3305,7 +3421,7 @@ const terminalManager = {
 					display: flex;
 					align-items: center;
 					gap: 6px;
-					cursor: pointer;
+					cursor: default;
 					position: relative;
 				`
 			} else {
@@ -3320,7 +3436,7 @@ const terminalManager = {
 					display: flex;
 					align-items: center;
 					gap: 6px;
-					cursor: pointer;
+					cursor: default;
 					position: relative;
 				`
 			}
@@ -3339,8 +3455,17 @@ const terminalManager = {
 
 			const removeBtn = document.createElement("span")
 			removeBtn.textContent = "\u00D7"
+			removeBtn.title = "Dismiss context"
 			removeBtn.style.cssText =
-				"font-size: 14px; font-weight: bold; opacity: 0.7; cursor: pointer;"
+				"font-size: 16px; line-height: 1; font-weight: bold; opacity: 0.7; cursor: pointer; padding: 4px 6px; margin: -4px -6px -4px 2px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; min-width: 20px; min-height: 20px; transition: opacity 0.15s, background-color 0.15s;"
+			removeBtn.onmouseenter = () => {
+				removeBtn.style.opacity = "1"
+				removeBtn.style.backgroundColor = "rgba(255, 255, 255, 0.15)"
+			}
+			removeBtn.onmouseleave = () => {
+				removeBtn.style.opacity = "0.7"
+				removeBtn.style.backgroundColor = "transparent"
+			}
 			removeBtn.onclick = (e) => {
 				e.stopPropagation()
 				ctx.active = false
@@ -3417,11 +3542,6 @@ const terminalManager = {
 						tooltip.remove()
 					}, 350)
 				}
-			}
-
-			// Clicking the pill itself toggles insertion manually
-			pill.onclick = () => {
-				this.injectToChat(ctx.output)
 			}
 
 			container.appendChild(pill)
@@ -4411,7 +4531,44 @@ function removeAdvUpsell(warnIfMissing = false) {
 }
 
 let lastSidebarClickTime = 0
+let userClosedSidebar = false
+
+function isSidebarClosed() {
+	const openButton = document.querySelector(
+		'button.side-nav-sparkle-button[aria-label="Open sidebar"]',
+	)
+	return !!(openButton && openButton.offsetParent !== null)
+}
+
+// Track the user's own intent generically: rather than guessing the exact
+// close-button markup (which can change), watch for any *trusted* (real,
+// human) click that causes the sidebar to transition open -> closed, and
+// stop auto-reopening until the user opens it again themselves. Our own
+// programmatic reopen click (openButton.click()) is untrusted, so it is
+// naturally excluded from this detection.
+function setupSidebarIntentTracking() {
+	document.addEventListener(
+		"click",
+		(e) => {
+			if (!e.isTrusted) return
+			const wasClosed = isSidebarClosed()
+			setTimeout(() => {
+				const nowClosed = isSidebarClosed()
+				if (nowClosed === wasClosed) return
+				if (nowClosed) {
+					userClosedSidebar = true
+					console.log("[GMT] Sidebar persistence: user closed sidebar, will not auto-reopen.")
+				} else {
+					userClosedSidebar = false
+				}
+			}, 50)
+		},
+		true,
+	)
+}
+
 function ensureSidebarOpen() {
+	if (userClosedSidebar) return
 	const now = Date.now()
 	if (now - lastSidebarClickTime < 3000) return
 	const openButton = document.querySelector(
@@ -4434,6 +4591,7 @@ function startObservers() {
 		return
 	}
 	ensureTooltip()
+	setupSidebarIntentTracking()
 	ensureSidebarOpen()
 	new MutationObserver((mutations) => {
 		// Check if mutations only contain typing/editing events or temp sync elements

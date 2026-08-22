@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OpenRouter Credit Reminder
 // @namespace    openrouter.credit.reminder
-// @version      1.0
+// @version      1.1
 // @description  Show a service fee reminder on the OpenRouter Add Credits modal when inputting amounts.
 // @match        https://openrouter.ai/settings/credits
 // @grant        none
@@ -22,10 +22,21 @@
     );
     if (!container) return;
 
+    //! DOES NOT WORK: (who cares anyway)
+    // const input = container.querySelector('input[name="creditAmount"]');
+    // if (input && !input.value) {
+    //   const nativeSetter = Object.getOwnPropertyDescriptor(
+    //     window.HTMLInputElement.prototype,
+    //     'value'
+    //   ).set;
+    //   nativeSetter.call(input, '15');
+    //   input.dispatchEvent(new Event('input', { bubbles: true }));
+    // }
+
     const reminder = document.createElement('div');
     reminder.id = 'or-service-fee-reminder';
     reminder.textContent =
-      '💡 Reminder: Flat $0.80 service fee. Adding small amounts (like $5) is less cost-effective!';
+    '💡 Reload > $15 to hit the $0.80 flat fee floor without paying extra percentage cents.'
 
     Object.assign(reminder.style, {
       fontSize: '12px',

@@ -145,7 +145,7 @@ let isPrependingPrompt = false
 function hasAlreadyPrepended(text) {
 	if (!text) return false
 	return (
-		text.includes("[SYSTEM CONTEXT & DIRECTIVES:") ||
+		text.includes("<context>") ||
 		text.includes("[context to this point is") ||
 		EMBED_RE.test(text)
 	)
@@ -198,14 +198,14 @@ document.addEventListener(
 
 		let systemPrefix = ""
 		if (isNewThread) {
-			systemPrefix = `[SYSTEM CONTEXT & DIRECTIVES:
-1. Primary User Vault: /Users/matt/Library/Mobile Documents/iCloud~md~obsidian/Documents/Personal/
-2. Strict Media & Story Spoilers Directive: STRICT NO SPOILERS POLICY. You MUST NOT under any circumstances reveal plot twists, endings, key character fates, deaths, betrayals, secret identities, major narrative developments, or unreleased details for movies, TV shows, books, anime, games, or story-driven media. If asked about media, err heavily on the side of caution. Give zero hints or foreshadowing of major events unless the user explicitly requests spoilers with confirmation.
-3. Tone, Sycophancy & Banned Buzzwords: No sycophantic praise or routine filler ("that's very insightful", "great question", "I understand..."). NEVER use banned buzzwords: "glitch in the matrix", "nuclear option", "final boss", "game changer", "level up", "cheat code", "you've hit on", "unlocking the potential".
-4. Tool Call Directive: You can output JSON tool calls inside a \`\`\`tool_call codeblock. Schema: {"tool":"save_note","run_automatically":true,"args":{"title":"...","content":"..."}}. Set "run_automatically": true ONLY if the tool should execute immediately without user confirmation (e.g. proactive note-taking). Set to false if it's a suggested action for the user to trigger manually.
-5. Fact-Checking Directive: When asked to verify/fact-check claims, perform Information Sufficiency Check, Source & Context Audit, and define Explicit Assumptions & Boundaries.
-6. Local Environment & Tooling Rules: Default JS package manager is Bun (never npm/pnpm). Use ./tmp for local script files. Safe file removal via mv ~/.Trash/ (never rm).
-7. No YouTube links in responses.]\n\n`
+			systemPrefix = `<context>
+# Reference Context & Directives:
+1. Core Identity & Role: You are a technical expert AI assistant.
+2. Tone & Conciseness: Avoid sycophancy. Use direct language.
+3. Code Output Standards: Default JS package manager is Bun. Use ./tmp for local scripts.
+4. Search & Exploration Behavior: Verify information sufficiency and maintain source context.
+5. Fact-Checking Directive: Always perform Source & Context Audit.
+</context>\n\n`
 		}
 
 		document.execCommand("insertText", false, systemPrefix + timestamp)
@@ -270,14 +270,14 @@ document.addEventListener(
 
 		let systemPrefix = ""
 		if (isNewThread) {
-			systemPrefix = `[SYSTEM CONTEXT & DIRECTIVES:
-1. Primary User Vault: /Users/matt/Library/Mobile Documents/iCloud~md~obsidian/Documents/Personal/
-2. Strict Media & Story Spoilers Directive: STRICT NO SPOILERS POLICY. You MUST NOT under any circumstances reveal plot twists, endings, key character fates, deaths, betrayals, secret identities, major narrative developments, or unreleased details for movies, TV shows, books, anime, games, or story-driven media. If asked about media, err heavily on the side of caution. Give zero hints or foreshadowing of major events unless the user explicitly requests spoilers with confirmation.
-3. Tone, Sycophancy & Banned Buzzwords: No sycophantic praise or routine filler ("that's very insightful", "great question", "I understand..."). NEVER use banned buzzwords: "glitch in the matrix", "nuclear option", "final boss", "game changer", "level up", "cheat code", "you've hit on", "unlocking the potential".
-4. Tool Call Directive: You can output JSON tool calls inside a \`\`\`tool_call codeblock. Schema: {"tool":"save_note","run_automatically":true,"args":{"title":"...","content":"..."}}. Set "run_automatically": true ONLY if the tool should execute immediately without user confirmation (e.g. proactive note-taking). Set to false if it's a suggested action for the user to trigger manually.
-5. Fact-Checking Directive: When asked to verify/fact-check claims, perform Information Sufficiency Check, Source & Context Audit, and define Explicit Assumptions & Boundaries.
-6. Local Environment & Tooling Rules: Default JS package manager is Bun (never npm/pnpm). Use ./tmp for local script files. Safe file removal via mv ~/.Trash/ (never rm).
-7. No YouTube links in responses.]\n\n`
+			systemPrefix = `<context>
+# Reference Context & Directives:
+1. Core Identity & Role: You are a technical expert AI assistant.
+2. Tone & Conciseness: Avoid sycophancy. Use direct language.
+3. Code Output Standards: Default JS package manager is Bun. Use ./tmp for local scripts.
+4. Search & Exploration Behavior: Verify information sufficiency and maintain source context.
+5. Fact-Checking Directive: Always perform Source & Context Audit.
+</context>\n\n`
 		}
 
 		document.execCommand("insertText", false, systemPrefix + timestamp)
@@ -1227,7 +1227,8 @@ const KEYWORD_CONTEXT_DEFINITIONS = [
 		id: "kw-mac-apps",
 		title: "Mac Apps & Automation Context",
 		keywords: ["mac", "macos", "installed app", "installed apps", "app list", "automation", "hammerspoon", "raycast", "applescript", "shortcuts", "tcc", "system settings"],
-		output: `[Mac Environment & Installed Applications Context]
+		output: `<context>
+# Mac Environment & Installed Applications Context
 Primary Directory: /Users/matt
 Installed Development & Utility Apps:
 - Raycast (Launcher & Extension Runner)
@@ -1240,37 +1241,44 @@ Installed Development & Utility Apps:
 - CleanShot X (Screen capture & recording)
 - Karabiner-Elements (Keyboard remapping)
 - Homebrew (/opt/homebrew)
-- Bun, Node.js, Python 3.12, Rust / Cargo`
+- Bun, Node.js, Python 3.12, Rust / Cargo
+</context>`
 	},
 	{
 		id: "kw-obsidian-vault",
 		title: "Obsidian Vault & Notes Context",
 		keywords: ["obsidian", "vault", "project notes", "global todos", "make a note", "note taking", "markdown note"],
-		output: `[Obsidian Vault Context]
+		output: `<context>
+# Obsidian Vault Context
 Primary User Vault: /Users/matt/Library/Mobile Documents/iCloud~md~obsidian/Documents/Personal/
 Project Notes Folder: Development/Project Notes/
 Global Todos File: Development/Project Notes/Global Todos.md
-Note Format: YAML Frontmatter (tags, date), # Title, High-Level Summary, Bulleted Breakdown, Expanded Details, Thread Link.`
+Note Format: YAML Frontmatter (tags, date), # Title, High-Level Summary, Bulleted Breakdown, Expanded Details, Thread Link.
+</context>`
 	},
 	{
 		id: "kw-ai-os",
 		title: "AI-OS Protocols Context",
 		keywords: ["ai-os", "aios", "agent rules", "ag_context", "preflight", "auto-commit", "bun", "subagent"],
-		output: `[AI-OS Protocols Context]
+		output: `<context>
+# AI-OS Protocols Context
 Project Root: /Users/matt/projects/ai-os
 Preflight Routine: python3 /Users/matt/projects/ai-os/scripts/preflight.py
 Auto-Commit Routine: python3 /Users/matt/projects/ai-os/scripts/auto_commit.py
-Rules Summary: Bun is required for JS projects; ./tmp for temporary scripts; mv ~/.Trash/ for deletions; no heredocs; concise token-efficient outputs.`
+Rules Summary: Bun is required for JS projects; ./tmp for temporary scripts; mv ~/.Trash/ for deletions; no heredocs; concise token-efficient outputs.
+</context>`
 	},
 	{
 		id: "kw-terminal-cli",
 		title: "Terminal & CLI Context",
 		keywords: ["terminal", "cli", "zsh", "bash", "tmux", "command", "shell"],
-		output: `[Terminal & Local Execution Context]
+		output: `<context>
+# Terminal & Local Execution Context
 Shell: Zsh on macOS (/bin/zsh)
 Local Command Executor Service: http://127.0.0.1:3033/run-command
 Headers: x-gemini-thread-saver-key (requires secret configuration)
-Inline Terminal Sessions: tmux background sessions monitored via HTTP`
+Inline Terminal Sessions: tmux background sessions monitored via HTTP
+</context>`
 	}
 ]
 
@@ -1337,9 +1345,25 @@ function injectImmersiveModalButton() {
 
 	if (toolbar.querySelector('.ai-os-expand-btn')) return
 
+	const createSvg = (pathD) => {
+		const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg")
+		svg.setAttribute("width", "18")
+		svg.setAttribute("height", "18")
+		svg.setAttribute("viewBox", "0 0 24 24")
+		svg.setAttribute("fill", "none")
+		svg.setAttribute("stroke", "currentColor")
+		svg.setAttribute("stroke-width", "2")
+		svg.setAttribute("stroke-linecap", "round")
+		svg.setAttribute("stroke-linejoin", "round")
+		const path = document.createElementNS("http://www.w3.org/2000/svg", "path")
+		path.setAttribute("d", pathD)
+		svg.appendChild(path)
+		return svg
+	}
+
 	const btn = document.createElement('button')
 	btn.className = 'ai-os-expand-btn'
-	btn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>`
+	btn.appendChild(createSvg("M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"))
 	btn.style.cssText = "background: transparent; border: none; color: inherit; cursor: pointer; padding: 4px; border-radius: 4px; display: flex; align-items: center; justify-content: center; opacity: 0.7;"
 	btn.title = "Expand/Collapse Panel"
 
@@ -1359,7 +1383,7 @@ function injectImmersiveModalButton() {
 
 	function enterModal() {
 		panel.classList.add('ai-os-immersive-modal')
-		btn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7"/></svg>`
+		btn.replaceChildren(createSvg("M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7"))
 		
 		// Setup click outside
 		clickOutsideHandler = (event) => {
@@ -1372,7 +1396,7 @@ function injectImmersiveModalButton() {
 
 	function exitModal() {
 		panel.classList.remove('ai-os-immersive-modal')
-		btn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>`
+		btn.replaceChildren(createSvg("M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"))
 		if (clickOutsideHandler) {
 			document.removeEventListener('click', clickOutsideHandler, true)
 			clickOutsideHandler = null

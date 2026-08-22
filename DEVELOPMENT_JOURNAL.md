@@ -19,6 +19,7 @@
 ## 2026-08-06
 - **Fix Multi-Line System Directive Stripping:** Updated `03-timestamps.js` to track multi-line `[SYSTEM CONTEXT & DIRECTIVES:]` state across paragraph nodes in `user-query` containers and hide system directive lines from prompt display. See [agent-logs/2026-08-06_19-56_fix_system_directives_stripping.md](file:///Users/matt/projects/userscript-bundler/agent-logs/2026-08-06_19-56_fix_system_directives_stripping.md).
 
-## 2026-08-08
-- **iCloud Userscripts One-Way Sync:** Added `generateUserscriptHeader` with baseline GM grants/connects to `bundler.cjs` and automated one-way sync of `userscript_bundle.user.js` into Safari's iCloud Userscripts directory. See [agent-logs/2026-08-08_14-16_icloud-userscript-sync.md](file:///Users/matt/projects/userscript-bundler/agent-logs/2026-08-08_14-16_icloud-userscript-sync.md).
-
+## 2026-08-16
+- **YouTube Highlight Reel URL Parameters & Skill:** Added URL parameter parsing (`highlights`, `reel`, `segments`), automated segment seeking/skipping, heatmap progress bar rendering, and shareable link generation (`copyHighlightReelUrl`) to `youtube-master.user.js`. Created `_link-youtube-highlights` skill in `ai-os`. See [agent-logs/2026-08-16_18-10_youtube-highlight-url-params.md](file:///Users/matt/projects/userscript-bundler/agent-logs/2026-08-16_18-10_youtube-highlight-url-params.md).
+## 2026-08-21
+- **Context Chip Dismiss Target & Click Injection Fix:** Enlarged the close target (`×`) on context pills with circular hitboxes and hover highlights, and eliminated body click paste-to-chat injection to prevent accidental cascaded pastes when typing or dismissing chips. See [agent-logs/2026-08-21_21-30_context-chip-dismiss-fix.md](file:///Users/matt/projects/userscript-bundler/agent-logs/2026-08-21_21-30_context-chip-dismiss-fix.md).

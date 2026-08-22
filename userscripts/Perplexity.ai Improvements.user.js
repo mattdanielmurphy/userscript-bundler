@@ -440,734 +440,734 @@
 })()
 
 //!    7d. Homepage — hide composer Computer chip & topic shortcut nav
-;(() => {
-    const win = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window
-    if (win.__PPLX_BISECT && !win.__PPLX_BISECT.has('7d')) return
-    if (window.self !== window.top) return
-
-    const whenHome = win.__pplxWhenHomepage
-    const hideElement = win.__pplxHideElement
-    if (!whenHome || !hideElement) return
-
-    const STYLE_ID = 'pplx-chrome-hidden-style'
-    const COUNCIL_SUPPRESS_CLASS = 'pplx-suppress-model-council'
-    const COMPUTER_MODE_SUPPRESS_CLASS = 'pplx-suppress-computer-mode'
-    const MAX_MODEL_SUPPRESS_CLASS = 'pplx-suppress-max-model'
-    const TOPIC_NAV_PATHS = [
-        '/discover',
-        '/finance',
-        '/health',
-        '/academic',
-        '/patents',
-    ]
-    const TOPIC_NAV_LABELS = [
-        'discover',
-        'finance',
-        'health',
-        'academic',
-        'patents',
-    ]
-
-    function useHref(useEl) {
-        return (
-            useEl.getAttribute('href') ||
-            useEl.getAttribute('xlink:href') ||
-            (useEl.href && useEl.href.baseVal) ||
-            ''
-        ).toLowerCase()
-    }
-
-    function pathnameFromAnchor(a) {
-        const raw = (a.getAttribute('href') || '').trim()
-        if (!raw) return ''
-        try {
-            return (
-                new URL(raw, location.origin).pathname.replace(/\/+$/, '') ||
-                '/'
-            )
-        } catch {
-            return raw.split('?')[0].replace(/\/+$/, '') || '/'
-        }
-    }
-
-    function norm(s) {
-        return (s || '').toLowerCase().replace(/\s+/g, ' ').trim()
-    }
-
-    /** Never hide a subtree that contains the main ask / prompt UI. */
-    function containsComposer(node) {
-        if (!node?.querySelector) return false
-        return !!(
-            node.querySelector('#ask-input') ||
-            node.querySelector('[data-testid="ask-input"]') ||
-            node.querySelector('textarea') ||
-            node.querySelector('[contenteditable="true"]')
-        )
-    }
-
-    /** Query including open shadow roots (Perplexity mounts UI in shadow trees). */
-    function queryAllDeep(selector) {
-        const out = []
-        const visit = (node) => {
-            if (!node?.querySelectorAll) return
-            try {
-                node.querySelectorAll(selector).forEach((el) => out.push(el))
-            } catch {
-                /* invalid selector in some roots */
-            }
-            node.querySelectorAll('*').forEach((el) => {
-                if (el.shadowRoot) visit(el.shadowRoot)
-            })
-        }
-        if (document.body) visit(document.body)
-        else visit(document.documentElement)
-        return out
-    }
-
-    function injectStyles() {
-        if (document.getElementById(STYLE_ID)) return
-        const style = document.createElement('style')
-        style.id = STYLE_ID
-        style.textContent = `
-        button[aria-label="Computer"]:has(use[*|href*="custom-computer"]),
-        button:has(use[*|href*="custom-computer"]):not([aria-haspopup="menu"]),
-        span:has(> span > span > button:has(use[*|href*="custom-computer"])),
-        span:has(> span > button:has(use[*|href*="custom-computer"])),
-        div:has(> a[href*="/discover"]):has(> a[href*="/finance"]):has(> a[href*="/patents"]),
-        [data-testid="ask-input-mode-toggle-indicator"],
-        .${COUNCIL_SUPPRESS_CLASS},
-        .${COMPUTER_MODE_SUPPRESS_CLASS},
-        .${MAX_MODEL_SUPPRESS_CLASS} {
-            display: none !important;
-            visibility: hidden !important;
-            height: 0 !important;
-            min-height: 0 !important;
-            margin: 0 !important;
-            padding: 0 !important;
-            overflow: hidden !important;
-            pointer-events: none !important;
-        }
-        `
-        ;(document.head || document.documentElement).appendChild(style)
-    }
-
-    function hideAskInputModeToggleIndicator() {
-        for (const el of queryAllDeep(
-            '[data-testid="ask-input-mode-toggle-indicator"]'
-        )) {
-            hideElement(el)
-        }
-    }
-
-    function modeMenuItemRow(item) {
-        return (
-            item.closest('[class*="group/search-mode"]') ||
-            item.closest('[class*="group/item"]') ||
-            item
-        )
-    }
-
-    function isModelCouncilMenuItem(el) {
-        if (!el || el.getAttribute('role') !== 'menuitem') return false
-        if (!norm(el.textContent).includes('model council')) return false
-        return Array.from(el.querySelectorAll('use')).some((u) =>
-            useHref(u).includes('gavel')
-        )
-    }
-
-    function isComputerModeMenuItem(el) {
-        if (!el || el.getAttribute('role') !== 'menuitem') return false
-        if (
-            !Array.from(el.querySelectorAll('use')).some((u) =>
-                useHref(u).includes('custom-computer')
-            )
-        )
-            return false
-        const text = norm(el.textContent)
-        return text === 'computer' || text.endsWith(' computer')
-    }
-
-    function spanIsMaxPlanBadge(span) {
-        if (!span || span.tagName !== 'SPAN') return false
-        if (norm(span.textContent) !== 'max') return false
-        const only = [...span.childNodes].every(
-            (n) =>
-                n.nodeType === Node.TEXT_NODE ||
-                (n.nodeType === Node.ELEMENT_NODE && n.tagName === 'SPAN')
-        )
-        if (!only) return false
-        const inner = span.querySelector(':scope > span')
-        return inner ? norm(inner.textContent) === 'max' : true
-    }
-
-    /** Locked Max-tier models use menuitem (not menuitemradio) + lock icon + Max badge. */
-    function isMaxOnlyModelMenuItem(el) {
-        if (!el || el.getAttribute('role') !== 'menuitem') return false
-        if (!el.closest('[role="menu"]')) return false
-        const hasLock = Array.from(el.querySelectorAll('use')).some((u) =>
-            useHref(u).includes('lock')
-        )
-        if (!hasLock) return false
-        return Array.from(el.querySelectorAll('span')).some(spanIsMaxPlanBadge)
-    }
-
-    function modelMenuItemRow(item) {
-        let node = item
-        while (node && node !== document.documentElement) {
-            const parent = node.parentElement
-            if (parent?.getAttribute('role') === 'group') return node
-            node = parent
-        }
-        return item
-    }
-
-    /** Hide only — do not remove DOM (Radix/React menu breaks on remove). */
-    function suppressModelCouncilMenuItem() {
-        for (const item of queryAllDeep('[role="menuitem"]')) {
-            if (!isModelCouncilMenuItem(item)) continue
-            const row = modeMenuItemRow(item)
-            if (row.classList.contains(COUNCIL_SUPPRESS_CLASS)) continue
-            row.classList.add(COUNCIL_SUPPRESS_CLASS)
-            row.setAttribute('aria-hidden', 'true')
-            row.style.setProperty('display', 'none', 'important')
-            row.style.setProperty('pointer-events', 'none', 'important')
-        }
-    }
-
-    function suppressComputerModeMenuItem() {
-        for (const item of queryAllDeep('[role="menuitem"]')) {
-            if (!isComputerModeMenuItem(item)) continue
-            const row = modeMenuItemRow(item)
-            if (row.classList.contains(COMPUTER_MODE_SUPPRESS_CLASS)) continue
-            row.classList.add(COMPUTER_MODE_SUPPRESS_CLASS)
-            row.setAttribute('aria-hidden', 'true')
-            row.style.setProperty('display', 'none', 'important')
-            row.style.setProperty('pointer-events', 'none', 'important')
-        }
-    }
-
-    function suppressMaxOnlyModelMenuItems() {
-        for (const item of queryAllDeep('[role="menuitem"]')) {
-            if (!isMaxOnlyModelMenuItem(item)) continue
-            const row = modelMenuItemRow(item)
-            if (row.classList.contains(MAX_MODEL_SUPPRESS_CLASS)) continue
-            row.classList.add(MAX_MODEL_SUPPRESS_CLASS)
-            row.setAttribute('aria-hidden', 'true')
-            row.style.setProperty('display', 'none', 'important')
-            row.style.setProperty('pointer-events', 'none', 'important')
-        }
-    }
-
-    function blockHiddenModeMenuClicks(isMatch) {
-        const handler = (e) => {
-            const item = e.target.closest?.('[role="menuitem"]')
-            if (!item || !isMatch(item)) return
-            e.preventDefault()
-            e.stopPropagation()
-            e.stopImmediatePropagation()
-        }
-        document.addEventListener('click', handler, true)
-        document.addEventListener('pointerdown', handler, true)
-    }
-
-    function blockModelCouncilClicks() {
-        blockHiddenModeMenuClicks(isModelCouncilMenuItem)
-    }
-
-    function blockComputerModeClicks() {
-        blockHiddenModeMenuClicks(isComputerModeMenuItem)
-    }
-
-    function blockMaxOnlyModelClicks() {
-        blockHiddenModeMenuClicks(isMaxOnlyModelMenuItem)
-    }
-
-    function hasComposerComputerIcon(root) {
-        if (!root) return false
-        return Array.from(root.querySelectorAll('use')).some((u) =>
-            useHref(u).includes('custom-computer')
-        )
-    }
-
-    function isComposerComputerToggle(btn) {
-        if (!btn || btn.tagName !== 'BUTTON') return false
-        if (btn.closest('[role="menu"]')) return false
-        if (!hasComposerComputerIcon(btn)) return false
-        const label = (btn.getAttribute('aria-label') || '')
-            .trim()
-            .toLowerCase()
-        if (label === 'computer') return true
-        const text = norm(btn.textContent)
-        return text === 'computer' || text.startsWith('computer ')
-    }
-
-    function hideComputerChip() {
-        const seen = new Set()
-        const buttons = new Set()
-        for (const btn of queryAllDeep('button[aria-label="Computer"]'))
-            buttons.add(btn)
-        for (const use of queryAllDeep('use')) {
-            if (!useHref(use).includes('custom-computer')) continue
-            const btn = use.closest('button')
-            if (btn) buttons.add(btn)
-        }
-        for (const btn of buttons) {
-            if (!isComposerComputerToggle(btn)) continue
-            const wrap =
-                btn.closest('span.relative.inline-flex') ||
-                btn.closest('span.relative') ||
-                btn.closest('span.inline-flex.rounded-full') ||
-                btn.closest('span[style*="width: 36px"]') ||
-                btn.parentElement?.parentElement?.parentElement
-            if (!wrap || seen.has(wrap) || containsComposer(wrap)) continue
-            seen.add(wrap)
-            hideElement(wrap)
-        }
-    }
-
-    function isTopicShortcutNav(container) {
-        if (!container || container.tagName !== 'DIV') return false
-        const anchors = container.querySelectorAll(':scope > a[href]')
-        if (anchors.length < TOPIC_NAV_PATHS.length) return false
-        const paths = new Set()
-        for (const a of anchors) {
-            const p = pathnameFromAnchor(a)
-            if (p) paths.add(p)
-        }
-        if (!TOPIC_NAV_PATHS.every((p) => paths.has(p))) return false
-        const labels = new Set()
-        for (const a of anchors) {
-            const t = norm(a.textContent)
-            if (t) labels.add(t)
-        }
-        return TOPIC_NAV_LABELS.every((l) => labels.has(l))
-    }
-
-    function findTopicNavFromAnchor(a) {
-        let node = a.parentElement
-        let best = null
-        while (node && node !== document.documentElement) {
-            if (isTopicShortcutNav(node)) best = node
-            node = node.parentElement
-        }
-        return best
-    }
-
-    function hideTopicNav() {
-        const seen = new Set()
-        for (const a of queryAllDeep('a[href]')) {
-            const path = pathnameFromAnchor(a)
-            if (path !== '/discover') continue
-            const nav = findTopicNavFromAnchor(a)
-            if (!nav || seen.has(nav) || containsComposer(nav)) continue
-            seen.add(nav)
-            hideElement(nav)
-        }
-    }
-
-    let scheduledGlobal = false
-    const scheduleGlobal = () => {
-        if (scheduledGlobal) return
-        scheduledGlobal = true
-        requestAnimationFrame(() => {
-            scheduledGlobal = false
-            suppressModelCouncilMenuItem()
-            suppressComputerModeMenuItem()
-            suppressMaxOnlyModelMenuItems()
-            hideAskInputModeToggleIndicator()
-            hideComputerChip()
-        })
-    }
-
-    const attachGlobalObserver = () => {
-        const root = document.body || document.documentElement
-        if (!root) return
-        new MutationObserver(scheduleGlobal).observe(root, {
-            childList: true,
-            subtree: true,
-        })
-    }
-
-    injectStyles()
-    blockModelCouncilClicks()
-    blockComputerModeClicks()
-    blockMaxOnlyModelClicks()
-    scheduleGlobal()
-    if (document.body) attachGlobalObserver()
-    else
-        document.addEventListener('DOMContentLoaded', attachGlobalObserver, {
-            once: true,
-        })
-    setInterval(() => {
-        suppressModelCouncilMenuItem()
-        suppressComputerModeMenuItem()
-        suppressMaxOnlyModelMenuItems()
-        hideAskInputModeToggleIndicator()
-        hideComputerChip()
-    }, 250)
-
-    whenHome(() => {
-        const purge = () => {
-            if (!win.__pplxIsHomepage?.()) return
-            hideComputerChip()
-            hideAskInputModeToggleIndicator()
-            hideTopicNav()
-        }
-
-        let scheduled = false
-        const schedule = () => {
-            if (scheduled) return
-            scheduled = true
-            requestAnimationFrame(() => {
-                scheduled = false
-                purge()
-            })
-        }
-
-        purge()
-
-        let observer = null
-        const attachObserver = () => {
-            const root = document.body || document.documentElement
-            if (!root) return
-            observer = new MutationObserver(schedule)
-            observer.observe(root, { childList: true, subtree: true })
-        }
-
-        if (document.body) attachObserver()
-        else
-            document.addEventListener('DOMContentLoaded', attachObserver, {
-                once: true,
-            })
-
-        const intervalId = setInterval(purge, 250)
-
-        return () => {
-            observer?.disconnect()
-            clearInterval(intervalId)
-        }
-    })
-})()
-
-//!		 8. Hide Upsell Banners (Upgrade, Try Computer, etc.)
-;(() => {
-    const win = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window
-    if (win.__PPLX_BISECT && !win.__PPLX_BISECT.has('8')) return
-    const run = win.__pplxWhenNotHomepage
-    if (!run) return
-    run(() => {
-        const isHome = () => win.__pplxIsHomepage?.() === true
-
-        // Perplexity labels live upsell wrappers with class "pplx-hidden-banner" — do NOT reuse that name.
-        const SUPPRESS_CLASS = 'pplx-upsell-suppressed'
-        const STYLE_ID = 'pplx-upsell-suppress-style'
-
-        function containsComposer(node) {
-            if (!node?.querySelector) return false
-            return !!(
-                node.querySelector('#ask-input') ||
-                node.querySelector('[data-testid="ask-input"]') ||
-                node.querySelector('textarea') ||
-                node.querySelector('[contenteditable="true"]')
-            )
-        }
-
-        const injectStyles = () => {
-            if (isHome()) return
-            if (document.getElementById(STYLE_ID)) return
-            const style = document.createElement('style')
-            style.id = STYLE_ID
-            style.textContent = `
-        /* Upsell cards only — avoid href*="computer" (matches unrelated sprites) */
-        .rounded-2xl:has(use[*|href*="custom-computer"]),
-        .rounded-2xl:has(use[*|href*="pplx-icon-custom-computer"]),
-        .bg-raised:has(use[*|href*="custom-computer"]),
-        .bg-raised:has(use[*|href*="pplx-icon-custom-computer"]),
-        div.pplx-hidden-banner:has(use[*|href*="custom-computer"]),
-        div.pplx-hidden-banner:has(use[*|href*="pplx-icon-custom-computer"]),
-        div:has(> div > .rounded-2xl:has(use[*|href*="custom-computer"])),
-        div:has(> div > .bg-raised:has(use[*|href*="custom-computer"])),
-
-        .${SUPPRESS_CLASS},
-        .${SUPPRESS_CLASS} * {
-            display: none !important;
-            visibility: hidden !important;
-            height: 0 !important;
-            min-height: 0 !important;
-            max-height: 0 !important;
-            margin: 0 !important;
-            padding: 0 !important;
-            border: none !important;
-            opacity: 0 !important;
-            pointer-events: none !important;
-            overflow: hidden !important;
-        }
-    `
-            ;(document.head || document.documentElement).appendChild(style)
-        }
-        injectStyles()
-
-        const BANNER_KEYWORDS = [
-            'try computer',
-            'let computer build',
-            'computer generates full',
-            'perplexity computer',
-            'computer writes sql',
-            'turn your data questions',
-            'put computer to work',
-            'ship faster with computer',
-            'computer connects to',
-            'upgrade to max',
-            'upgrade now',
-            'try this answer with',
-        ]
-
-        const BANNER_ICON_ATTRS = [
-            'custom-computer',
-            'perplexity_computer',
-            'perplexity_computer_upsell',
-            'pplx-icon-custom-computer',
-        ]
-
-        const COMPUTER_CTA_RE = /^\s*try\s+computer\s*$/i
-
-        function useHref(useEl) {
-            return (
-                useEl.getAttribute('href') ||
-                useEl.getAttribute('xlink:href') ||
-                (useEl.href && useEl.href.baseVal) ||
-                ''
-            ).toLowerCase()
-        }
-
-        function isComputerUpsellIcon(href) {
-            return BANNER_ICON_ATTRS.some((attr) => href.includes(attr))
-        }
-
-        function isSuppressed(el) {
-            return (
-                el &&
-                (el.classList.contains(SUPPRESS_CLASS) ||
-                    el.closest(`.${SUPPRESS_CLASS}`))
-            )
-        }
-
-        function isProtectedContent(el) {
-            return el.closest(
-                '[data-testid="user-message"], .message-container, #ask-input, textarea, [contenteditable="true"]'
-            )
-        }
-
-        function suppressNode(node) {
-            if (!node || isSuppressed(node) || containsComposer(node)) return
-            node.classList.add(SUPPRESS_CLASS)
-            node.style.setProperty('display', 'none', 'important')
-            node.style.setProperty('visibility', 'hidden', 'important')
-            node.style.setProperty('pointer-events', 'none', 'important')
-        }
-
-        function findBannerContainer(el) {
-            let card = el.closest(
-                '.rounded-2xl, .bg-raised, .shadow-xl, .shadow-md, [role="dialog"], .modal, .border-subtlest, div.pplx-hidden-banner'
-            )
-            if (!card) {
-                card = el.parentElement
-                if (!card) return null
-            }
-
-            let current = card
-            while (current.parentElement) {
-                if (containsComposer(current)) return null
-                const parent = current.parentElement
-                if (
-                    parent === document.body ||
-                    parent === document.documentElement ||
-                    parent.tagName === 'MAIN'
-                ) {
-                    break
-                }
-
-                const siblingCount = Array.from(parent.children).filter((c) => {
-                    if (c === current) return true
-                    if (
-                        c.classList.contains(SUPPRESS_CLASS) ||
-                        c.style.display === 'none'
-                    )
-                        return false
-                    return true
-                }).length
-
-                const isWrapper =
-                    siblingCount === 1 &&
-                    (parent.classList.contains('pplx-hidden-banner') ||
-                        parent.style.opacity === '1' ||
-                        parent.style.transform !== '' ||
-                        parent.tagName === 'DIV')
-
-                if (isWrapper) current = parent
-                else break
-            }
-            return current
-        }
-
-        function isTryComputerButton(el) {
-            if (el.tagName !== 'BUTTON') return false
-            const label = (el.getAttribute('aria-label') || '').toLowerCase()
-            if (label.includes('try computer')) return true
-            const truncate = el.querySelector('.truncate')
-            const text =
-                (truncate ? truncate.textContent : el.textContent) || ''
-            return COMPUTER_CTA_RE.test(text)
-        }
-
-        function isMatch(el) {
-            if (isSuppressed(el) || isProtectedContent(el)) return false
-
-            if (isTryComputerButton(el)) return true
-
-            if (el.tagName === 'use' || el.tagName === 'USE') {
-                if (isComputerUpsellIcon(useHref(el))) return true
-            }
-
-            if (el.tagName === 'IMG') {
-                const src = (el.getAttribute('src') || '').toLowerCase()
-                if (BANNER_ICON_ATTRS.some((attr) => src.includes(attr)))
-                    return true
-            }
-
-            if (el.tagName === 'BUTTON') {
-                const ariaLabel = (
-                    el.getAttribute('aria-label') || ''
-                ).toLowerCase()
-                if (BANNER_KEYWORDS.some((kw) => ariaLabel.includes(kw)))
-                    return true
-            }
-
-            const text = (el.textContent || '').toLowerCase().trim()
-            if (!text) return false
-            for (const kw of BANNER_KEYWORDS) {
-                if (!text.includes(kw)) continue
-                if (
-                    el.tagName === 'BUTTON' ||
-                    el.tagName === 'A' ||
-                    el.tagName === 'H1' ||
-                    el.tagName === 'H2' ||
-                    el.tagName === 'H3' ||
-                    text.length < 200
-                ) {
-                    return true
-                }
-            }
-            return false
-        }
-
-        const removeBanners = () => {
-            if (isHome()) return
-            injectStyles()
-
-            document.querySelectorAll('use').forEach((use) => {
-                if (isProtectedContent(use) || isSuppressed(use)) return
-                if (!isComputerUpsellIcon(useHref(use))) return
-                const target = findBannerContainer(use)
-                if (target) suppressNode(target)
-            })
-
-            document.querySelectorAll('button').forEach((btn) => {
-                if (isProtectedContent(btn) || isSuppressed(btn)) return
-                if (!isTryComputerButton(btn) && !isMatch(btn)) return
-                const target = findBannerContainer(btn)
-                if (target) suppressNode(target)
-            })
-
-            const containers = document.querySelectorAll(
-                '.rounded-2xl, .bg-raised, .shadow-xl, div.pplx-hidden-banner'
-            )
-            containers.forEach((container) => {
-                if (isSuppressed(container) || isProtectedContent(container))
-                    return
-
-                const text = (container.textContent || '').toLowerCase()
-                const hasKeyword = BANNER_KEYWORDS.some((kw) =>
-                    text.includes(kw)
-                )
-                const hasComputerIcon = Array.from(
-                    container.querySelectorAll('use')
-                ).some((u) => isComputerUpsellIcon(useHref(u)))
-                const hasTryCta = Array.from(
-                    container.querySelectorAll('button')
-                ).some(isTryComputerButton)
-
-                if (!hasKeyword && !hasComputerIcon && !hasTryCta) return
-
-                const isUpsell =
-                    hasComputerIcon ||
-                    hasTryCta ||
-                    container.querySelector('[aria-label="Dismiss"]') ||
-                    (hasKeyword &&
-                        (container.querySelector('use') ||
-                            container.querySelector('button.bg-button-bg')))
-
-                if (!isUpsell) return
-                const target = findBannerContainer(container)
-                if (target) suppressNode(target)
-            })
-        }
-
-        let scheduled = false
-        const scheduleRemove = () => {
-            if (scheduled) return
-            scheduled = true
-            requestAnimationFrame(() => {
-                scheduled = false
-                removeBanners()
-            })
-        }
-
-        let observer = null
-        let intervalId = null
-
-        const startObserver = () => {
-            const root = document.body || document.documentElement
-            if (!root) return
-            observer = new MutationObserver(scheduleRemove)
-            observer.observe(root, {
-                childList: true,
-                subtree: true,
-                attributes: true,
-                attributeFilter: ['class', 'style', 'hidden'],
-            })
-            removeBanners()
-        }
-
-        if (document.body) startObserver()
-        else
-            document.addEventListener('DOMContentLoaded', startObserver, {
-                once: true,
-            })
-
-        intervalId = setInterval(removeBanners, 200)
-        document.addEventListener('visibilitychange', onVis)
-
-        function onVis() {
-            if (document.visibilityState === 'visible') removeBanners()
-        }
-
-        return () => {
-            observer?.disconnect()
-            observer = null
-            if (intervalId) clearInterval(intervalId)
-            intervalId = null
-            document.removeEventListener('visibilitychange', onVis)
-            document.getElementById(STYLE_ID)?.remove()
-            document.querySelectorAll(`.${SUPPRESS_CLASS}`).forEach((el) => {
-                el.classList.remove(SUPPRESS_CLASS)
-                el.style.removeProperty('display')
-                el.style.removeProperty('visibility')
-                el.style.removeProperty('pointer-events')
-            })
-        }
-    })
-})()
+// ;(() => {
+//     const win = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window
+//     if (win.__PPLX_BISECT && !win.__PPLX_BISECT.has('7d')) return
+//     if (window.self !== window.top) return
+
+//     const whenHome = win.__pplxWhenHomepage
+//     const hideElement = win.__pplxHideElement
+//     if (!whenHome || !hideElement) return
+
+//     const STYLE_ID = 'pplx-chrome-hidden-style'
+//     const COUNCIL_SUPPRESS_CLASS = 'pplx-suppress-model-council'
+//     const COMPUTER_MODE_SUPPRESS_CLASS = 'pplx-suppress-computer-mode'
+//     const MAX_MODEL_SUPPRESS_CLASS = 'pplx-suppress-max-model'
+//     const TOPIC_NAV_PATHS = [
+//         '/discover',
+//         '/finance',
+//         '/health',
+//         '/academic',
+//         '/patents',
+//     ]
+//     const TOPIC_NAV_LABELS = [
+//         'discover',
+//         'finance',
+//         'health',
+//         'academic',
+//         'patents',
+//     ]
+
+//     function useHref(useEl) {
+//         return (
+//             useEl.getAttribute('href') ||
+//             useEl.getAttribute('xlink:href') ||
+//             (useEl.href && useEl.href.baseVal) ||
+//             ''
+//         ).toLowerCase()
+//     }
+
+//     function pathnameFromAnchor(a) {
+//         const raw = (a.getAttribute('href') || '').trim()
+//         if (!raw) return ''
+//         try {
+//             return (
+//                 new URL(raw, location.origin).pathname.replace(/\/+$/, '') ||
+//                 '/'
+//             )
+//         } catch {
+//             return raw.split('?')[0].replace(/\/+$/, '') || '/'
+//         }
+//     }
+
+//     function norm(s) {
+//         return (s || '').toLowerCase().replace(/\s+/g, ' ').trim()
+//     }
+
+//     /** Never hide a subtree that contains the main ask / prompt UI. */
+//     function containsComposer(node) {
+//         if (!node?.querySelector) return false
+//         return !!(
+//             node.querySelector('#ask-input') ||
+//             node.querySelector('[data-testid="ask-input"]') ||
+//             node.querySelector('textarea') ||
+//             node.querySelector('[contenteditable="true"]')
+//         )
+//     }
+
+//     /** Query including open shadow roots (Perplexity mounts UI in shadow trees). */
+//     function queryAllDeep(selector) {
+//         const out = []
+//         const visit = (node) => {
+//             if (!node?.querySelectorAll) return
+//             try {
+//                 node.querySelectorAll(selector).forEach((el) => out.push(el))
+//             } catch {
+//                 /* invalid selector in some roots */
+//             }
+//             node.querySelectorAll('*').forEach((el) => {
+//                 if (el.shadowRoot) visit(el.shadowRoot)
+//             })
+//         }
+//         if (document.body) visit(document.body)
+//         else visit(document.documentElement)
+//         return out
+//     }
+
+//     function injectStyles() {
+//         if (document.getElementById(STYLE_ID)) return
+//         const style = document.createElement('style')
+//         style.id = STYLE_ID
+//         style.textContent = `
+//         button[aria-label="Computer"]:has(use[*|href*="custom-computer"]),
+//         button:has(use[*|href*="custom-computer"]):not([aria-haspopup="menu"]),
+//         span:has(> span > span > button:has(use[*|href*="custom-computer"])),
+//         span:has(> span > button:has(use[*|href*="custom-computer"])),
+//         div:has(> a[href*="/discover"]):has(> a[href*="/finance"]):has(> a[href*="/patents"]),
+//         [data-testid="ask-input-mode-toggle-indicator"],
+//         .${COUNCIL_SUPPRESS_CLASS},
+//         .${COMPUTER_MODE_SUPPRESS_CLASS},
+//         .${MAX_MODEL_SUPPRESS_CLASS} {
+//             display: none !important;
+//             visibility: hidden !important;
+//             height: 0 !important;
+//             min-height: 0 !important;
+//             margin: 0 !important;
+//             padding: 0 !important;
+//             overflow: hidden !important;
+//             pointer-events: none !important;
+//         }
+//         `
+//         ;(document.head || document.documentElement).appendChild(style)
+//     }
+
+//     function hideAskInputModeToggleIndicator() {
+//         for (const el of queryAllDeep(
+//             '[data-testid="ask-input-mode-toggle-indicator"]'
+//         )) {
+//             hideElement(el)
+//         }
+//     }
+
+//     function modeMenuItemRow(item) {
+//         return (
+//             item.closest('[class*="group/search-mode"]') ||
+//             item.closest('[class*="group/item"]') ||
+//             item
+//         )
+//     }
+
+//     function isModelCouncilMenuItem(el) {
+//         if (!el || el.getAttribute('role') !== 'menuitem') return false
+//         if (!norm(el.textContent).includes('model council')) return false
+//         return Array.from(el.querySelectorAll('use')).some((u) =>
+//             useHref(u).includes('gavel')
+//         )
+//     }
+
+//     function isComputerModeMenuItem(el) {
+//         if (!el || el.getAttribute('role') !== 'menuitem') return false
+//         if (
+//             !Array.from(el.querySelectorAll('use')).some((u) =>
+//                 useHref(u).includes('custom-computer')
+//             )
+//         )
+//             return false
+//         const text = norm(el.textContent)
+//         return text === 'computer' || text.endsWith(' computer')
+//     }
+
+//     function spanIsMaxPlanBadge(span) {
+//         if (!span || span.tagName !== 'SPAN') return false
+//         if (norm(span.textContent) !== 'max') return false
+//         const only = [...span.childNodes].every(
+//             (n) =>
+//                 n.nodeType === Node.TEXT_NODE ||
+//                 (n.nodeType === Node.ELEMENT_NODE && n.tagName === 'SPAN')
+//         )
+//         if (!only) return false
+//         const inner = span.querySelector(':scope > span')
+//         return inner ? norm(inner.textContent) === 'max' : true
+//     }
+
+//     /** Locked Max-tier models use menuitem (not menuitemradio) + lock icon + Max badge. */
+//     function isMaxOnlyModelMenuItem(el) {
+//         if (!el || el.getAttribute('role') !== 'menuitem') return false
+//         if (!el.closest('[role="menu"]')) return false
+//         const hasLock = Array.from(el.querySelectorAll('use')).some((u) =>
+//             useHref(u).includes('lock')
+//         )
+//         if (!hasLock) return false
+//         return Array.from(el.querySelectorAll('span')).some(spanIsMaxPlanBadge)
+//     }
+
+//     function modelMenuItemRow(item) {
+//         let node = item
+//         while (node && node !== document.documentElement) {
+//             const parent = node.parentElement
+//             if (parent?.getAttribute('role') === 'group') return node
+//             node = parent
+//         }
+//         return item
+//     }
+
+//     /** Hide only — do not remove DOM (Radix/React menu breaks on remove). */
+//     function suppressModelCouncilMenuItem() {
+//         for (const item of queryAllDeep('[role="menuitem"]')) {
+//             if (!isModelCouncilMenuItem(item)) continue
+//             const row = modeMenuItemRow(item)
+//             if (row.classList.contains(COUNCIL_SUPPRESS_CLASS)) continue
+//             row.classList.add(COUNCIL_SUPPRESS_CLASS)
+//             row.setAttribute('aria-hidden', 'true')
+//             row.style.setProperty('display', 'none', 'important')
+//             row.style.setProperty('pointer-events', 'none', 'important')
+//         }
+//     }
+
+//     function suppressComputerModeMenuItem() {
+//         for (const item of queryAllDeep('[role="menuitem"]')) {
+//             if (!isComputerModeMenuItem(item)) continue
+//             const row = modeMenuItemRow(item)
+//             if (row.classList.contains(COMPUTER_MODE_SUPPRESS_CLASS)) continue
+//             row.classList.add(COMPUTER_MODE_SUPPRESS_CLASS)
+//             row.setAttribute('aria-hidden', 'true')
+//             row.style.setProperty('display', 'none', 'important')
+//             row.style.setProperty('pointer-events', 'none', 'important')
+//         }
+//     }
+
+//     function suppressMaxOnlyModelMenuItems() {
+//         for (const item of queryAllDeep('[role="menuitem"]')) {
+//             if (!isMaxOnlyModelMenuItem(item)) continue
+//             const row = modelMenuItemRow(item)
+//             if (row.classList.contains(MAX_MODEL_SUPPRESS_CLASS)) continue
+//             row.classList.add(MAX_MODEL_SUPPRESS_CLASS)
+//             row.setAttribute('aria-hidden', 'true')
+//             row.style.setProperty('display', 'none', 'important')
+//             row.style.setProperty('pointer-events', 'none', 'important')
+//         }
+//     }
+
+//     function blockHiddenModeMenuClicks(isMatch) {
+//         const handler = (e) => {
+//             const item = e.target.closest?.('[role="menuitem"]')
+//             if (!item || !isMatch(item)) return
+//             e.preventDefault()
+//             e.stopPropagation()
+//             e.stopImmediatePropagation()
+//         }
+//         document.addEventListener('click', handler, true)
+//         document.addEventListener('pointerdown', handler, true)
+//     }
+
+//     function blockModelCouncilClicks() {
+//         blockHiddenModeMenuClicks(isModelCouncilMenuItem)
+//     }
+
+//     function blockComputerModeClicks() {
+//         blockHiddenModeMenuClicks(isComputerModeMenuItem)
+//     }
+
+//     function blockMaxOnlyModelClicks() {
+//         blockHiddenModeMenuClicks(isMaxOnlyModelMenuItem)
+//     }
+
+//     function hasComposerComputerIcon(root) {
+//         if (!root) return false
+//         return Array.from(root.querySelectorAll('use')).some((u) =>
+//             useHref(u).includes('custom-computer')
+//         )
+//     }
+
+//     function isComposerComputerToggle(btn) {
+//         if (!btn || btn.tagName !== 'BUTTON') return false
+//         if (btn.closest('[role="menu"]')) return false
+//         if (!hasComposerComputerIcon(btn)) return false
+//         const label = (btn.getAttribute('aria-label') || '')
+//             .trim()
+//             .toLowerCase()
+//         if (label === 'computer') return true
+//         const text = norm(btn.textContent)
+//         return text === 'computer' || text.startsWith('computer ')
+//     }
+
+//     function hideComputerChip() {
+//         const seen = new Set()
+//         const buttons = new Set()
+//         for (const btn of queryAllDeep('button[aria-label="Computer"]'))
+//             buttons.add(btn)
+//         for (const use of queryAllDeep('use')) {
+//             if (!useHref(use).includes('custom-computer')) continue
+//             const btn = use.closest('button')
+//             if (btn) buttons.add(btn)
+//         }
+//         for (const btn of buttons) {
+//             if (!isComposerComputerToggle(btn)) continue
+//             const wrap =
+//                 btn.closest('span.relative.inline-flex') ||
+//                 btn.closest('span.relative') ||
+//                 btn.closest('span.inline-flex.rounded-full') ||
+//                 btn.closest('span[style*="width: 36px"]') ||
+//                 btn.parentElement?.parentElement?.parentElement
+//             if (!wrap || seen.has(wrap) || containsComposer(wrap)) continue
+//             seen.add(wrap)
+//             hideElement(wrap)
+//         }
+//     }
+
+//     function isTopicShortcutNav(container) {
+//         if (!container || container.tagName !== 'DIV') return false
+//         const anchors = container.querySelectorAll(':scope > a[href]')
+//         if (anchors.length < TOPIC_NAV_PATHS.length) return false
+//         const paths = new Set()
+//         for (const a of anchors) {
+//             const p = pathnameFromAnchor(a)
+//             if (p) paths.add(p)
+//         }
+//         if (!TOPIC_NAV_PATHS.every((p) => paths.has(p))) return false
+//         const labels = new Set()
+//         for (const a of anchors) {
+//             const t = norm(a.textContent)
+//             if (t) labels.add(t)
+//         }
+//         return TOPIC_NAV_LABELS.every((l) => labels.has(l))
+//     }
+
+//     function findTopicNavFromAnchor(a) {
+//         let node = a.parentElement
+//         let best = null
+//         while (node && node !== document.documentElement) {
+//             if (isTopicShortcutNav(node)) best = node
+//             node = node.parentElement
+//         }
+//         return best
+//     }
+
+//     function hideTopicNav() {
+//         const seen = new Set()
+//         for (const a of queryAllDeep('a[href]')) {
+//             const path = pathnameFromAnchor(a)
+//             if (path !== '/discover') continue
+//             const nav = findTopicNavFromAnchor(a)
+//             if (!nav || seen.has(nav) || containsComposer(nav)) continue
+//             seen.add(nav)
+//             hideElement(nav)
+//         }
+//     }
+
+//     let scheduledGlobal = false
+//     const scheduleGlobal = () => {
+//         if (scheduledGlobal) return
+//         scheduledGlobal = true
+//         requestAnimationFrame(() => {
+//             scheduledGlobal = false
+//             suppressModelCouncilMenuItem()
+//             suppressComputerModeMenuItem()
+//             suppressMaxOnlyModelMenuItems()
+//             hideAskInputModeToggleIndicator()
+//             hideComputerChip()
+//         })
+//     }
+
+//     const attachGlobalObserver = () => {
+//         const root = document.body || document.documentElement
+//         if (!root) return
+//         new MutationObserver(scheduleGlobal).observe(root, {
+//             childList: true,
+//             subtree: true,
+//         })
+//     }
+
+//     injectStyles()
+//     blockModelCouncilClicks()
+//     blockComputerModeClicks()
+//     blockMaxOnlyModelClicks()
+//     scheduleGlobal()
+//     if (document.body) attachGlobalObserver()
+//     else
+//         document.addEventListener('DOMContentLoaded', attachGlobalObserver, {
+//             once: true,
+//         })
+//     setInterval(() => {
+//         suppressModelCouncilMenuItem()
+//         suppressComputerModeMenuItem()
+//         suppressMaxOnlyModelMenuItems()
+//         hideAskInputModeToggleIndicator()
+//         hideComputerChip()
+//     }, 250)
+
+//     whenHome(() => {
+//         const purge = () => {
+//             if (!win.__pplxIsHomepage?.()) return
+//             hideComputerChip()
+//             hideAskInputModeToggleIndicator()
+//             hideTopicNav()
+//         }
+
+//         let scheduled = false
+//         const schedule = () => {
+//             if (scheduled) return
+//             scheduled = true
+//             requestAnimationFrame(() => {
+//                 scheduled = false
+//                 purge()
+//             })
+//         }
+
+//         purge()
+
+//         let observer = null
+//         const attachObserver = () => {
+//             const root = document.body || document.documentElement
+//             if (!root) return
+//             observer = new MutationObserver(schedule)
+//             observer.observe(root, { childList: true, subtree: true })
+//         }
+
+//         if (document.body) attachObserver()
+//         else
+//             document.addEventListener('DOMContentLoaded', attachObserver, {
+//                 once: true,
+//             })
+
+//         const intervalId = setInterval(purge, 250)
+
+//         return () => {
+//             observer?.disconnect()
+//             clearInterval(intervalId)
+//         }
+//     })
+// })()
+
+// 8. Hide Upsell Banners (Upgrade, Try Computer, etc.)
+// ;(() => {
+//     const win = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window
+//     if (win.__PPLX_BISECT && !win.__PPLX_BISECT.has('8')) return
+//     const run = win.__pplxWhenNotHomepage
+//     if (!run) return
+//     run(() => {
+//         const isHome = () => win.__pplxIsHomepage?.() === true
+
+//         // Perplexity labels live upsell wrappers with class "pplx-hidden-banner" — do NOT reuse that name.
+//         const SUPPRESS_CLASS = 'pplx-upsell-suppressed'
+//         const STYLE_ID = 'pplx-upsell-suppress-style'
+
+//         function containsComposer(node) {
+//             if (!node?.querySelector) return false
+//             return !!(
+//                 node.querySelector('#ask-input') ||
+//                 node.querySelector('[data-testid="ask-input"]') ||
+//                 node.querySelector('textarea') ||
+//                 node.querySelector('[contenteditable="true"]')
+//             )
+//         }
+
+//         const injectStyles = () => {
+//             if (isHome()) return
+//             if (document.getElementById(STYLE_ID)) return
+//             const style = document.createElement('style')
+//             style.id = STYLE_ID
+//             style.textContent = `
+//         /* Upsell cards only — avoid href*="computer" (matches unrelated sprites) */
+//         .rounded-2xl:has(use[*|href*="custom-computer"]),
+//         .rounded-2xl:has(use[*|href*="pplx-icon-custom-computer"]),
+//         .bg-raised:has(use[*|href*="custom-computer"]),
+//         .bg-raised:has(use[*|href*="pplx-icon-custom-computer"]),
+//         div.pplx-hidden-banner:has(use[*|href*="custom-computer"]),
+//         div.pplx-hidden-banner:has(use[*|href*="pplx-icon-custom-computer"]),
+//         div:has(> div > .rounded-2xl:has(use[*|href*="custom-computer"])),
+//         div:has(> div > .bg-raised:has(use[*|href*="custom-computer"])),
+
+//         .${SUPPRESS_CLASS},
+//         .${SUPPRESS_CLASS} * {
+//             display: none !important;
+//             visibility: hidden !important;
+//             height: 0 !important;
+//             min-height: 0 !important;
+//             max-height: 0 !important;
+//             margin: 0 !important;
+//             padding: 0 !important;
+//             border: none !important;
+//             opacity: 0 !important;
+//             pointer-events: none !important;
+//             overflow: hidden !important;
+//         }
+//     `
+//             ;(document.head || document.documentElement).appendChild(style)
+//         }
+//         injectStyles()
+
+//         const BANNER_KEYWORDS = [
+//             'try computer',
+//             'let computer build',
+//             'computer generates full',
+//             'perplexity computer',
+//             'computer writes sql',
+//             'turn your data questions',
+//             'put computer to work',
+//             'ship faster with computer',
+//             'computer connects to',
+//             'upgrade to max',
+//             'upgrade now',
+//             'try this answer with',
+//         ]
+
+//         const BANNER_ICON_ATTRS = [
+//             'custom-computer',
+//             'perplexity_computer',
+//             'perplexity_computer_upsell',
+//             'pplx-icon-custom-computer',
+//         ]
+
+//         const COMPUTER_CTA_RE = /^\s*try\s+computer\s*$/i
+
+//         function useHref(useEl) {
+//             return (
+//                 useEl.getAttribute('href') ||
+//                 useEl.getAttribute('xlink:href') ||
+//                 (useEl.href && useEl.href.baseVal) ||
+//                 ''
+//             ).toLowerCase()
+//         }
+
+//         function isComputerUpsellIcon(href) {
+//             return BANNER_ICON_ATTRS.some((attr) => href.includes(attr))
+//         }
+
+//         function isSuppressed(el) {
+//             return (
+//                 el &&
+//                 (el.classList.contains(SUPPRESS_CLASS) ||
+//                     el.closest(`.${SUPPRESS_CLASS}`))
+//             )
+//         }
+
+//         function isProtectedContent(el) {
+//             return el.closest(
+//                 '[data-testid="user-message"], .message-container, #ask-input, textarea, [contenteditable="true"]'
+//             )
+//         }
+
+//         function suppressNode(node) {
+//             if (!node || isSuppressed(node) || containsComposer(node)) return
+//             node.classList.add(SUPPRESS_CLASS)
+//             node.style.setProperty('display', 'none', 'important')
+//             node.style.setProperty('visibility', 'hidden', 'important')
+//             node.style.setProperty('pointer-events', 'none', 'important')
+//         }
+
+//         function findBannerContainer(el) {
+//             let card = el.closest(
+//                 '.rounded-2xl, .bg-raised, .shadow-xl, .shadow-md, [role="dialog"], .modal, .border-subtlest, div.pplx-hidden-banner'
+//             )
+//             if (!card) {
+//                 card = el.parentElement
+//                 if (!card) return null
+//             }
+
+//             let current = card
+//             while (current.parentElement) {
+//                 if (containsComposer(current)) return null
+//                 const parent = current.parentElement
+//                 if (
+//                     parent === document.body ||
+//                     parent === document.documentElement ||
+//                     parent.tagName === 'MAIN'
+//                 ) {
+//                     break
+//                 }
+
+//                 const siblingCount = Array.from(parent.children).filter((c) => {
+//                     if (c === current) return true
+//                     if (
+//                         c.classList.contains(SUPPRESS_CLASS) ||
+//                         c.style.display === 'none'
+//                     )
+//                         return false
+//                     return true
+//                 }).length
+
+//                 const isWrapper =
+//                     siblingCount === 1 &&
+//                     (parent.classList.contains('pplx-hidden-banner') ||
+//                         parent.style.opacity === '1' ||
+//                         parent.style.transform !== '' ||
+//                         parent.tagName === 'DIV')
+
+//                 if (isWrapper) current = parent
+//                 else break
+//             }
+//             return current
+//         }
+
+//         function isTryComputerButton(el) {
+//             if (el.tagName !== 'BUTTON') return false
+//             const label = (el.getAttribute('aria-label') || '').toLowerCase()
+//             if (label.includes('try computer')) return true
+//             const truncate = el.querySelector('.truncate')
+//             const text =
+//                 (truncate ? truncate.textContent : el.textContent) || ''
+//             return COMPUTER_CTA_RE.test(text)
+//         }
+
+//         function isMatch(el) {
+//             if (isSuppressed(el) || isProtectedContent(el)) return false
+
+//             if (isTryComputerButton(el)) return true
+
+//             if (el.tagName === 'use' || el.tagName === 'USE') {
+//                 if (isComputerUpsellIcon(useHref(el))) return true
+//             }
+
+//             if (el.tagName === 'IMG') {
+//                 const src = (el.getAttribute('src') || '').toLowerCase()
+//                 if (BANNER_ICON_ATTRS.some((attr) => src.includes(attr)))
+//                     return true
+//             }
+
+//             if (el.tagName === 'BUTTON') {
+//                 const ariaLabel = (
+//                     el.getAttribute('aria-label') || ''
+//                 ).toLowerCase()
+//                 if (BANNER_KEYWORDS.some((kw) => ariaLabel.includes(kw)))
+//                     return true
+//             }
+
+//             const text = (el.textContent || '').toLowerCase().trim()
+//             if (!text) return false
+//             for (const kw of BANNER_KEYWORDS) {
+//                 if (!text.includes(kw)) continue
+//                 if (
+//                     el.tagName === 'BUTTON' ||
+//                     el.tagName === 'A' ||
+//                     el.tagName === 'H1' ||
+//                     el.tagName === 'H2' ||
+//                     el.tagName === 'H3' ||
+//                     text.length < 200
+//                 ) {
+//                     return true
+//                 }
+//             }
+//             return false
+//         }
+
+//         const removeBanners = () => {
+//             if (isHome()) return
+//             injectStyles()
+
+//             document.querySelectorAll('use').forEach((use) => {
+//                 if (isProtectedContent(use) || isSuppressed(use)) return
+//                 if (!isComputerUpsellIcon(useHref(use))) return
+//                 const target = findBannerContainer(use)
+//                 if (target) suppressNode(target)
+//             })
+
+//             document.querySelectorAll('button').forEach((btn) => {
+//                 if (isProtectedContent(btn) || isSuppressed(btn)) return
+//                 if (!isTryComputerButton(btn) && !isMatch(btn)) return
+//                 const target = findBannerContainer(btn)
+//                 if (target) suppressNode(target)
+//             })
+
+//             const containers = document.querySelectorAll(
+//                 '.rounded-2xl, .bg-raised, .shadow-xl, div.pplx-hidden-banner'
+//             )
+//             containers.forEach((container) => {
+//                 if (isSuppressed(container) || isProtectedContent(container))
+//                     return
+
+//                 const text = (container.textContent || '').toLowerCase()
+//                 const hasKeyword = BANNER_KEYWORDS.some((kw) =>
+//                     text.includes(kw)
+//                 )
+//                 const hasComputerIcon = Array.from(
+//                     container.querySelectorAll('use')
+//                 ).some((u) => isComputerUpsellIcon(useHref(u)))
+//                 const hasTryCta = Array.from(
+//                     container.querySelectorAll('button')
+//                 ).some(isTryComputerButton)
+
+//                 if (!hasKeyword && !hasComputerIcon && !hasTryCta) return
+
+//                 const isUpsell =
+//                     hasComputerIcon ||
+//                     hasTryCta ||
+//                     container.querySelector('[aria-label="Dismiss"]') ||
+//                     (hasKeyword &&
+//                         (container.querySelector('use') ||
+//                             container.querySelector('button.bg-button-bg')))
+
+//                 if (!isUpsell) return
+//                 const target = findBannerContainer(container)
+//                 if (target) suppressNode(target)
+//             })
+//         }
+
+//         let scheduled = false
+//         const scheduleRemove = () => {
+//             if (scheduled) return
+//             scheduled = true
+//             requestAnimationFrame(() => {
+//                 scheduled = false
+//                 removeBanners()
+//             })
+//         }
+
+//         let observer = null
+//         let intervalId = null
+
+//         const startObserver = () => {
+//             const root = document.body || document.documentElement
+//             if (!root) return
+//             observer = new MutationObserver(scheduleRemove)
+//             observer.observe(root, {
+//                 childList: true,
+//                 subtree: true,
+//                 attributes: true,
+//                 attributeFilter: ['class', 'style', 'hidden'],
+//             })
+//             removeBanners()
+//         }
+
+//         if (document.body) startObserver()
+//         else
+//             document.addEventListener('DOMContentLoaded', startObserver, {
+//                 once: true,
+//             })
+
+//         intervalId = setInterval(removeBanners, 200)
+//         document.addEventListener('visibilitychange', onVis)
+
+//         function onVis() {
+//             if (document.visibilityState === 'visible') removeBanners()
+//         }
+
+//         return () => {
+//             observer?.disconnect()
+//             observer = null
+//             if (intervalId) clearInterval(intervalId)
+//             intervalId = null
+//             document.removeEventListener('visibilitychange', onVis)
+//             document.getElementById(STYLE_ID)?.remove()
+//             document.querySelectorAll(`.${SUPPRESS_CLASS}`).forEach((el) => {
+//                 el.classList.remove(SUPPRESS_CLASS)
+//                 el.style.removeProperty('display')
+//                 el.style.removeProperty('visibility')
+//                 el.style.removeProperty('pointer-events')
+//             })
+//         }
+//     })
+// })()
 
 //!	9. Rate Limit Display
 ;(() => {
@@ -1377,6 +1377,17 @@
 
         const anchorBtn = getAnchorButton()
         if (!anchorBtn) return
+
+        if (!document.getElementById('pplx-rl-style')) {
+            const style = document.createElement('style')
+            style.id = 'pplx-rl-style'
+            style.textContent = `
+                [data-testid="ask-input-mode-toggle-width-wrapper"]:has(#${BADGE_ID}) {
+                    width: auto !important;
+                }
+            `
+            document.head.appendChild(style)
+        }
 
         const badge = buildBadge()
         if (!injectBadgeBeforeControl(anchorBtn, badge)) return

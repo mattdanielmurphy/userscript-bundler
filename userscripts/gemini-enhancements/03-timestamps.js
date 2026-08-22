@@ -181,7 +181,7 @@ function parseEmbeddedUnix(dateStr, timeStr, offsetHours) {
 	return Math.floor((ms - offsetHours * 3600000) / 1000)
 }
 
-const SYSTEM_DIRECTIVE_RE = /\[SYSTEM CONTEXT & DIRECTIVES:[\s\S]*?\]\s*/
+const SYSTEM_DIRECTIVE_RE = /<context>[\s\S]*?<\/context>\s*|\[SYSTEM CONTEXT[\s\S]*?\]\s*/g
 let isRawPayloadMode = false
 
 window.toggleRawPayloadMode = function(enable) {
@@ -230,17 +230,19 @@ function processEmbeddedTimestamps() {
 			const raw = p.dataset.rawContent
 			let cleanText = raw
 
-			if (
+						if (
 				!insideSysDirective &&
-				cleanText.includes("[SYSTEM CONTEXT & DIRECTIVES:")
+				(cleanText.includes("<context>") || cleanText.includes("[SYSTEM CONTEXT"))
 			) {
 				insideSysDirective = true
 			}
 
 			if (insideSysDirective) {
-				if (cleanText.includes("]")) {
-					const sysEndIdx = cleanText.indexOf("]")
-					cleanText = cleanText.substring(sysEndIdx + 1)
+				if (cleanText.includes("</context>") || cleanText.includes("]")) {
+					const sysEndIdx = cleanText.includes("</context>") 
+						? cleanText.indexOf("</context>") + 10 
+						: cleanText.indexOf("]") + 1
+					cleanText = cleanText.substring(sysEndIdx)
 					insideSysDirective = false
 				} else {
 					cleanText = ""

@@ -514,6 +514,7 @@
 		if (!reelBtn) {
 			reelBtn = document.createElement("button")
 			reelBtn.id = "yt-highlight-reel-btn"
+			reelBtn.title = "Click to toggle or generate reel. Right-click to copy shareable Highlight URL."
 			Object.assign(reelBtn.style, {
 				height: "36px",
 				padding: "0 16px",
@@ -530,6 +531,14 @@
 				alignItems: "center",
 				justifyContent: "center"
 			})
+
+			reelBtn.oncontextmenu = async (e) => {
+				e.preventDefault()
+				e.stopPropagation()
+				if (typeof window.copyHighlightReelUrl === "function") {
+					await window.copyHighlightReelUrl()
+				}
+			}
 
 			reelBtn.onclick = async () => {
 				if (_highlightSegments.length === 0) {
@@ -944,13 +953,216 @@ Select the most essential soundbites and insights that summarize the video's cor
 	let _undoSkipPending = false
 	let _skipCooldownUntil = 0
 	let _toastTimeout = null
+	let _lastVideoId = ""
+	let _lastLoadedUrlParam = ""
 
 	function parseTimestamp(ts) {
-		if (typeof ts === "number") return ts
-		const parts = ts.split(":").map(Number)
-		if (parts.length === 2) return parts[0] * 60 + parts[1]
-		if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2]
-		return parseFloat(ts)
+		if (typeof ts === "number") return isNaN(ts) ? 0 : ts
+		if (!ts || typeof ts !== "string") return 0
+		ts = ts.trim()
+		if (/^\d+(\.\d+)?$/.test(ts)) return parseFloat(ts)
+		if (ts.includes(":")) {
+			const parts = ts.split(":").map(Number)
+			if (!parts.some(isNaN)) {
+				if (parts.length === 2) return parts[0] * 60 + parts[1]
+				if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2]
+			}
+		}
+		const hMatch = ts.match(/(\d+(?:\.\d+)?)\s*h/i)
+		const mMatch = ts.match(/(\d+(?:\.\d+)?)\s*m/i)
+		const sMatch = ts.match(/(\d+(?:\.\d+)?)\s*s/i)
+		if (hMatch || mMatch || sMatch) {
+			let total = 0
+			if (hMatch) total += parseFloat(hMatch[1]) * 3600
+			if (mMatch) total += parseFloat(mMatch[1]) * 60
+			if (sMatch) total += parseFloat(sMatch[1])
+			return total
+		}
+		return parseFloat(ts) || 0
+	}
+
+	function normalizeHighlightSegments(rawArr) {
+		if (!Array.isArray(rawArr)) return []
+		return rawArr.map((item, idx) => {
+			if (Array.isArray(item)) {
+				const start = parseTimestamp(item[0])
+				const end = item[1] !== undefined ? parseTimestamp(item[1]) : start + 30
+				const title = item[2] || `Segment ${idx + 1}`
+				return { start, end: end > start ? end : start + 30, title }
+			}
+			const start = parseTimestamp(item.start ?? item.s ?? 0)
+			let end = parseTimestamp(item.end ?? item.e ?? start + 30)
+			if (end <= start) end = start + 30
+			const title = item.title || item.name || item.label || `Segment ${idx + 1}`
+			const seg = { start, end, title }
+			if (item.tier !== undefined) seg.tier = item.tier
+			return seg
+		}).sort((a, b) => a.start - b.start)
+	}
+
+	function parseSingleHighlightItem(item, idx) {
+		item = item.trim()
+		let rangePart = item
+		let title = `Segment ${idx + 1}`
+
+		if (item.includes("=")) {
+			const eqIdx = item.indexOf("=")
+			rangePart = item.slice(0, eqIdx).trim()
+			title = item.slice(eqIdx + 1).trim().replace(/\+/g, " ")
+		}
+
+		let sep = null
+		let sepIdx = -1
+
+		if (rangePart.includes("..")) {
+			sep = ".."
+			sepIdx = rangePart.indexOf("..")
+		} else if (/\s+to\s+/i.test(rangePart)) {
+			const m = rangePart.match(/\s+to\s+/i)
+			sep = m[0]
+			sepIdx = m.index
+		} else if (rangePart.includes("_")) {
+			sep = "_"
+			sepIdx = rangePart.indexOf("_")
+		} else if (rangePart.includes("-")) {
+			sep = "-"
+			sepIdx = rangePart.indexOf("-")
+		}
+
+		if (sep) {
+			const startPart = rangePart.slice(0, sepIdx).trim()
+			const rest = rangePart.slice(sepIdx + sep.length).trim()
+			const match = rest.match(/^([0-9:hms.\s]+)(?::(.*))?$/i)
+			if (match) {
+				const endPart = match[1].trim()
+				if (match[2] !== undefined && !item.includes("=")) {
+					title = match[2].trim().replace(/\+/g, " ")
+				}
+				const start = parseTimestamp(startPart)
+				let end = parseTimestamp(endPart)
+				if (end <= start) end = start + 30
+				return {
+					start,
+					end,
+					title: title || `Segment ${idx + 1}`
+				}
+			}
+		} else {
+			const match = rangePart.match(/^([0-9:hms.\s]+)(?::(.*))?$/i)
+			if (match) {
+				const startPart = match[1].trim()
+				if (match[2] !== undefined && !item.includes("=")) {
+					title = match[2].trim().replace(/\+/g, " ")
+				}
+				const start = parseTimestamp(startPart)
+				return {
+					start,
+					end: start + 30,
+					title: title || `Segment ${idx + 1}`
+				}
+			}
+		}
+
+		const start = parseTimestamp(rangePart)
+		return {
+			start,
+			end: start + 30,
+			title: title || `Segment ${idx + 1}`
+		}
+	}
+
+	function parseHighlightsParam(raw) {
+		if (!raw) return []
+		let str = String(raw).trim()
+		try {
+			str = decodeURIComponent(str)
+		} catch (e) {}
+
+		if (str.startsWith("b64:") || /^[A-Za-z0-9+/=]{16,}$/.test(str)) {
+			const b64 = str.startsWith("b64:") ? str.slice(4) : str
+			try {
+				const decoded = atob(b64)
+				const parsed = JSON.parse(decoded)
+				if (Array.isArray(parsed)) return normalizeHighlightSegments(parsed)
+			} catch (e) {}
+		}
+
+		if ((str.startsWith("[") && str.endsWith("]")) || (str.startsWith("{") && str.endsWith("}"))) {
+			try {
+				const parsed = JSON.parse(str)
+				const arr = Array.isArray(parsed) ? parsed : [parsed]
+				return normalizeHighlightSegments(arr)
+			} catch (e) {}
+		}
+
+		const items = str.split(/[,;\n|]+/).map((s) => s.trim()).filter(Boolean)
+		return items.map((item, idx) => parseSingleHighlightItem(item, idx)).sort((a, b) => a.start - b.start)
+	}
+
+	function getHighlightsFromUrl(urlStr = window.location.href) {
+		try {
+			const u = new URL(urlStr, window.location.origin)
+			const queryCandidates = ["highlights", "reel", "segments", "hl_reel", "supercut"]
+			for (const key of queryCandidates) {
+				const val = u.searchParams.get(key)
+				if (val) return val
+			}
+			if (u.hash) {
+				const hashStr = u.hash.replace(/^#/, "")
+				const hashParams = new URLSearchParams(hashStr)
+				for (const key of queryCandidates) {
+					const val = hashParams.get(key)
+					if (val) return val
+				}
+				if (hashStr.includes("=") || hashStr.includes("-")) {
+					const parts = hashStr.split("=")
+					if (parts.length === 2 && queryCandidates.includes(parts[0])) {
+						return parts[1]
+					}
+				}
+			}
+		} catch (e) {}
+		return null
+	}
+
+	function getCurrentVideoId() {
+		try {
+			const u = new URL(window.location.href)
+			return u.searchParams.get("v") || ""
+		} catch (e) {
+			return ""
+		}
+	}
+
+	window.generateHighlightUrl = (segments = _highlightSegments) => {
+		if (!segments || segments.length === 0) return window.location.href
+		const u = new URL(window.location.href)
+		const queryCandidates = ["highlights", "reel", "segments", "hl_reel", "supercut"]
+		queryCandidates.forEach((k) => u.searchParams.delete(k))
+
+		const formatted = segments
+			.map((s) => {
+				const titlePart = s.title && !s.title.startsWith("Segment ") ? `:${encodeURIComponent(s.title.replace(/\s+/g, "+"))}` : ""
+				return `${Math.round(s.start)}-${Math.round(s.end)}${titlePart}`
+			})
+			.join(",")
+
+		u.searchParams.set("highlights", formatted)
+		return u.toString()
+	}
+
+	window.copyHighlightReelUrl = async () => {
+		if (_highlightSegments.length === 0) {
+			showToast("⚠️ No active highlight reel to copy URL for.")
+			return
+		}
+		const url = window.generateHighlightUrl()
+		try {
+			await navigator.clipboard.writeText(url)
+			showToast("📋 Copied Highlight Reel URL with params!")
+		} catch (e) {
+			showToast("Failed to copy URL: " + e)
+		}
 	}
 
 	function initHighlightReelVideoListener() {
@@ -960,24 +1172,27 @@ Select the most essential soundbites and insights that summarize the video's cor
 		if (_reelTimeUpdateHandler) _videoEl.removeEventListener("timeupdate", _reelTimeUpdateHandler)
 
 		_reelTimeUpdateHandler = () => {
-			if (!_isReelActive || _highlightSegments.length === 0 || _undoSkipPending) return
+			if (!_isReelActive || _highlightSegments.length === 0) return
 			const cur = _videoEl.currentTime
 			if (cur < _skipCooldownUntil) return
 
-			if (_currentSegmentIndex >= 0 && _currentSegmentIndex < _highlightSegments.length) {
-				const s = _highlightSegments[_currentSegmentIndex]
-				if (cur >= s.start && cur < s.end) {
-					updateScrubberBadge()
-					return
+			// 1. Check if current playback time is inside ANY highlight segment
+			const currentSegIdx = _highlightSegments.findIndex((s) => cur >= s.start && cur < s.end)
+			if (currentSegIdx !== -1) {
+				if (_currentSegmentIndex !== currentSegIdx) {
+					_currentSegmentIndex = currentSegIdx
 				}
+				updateScrubberBadge()
+				return
 			}
 
+			// 2. If current playback time is before the first segment, or in a dead zone between segments:
 			const nextIdx = _highlightSegments.findIndex((s) => s.start > cur)
 			if (nextIdx !== -1) {
 				const nextSegment = _highlightSegments[nextIdx]
 				_lastSkipFromTime = cur
 				_lastSkipLeadInTime = Math.max(0, cur - 4)
-				_undoSkipPending = true
+				_skipCooldownUntil = nextSegment.start + 0.6
 				_videoEl.currentTime = nextSegment.start
 				showSkipToast(nextSegment)
 				_currentSegmentIndex = nextIdx
@@ -986,61 +1201,89 @@ Select the most essential soundbites and insights that summarize the video's cor
 				_isReelActive = false
 				showToast("🎉 Highlight reel complete!")
 				updateScrubberBadge()
+				updateReelButton()
 			}
 		}
 		_videoEl.addEventListener("timeupdate", _reelTimeUpdateHandler)
+
+		// Re-render heatmap if metadata loads after listener initialization
+		_videoEl.addEventListener("loadedmetadata", () => {
+			if (_isReelActive && _highlightSegments.length > 0) renderHighlightHeatmap()
+		}, { once: true })
+		_videoEl.addEventListener("durationchange", () => {
+			if (_isReelActive && _highlightSegments.length > 0) renderHighlightHeatmap()
+		})
 	}
 
 	function showSkipToast(nextSegment) {
+		const oldToast = document.getElementById("yt-highlight-skip-toast")
+		if (oldToast) oldToast.remove()
+		clearTimeout(_toastTimeout)
+
 		const toast = document.createElement("div")
+		toast.id = "yt-highlight-skip-toast"
 		Object.assign(toast.style, {
 			position: "fixed", top: "20px", left: "50%", transform: "translateX(-50%)",
-			backgroundColor: "rgba(28,28,28,0.9)", color: "#fff", padding: "12px 20px",
-			borderRadius: "8px", zIndex: "100000", cursor: "pointer", border: "1px solid #ffd700"
+			backgroundColor: "rgba(28,28,28,0.95)", color: "#fff", padding: "12px 20px",
+			borderRadius: "8px", zIndex: "100000", cursor: "pointer", border: "1px solid #ffd700",
+			boxShadow: "0 8px 24px rgba(0,0,0,0.6)", fontSize: "14px", textAlign: "center"
 		})
-		toast.textContent = `⏩ Skipped to "${nextSegment.title || 'Next Segment'}". Press [Enter] or click to undo (5s)...`
+		toast.textContent = `⏩ Skipped to "${nextSegment.title || 'Next Segment'}". Press [Enter] or click to undo & pause reel (5s)...`
 
 		const bar = document.createElement("div")
-		Object.assign(bar.style, { height: "2px", background: "#ffd700", width: "100%", transition: "width 5s linear" })
+		Object.assign(bar.style, { height: "2px", background: "#ffd700", width: "100%", transition: "width 5s linear", marginTop: "8px" })
 		toast.appendChild(bar)
 		document.body.appendChild(toast)
 
-		setTimeout(() => bar.style.width = "0%", 10)
+		setTimeout(() => { if (bar) bar.style.width = "0%" }, 10)
 
+		let isCleanedUp = false
 		const cleanup = () => {
+			if (isCleanedUp) return
+			isCleanedUp = true
 			clearTimeout(_toastTimeout)
+			window.removeEventListener("keydown", keyHandler)
 			toast.remove()
-			_undoSkipPending = false
 		}
 
 		_toastTimeout = setTimeout(cleanup, 5000)
 
-		const undo = () => {
-			if (!_undoSkipPending) return
-			_undoSkipPending = false
-			_videoEl.currentTime = _lastSkipLeadInTime
-			_skipCooldownUntil = _videoEl.currentTime + 4
+		const undo = (e) => {
+			if (e) {
+				e.preventDefault()
+				e.stopPropagation()
+			}
 			cleanup()
-			showToast("⏪ Rewound with 4s context. Resumed.")
+			_isReelActive = false
+			if (_videoEl) {
+				_videoEl.currentTime = _lastSkipLeadInTime
+				_skipCooldownUntil = _lastSkipLeadInTime + 4
+				_videoEl.play().catch(() => {})
+			}
+			updateReelButton()
+			updateScrubberBadge()
+			showToast("⏪ Rewound with context. Reel auto-skip paused (Press [H] to resume).")
 		}
 
 		toast.onclick = undo
-		const keyHandler = (e) => { if(e.key === "Enter") undo() }
-		window.addEventListener("keydown", keyHandler, { once: true })
+		const keyHandler = (e) => {
+			if (e.key === "Enter") {
+				undo(e)
+			}
+		}
+		window.addEventListener("keydown", keyHandler)
 	}
 
 	window.loadHighlightReel = (data, autoPlay = true) => {
-		_highlightSegments = data
-			.map((s) => ({ ...s, start: parseTimestamp(s.start), end: parseTimestamp(s.end) }))
-			.sort((a, b) => a.start - b.start)
+		_highlightSegments = normalizeHighlightSegments(data)
 		_isReelActive = true
 		_currentSegmentIndex = 0
 		renderHighlightHeatmap()
 		updateReelButton()
 		updateScrubberBadge()
-		if (autoPlay && _highlightSegments.length > 0) {
+		if (autoPlay && _highlightSegments.length > 0 && _videoEl) {
 			_videoEl.currentTime = _highlightSegments[0].start
-			_videoEl.play()
+			_videoEl.play().catch(() => {})
 		}
 	}
 
@@ -1057,13 +1300,15 @@ Select the most essential soundbites and insights that summarize the video's cor
 		_isReelActive = !_isReelActive
 		updateReelButton()
 		updateScrubberBadge()
-		showToast(_isReelActive ? "Highlight Reel Active" : "Highlight Reel Off")
+		showToast(_isReelActive ? "Highlight Reel Active" : "Highlight Reel Paused")
 	}
 
 	window.jumpHighlightRelative = (dir) => {
-		if (_highlightSegments.length === 0) return
+		if (_highlightSegments.length === 0 || !_videoEl) return
+		_isReelActive = true
 		_currentSegmentIndex = Math.max(0, Math.min(_highlightSegments.length - 1, _currentSegmentIndex + dir))
 		_videoEl.currentTime = _highlightSegments[_currentSegmentIndex].start
+		updateReelButton()
 		updateScrubberBadge()
 	}
 
@@ -1075,7 +1320,7 @@ Select the most essential soundbites and insights that summarize the video's cor
 		container.id = "yt-highlight-heatmap-container"
 		Object.assign(container.style, { position: "absolute", top: "0", left: "0", width: "100%", height: "100%", pointerEvents: "none", zIndex: "10" })
 		progressBar.appendChild(container)
-		const duration = _videoEl.duration || 1
+		const duration = (_videoEl && _videoEl.duration) ? _videoEl.duration : 1
 		_highlightSegments.forEach((s) => {
 			const bar = document.createElement("div")
 			const left = (s.start / duration) * 100
@@ -1093,7 +1338,8 @@ Select the most essential soundbites and insights that summarize the video's cor
 	function updateReelButton() {
 		const reelBtn = document.getElementById("yt-highlight-reel-btn")
 		if (!reelBtn) return
-		reelBtn.textContent = _isReelActive ? `⚡ Reel: ON (${_currentSegmentIndex + 1}/${_highlightSegments.length})` : "⚡ Highlight reel"
+		reelBtn.style.background = _isReelActive ? "rgba(255, 215, 0, 0.2)" : "rgba(255, 255, 255, 0.1)"
+		reelBtn.textContent = _isReelActive && _highlightSegments.length > 0 ? `⚡ Reel: ON (${_currentSegmentIndex + 1}/${_highlightSegments.length})` : "⚡ Highlight reel"
 	}
 
 	function updateScrubberBadge() {
@@ -1113,9 +1359,44 @@ Select the most essential soundbites and insights that summarize the video's cor
 			})
 			leftControls.appendChild(badge)
 		}
-		if (badge) {
+		if (badge && _highlightSegments[_currentSegmentIndex]) {
 			badge.textContent = `⚡ Seg ${_currentSegmentIndex + 1}/${_highlightSegments.length}: ${_highlightSegments[_currentSegmentIndex].title}`
 		}
+	}
+
+	function initHighlightReel() {
+		if (!isWatchPage()) return
+		initHighlightReelVideoListener()
+
+		const currentVideoId = getCurrentVideoId()
+		const hlParam = getHighlightsFromUrl()
+
+		if (hlParam) {
+			const cacheKey = `${currentVideoId}:${hlParam}`
+			if (_lastLoadedUrlParam !== cacheKey) {
+				_lastLoadedUrlParam = cacheKey
+				const parsed = parseHighlightsParam(hlParam)
+				if (parsed.length > 0) {
+					console.log("[Highlight Reel] Loaded from URL parameters:", parsed)
+					const tryLoad = (retries = 10) => {
+						_videoEl = document.querySelector("video")
+						if (_videoEl) {
+							window.loadHighlightReel(parsed, true)
+							showToast(`⚡ Highlight reel loaded (${parsed.length} segments)`)
+						} else if (retries > 0) {
+							setTimeout(() => tryLoad(retries - 1), 300)
+						}
+					}
+					tryLoad()
+				}
+			}
+		} else {
+			if (_lastVideoId && _lastVideoId !== currentVideoId && _highlightSegments.length > 0) {
+				window.clearHighlightReel()
+				_lastLoadedUrlParam = ""
+			}
+		}
+		_lastVideoId = currentVideoId
 	}
 
 	// Keyboard hotkeys
@@ -1125,6 +1406,9 @@ Select the most essential soundbites and insights that summarize the video's cor
 		if (e.key === "[") window.jumpHighlightRelative(-1)
 		if (e.key === "]") window.jumpHighlightRelative(1)
 	})
+
+	window.addEventListener("popstate", () => { if (isWatchPage()) initHighlightReel() })
+	window.addEventListener("hashchange", () => { if (isWatchPage()) initHighlightReel() })
 
 	// --- 7. YOUTUBE SEARCH EXCLUDE TERMS (Search Page Only) ---
 
@@ -1811,7 +2095,7 @@ min-height: " +
 			}
             
             // Highlight Reel
-            initHighlightReelVideoListener()
+            initHighlightReel()
 		}
 
 	}
