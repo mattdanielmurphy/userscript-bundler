@@ -1,4 +1,4 @@
-User Request: For some reason if we inject our custom context payload in front of the query, Gemini just refuses to answer. must be a security thing, trying to protect against an injection attack somehow. Maybe let's first try just reformatting the context payload to see if we can avoid setting off the alarm bells that deny our request. @[userscripts/gemini-enhancements]
+User Request: Build a dead-simple native macOS WKWebView wrapper for Netflix in Swift/AppKit to solve the freezing/unresponsiveness bug in Safari Add to Dock web apps while preserving 4K/UHD streaming capability, cookie persistence, and proper media playback flags
 
 --- AG_CONTEXT.md ---
 # Project: Userscript Bundler
@@ -20,7 +20,7 @@ A tool for bundling userscripts, likely with a watcher and auto-bundling capabil
   - **Fix**: Scripts with `@run-at document-start` now execute immediately upon bundle load rather than waiting for `DOMContentLoaded`. This ensures menu commands and early page modifications (like the Gemini timestamp script) work correctly.
   - **Gemini**: Automatically syncs the tab title with the current conversation thread title using `MutationObserver`.
 - **Sync**: `userscript_bundle.js` is strictly ignored and untracked to prevent build artifacts in Git.
-- YouTube Master Script features: Refresh on unavailable, toggle thumbnails, remove members-only (enhanced for sidebar), hide shorts, hide low view videos (<1k), get transcript button (ultra-fast extraction with smart waiting & innerText fallback), search exclusion, max quality, and ignore number keys (seeking).
+- YouTube Master Script features: Refresh on unavailable, toggle thumbnails, remove members-only (enhanced for sidebar), hide shorts, hide low view videos (<1k), get transcript button (ultra-fast extraction with smart waiting & innerText fallback), search exclusion, max quality, ignore number keys (seeking), and **URL parameter-driven Highlight Reel engine** (supports `?highlights=...`, `&reel=...`, timestamp intervals, labels, JSON/Base64, scrubber heatmaps, auto-skipping, and right-click to copy shareable highlight URLs).
 - **Perplexity**: Rate limit display implementation must wait for `document.body` and handle SPA re-renders via `MutationObserver` to ensure reliable injection when running at `@run-at document-start`. Also uses a generalized robust detection system to automatically hide promotional upsell banners (including "Try Computer", "Upgrade to Max", "Upgrade now", "Try this answer with", and their outer layout wrappers) without breaking React virtual DOM reconciliation, and automatically focuses the input field when a new thread is created.
 - TorrentMac script: Removes fake "Download Now" buttons by text content.
 - **Online Learning BC / StudyForge**: YouTube Fullscreen Fix. Uses a "Keymaster + UI" cross-frame messaging architecture to bypass D2L's nested iframe permission restrictions. Includes an 'F' key shortcut.
@@ -34,6 +34,41 @@ A tool for bundling userscripts, likely with a watcher and auto-bundling capabil
 --- GitHub Connector Context ---
 Target Private Repository: 'mattdanielmurphy/userscript-bundler'
 IMPORTANT: You have access to my authenticated GitHub account via your GitHub connector. Please use your GitHub connector to directly read, search, and inspect the codebase, files, and documentation in my repository 'mattdanielmurphy/userscript-bundler' (including private files and configs) as needed to construct this plan.
+
+--- Relevant Agent Logs ---
+
+File: 2026-08-08_14-16_icloud-userscript-sync.md
+# iCloud Userscripts One-Way Sync & Standalone Bundle Header
+
+## Summary
+- Added automatic userscript metadata header block generation (`generateUserscriptHeader`) to `bundler.cjs` containing standard baseline grants/connects plus all dynamically scanned directives.
+- Updated `bundler.cjs` to generate `userscript_bundle.user.js` and automatically one-way sync it directly into the Safari Userscripts iCloud directory: `/Users/matt/Library/Mobile Documents/com~apple~CloudDocs/Userscripts/userscript_bundle.user.js`.
+- Verified seamless compilation and synchronization when executed by the active LaunchAgent file watcher.
+
+
+File: 2026-08-16_18-10_youtube-highlight-url-params.md
+   - Automatically seeks to the first segment and renders heatmap markers on `.ytp-progress-bar`.
+   - Refined playback skipping engine to prevent false skipping when users scrub backwards within earlier highlight segments.
+3. **Shareable Highlight URL Generator**:
+   - Added `window.generateHighlightUrl()` and `window.copyHighlightReelUrl()`.
+   - Added right-click shortcut on `#yt-highlight-reel-btn` to copy the current video's highlight URL with params directly to the clipboard.
+4. **Automated Testing**:
+   - Created comprehensive unit test suite in `test/youtube-highlights.test.js` validating all formats, encodings, and round-trips via `bun test`.
+5. **Agent Skill Creation**:
+   - Authored `_link-youtube-highlights` skill under `~/projects/ai-os/skills/_link-youtube-highlights/` and synchronized via `sync_skills.py`.
+
+
+File: 2026-08-21_21-30_context-chip-dismiss-fix.md
+   - Increased font-size to 16px.
+   - Added `display: inline-flex; align-items: center; justify-content: center; min-width: 20px; min-height: 20px; padding: 4px 6px; margin: -4px -6px -4px 2px; border-radius: 50%;`.
+   - Added hover feedback (`backgroundColor: rgba(255, 255, 255, 0.15)` and full opacity).
+2. **Removed Click-to-Paste on Chip Body**:
+   - Removed `pill.onclick = () => { this.injectToChat(ctx.output) }`.
+   - Changed pill cursor from `pointer` to `default`.
+   - Context is now exclusively injected upon actual message submission (or previewed via hover tooltip), preventing accidental pasting into the editor.
+3. **Rebuilt Bundle**:
+   - Ran `bun run build` to update compiled standalone scripts and `userscript_bundle.js`.
+
 
 
 Please act as a senior architect and systems planner. Analyze the request and output a detailed, actionable implementation plan for the orchestrator.
