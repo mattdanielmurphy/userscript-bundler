@@ -530,6 +530,13 @@ aiosStyle.textContent = `
         background: rgba(128, 128, 128, 0.4);
     }
 
+    /* Disable performance-based clipping/containment on conversation containers */
+    .conversation-container,
+    .conversation-container.turn-content-visibility {
+        content-visibility: visible !important;
+        contain: none !important;
+    }
+
     /* Centered Table & Responsive Breakout Layout */
     .horizontal-scroll-wrapper {
         width: 100% !important;
@@ -538,6 +545,7 @@ aiosStyle.textContent = `
         box-sizing: border-box !important;
         display: flex !important;
         justify-content: center !important;
+        overflow: visible !important;
         overflow-x: auto !important;
         margin: 16px 0 !important;
     }
@@ -554,13 +562,15 @@ aiosStyle.textContent = `
 
     .table-block-component, .table-block, .table-content {
         width: auto !important;
-        max-width: 100% !important;
+        max-width: none !important;
         margin: 0 auto !important;
+        overflow: visible !important;
     }
 
     table {
-        width: auto !important;
+        width: max-content !important;
         max-width: none !important;
+        display: table !important;
         margin: 0 auto !important;
         border-collapse: collapse !important;
         table-layout: auto !important;
@@ -603,7 +613,6 @@ aiosStyle.textContent = `
         height: calc(100vh - 48px) !important;
         z-index: 9999 !important;
     }
-
 `
 
 function appendStyle(styleEl) {
@@ -1404,4 +1413,47 @@ function injectImmersiveModalButton() {
 	}
 
 	toolbar.appendChild(btn)
+}
+
+function fixChatHistoryTableVisibility() {
+	// 1. Disable performance-based clipping on older responses
+	const oldResponses = document.querySelectorAll(
+		".conversation-container.turn-content-visibility, .conversation-container",
+	)
+	oldResponses.forEach((res) => {
+		if (res.style.contentVisibility !== "visible") {
+			res.style.setProperty("content-visibility", "visible", "important")
+		}
+		if (res.style.contain !== "none") {
+			res.style.setProperty("contain", "none", "important")
+		}
+	})
+
+	// 2. Allow tables to calculate full width and overflow parents
+	document.querySelectorAll("table").forEach((table) => {
+		table.style.setProperty("width", "max-content", "important")
+		table.style.setProperty("display", "table", "important")
+
+		let parent = table.parentElement
+		while (parent && !parent.classList.contains("conversation-container")) {
+			const style = window.getComputedStyle(parent)
+
+			// Remove overflow restrictions
+			if (style.overflow !== "visible" || style.overflowX !== "visible") {
+				parent.style.setProperty("overflow", "visible", "important")
+				parent.style.setProperty("overflow-x", "visible", "important")
+			}
+
+			// Expand specific table wrappers without affecting text markdown width
+			if (
+				parent.classList.contains("horizontal-scroll-wrapper") ||
+				parent.classList.contains("table-block-component")
+			) {
+				parent.style.setProperty("width", "auto", "important")
+				parent.style.setProperty("max-width", "none", "important")
+			}
+
+			parent = parent.parentElement
+		}
+	})
 }

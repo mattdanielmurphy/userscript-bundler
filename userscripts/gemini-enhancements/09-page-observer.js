@@ -128,6 +128,7 @@ function startObservers() {
 			injectUI()
 			scanExecutionPayloads()
 			injectRunButtons()
+			if (typeof fixChatHistoryTableVisibility === "function") fixChatHistoryTableVisibility()
 			if (typeof window.scanToolCalls === "function") window.scanToolCalls()
 
 			const url = location.href
@@ -218,6 +219,7 @@ function startObservers() {
 	injectUI()
 	scanExecutionPayloads()
 	injectRunButtons()
+	if (typeof fixChatHistoryTableVisibility === "function") fixChatHistoryTableVisibility()
 	if (typeof window.scanToolCalls === "function") window.scanToolCalls()
 	setTimeout(() => {
 		if (autoThreadSync) {
