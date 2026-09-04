@@ -4,8 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "node bundler.cjs",
-    "test": "node --test"
+    "build": "bun run bundler.cjs",
+    "test": "bun test"
   },
   "dependencies": {
     "puppeteer-core": "^25.3.0"

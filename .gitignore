@@ -6,3 +6,4 @@ node_modules/
 .DS_Store
 userscript_bundle.js
 PENDING_CHANGES.md.helm-diag/
+tmp/

@@ -273,5 +273,16 @@
     ],
     "file": "xkcd-explain.user.js",
     "sharedFiles": []
+  },
+  {
+    "id": "strip-territorial-acknowledgements",
+    "name": "Strip Territorial & Land Acknowledgements",
+    "description": "Automatically strips territorial and land acknowledgement banners, footers, sections, and callouts across all websites",
+    "kind": "standalone",
+    "matches": [
+      "*://*/*"
+    ],
+    "file": "strip-territorial-acknowledgements.user.js",
+    "sharedFiles": []
   }
 ]
