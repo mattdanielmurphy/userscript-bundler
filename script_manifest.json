@@ -284,5 +284,16 @@
     ],
     "file": "strip-territorial-acknowledgements.user.js",
     "sharedFiles": []
+  },
+  {
+    "id": "dom-automation-recorder",
+    "name": "DOM Action Recorder & Automation Generator",
+    "description": "Cross-domain action recorder for form clicks, inputs, dropdowns, and redirects with Playwright/Puppeteer script generation",
+    "kind": "standalone",
+    "matches": [
+      "*://*/*"
+    ],
+    "file": "dom-automation-recorder.user.js",
+    "sharedFiles": []
   }
 ]

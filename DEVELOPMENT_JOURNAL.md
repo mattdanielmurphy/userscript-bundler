@@ -26,3 +26,7 @@
 
 ## 2026-09-03
 - **Strip Territorial & Land Acknowledgements Userscript:** Built a global userscript (`strip-territorial-acknowledgements.user.js`) that strips territorial/land acknowledgement banners, footers, sections, and callouts across all websites via preemptive CSS and intelligent DOM analysis. See [agent-logs/2026-09-03_19-25_strip-territorial-acknowledgements.md](file:///Users/matt/projects/userscript-bundler/agent-logs/2026-09-03_19-25_strip-territorial-acknowledgements.md).
+
+## 2026-09-04
+- **DOM Automation Recorder & Generator Userscript:** Created a cross-domain DOM action recorder (`dom-automation-recorder.user.js`) that captures clicks, debounced inputs, dropdowns, and form submits across redirects using GM storage, featuring a floating HUD, multi-strategy locators, and 1-click Playwright/Puppeteer script export. See [agent-logs/2026-09-04_09-15_dom-automation-recorder.md](file:///Users/matt/projects/userscript-bundler/agent-logs/2026-09-04_09-15_dom-automation-recorder.md).
+
