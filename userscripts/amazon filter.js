@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Amazon Brand Allowlist & Product Filter
 // @namespace    https://github.com/mattdanielmurphy
-// @version      2.1.0
-// @description  Strict allowlist brand filter and keyword filter for Amazon (.com, .ca, .co.uk, etc.) - only shows verified brands.
+// @version      2.2.0
+// @description  Strict allowlist brand filter and keyword filter for Amazon (.com, .ca, .co.uk, etc.) with quick Show All toggle and auto-advance pagination on zero results.
 // @author       Matt Murphy
 // @match        https://www.amazon.com/*
 // @match        https://www.amazon.ca/*
@@ -47,8 +47,12 @@
 	const STORAGE_KEY_CACHE_TIME = "abf_cache_timestamp";
 	const STORAGE_KEY_FILTER_MODE = "abf_filter_mode"; // 'hard' | 'soft'
 	const STORAGE_KEY_ALLOWLIST_ENABLED = "abf_allowlist_enabled";
+	const STORAGE_KEY_AUTO_ADVANCE = "abf_auto_advance";
 	const STORAGE_KEY_EXCLUDE_TERMS = "abf_exclude_terms";
 	const STORAGE_KEY_MUST_TERMS = "abf_must_have_terms";
+
+	const AUTO_ADVANCE_MAX_HOPS = 10;
+	const AUTO_ADVANCE_DELAY_MS = 1200;
 
 	// =========================================================================
 	// STORAGE ADAPTER (GM_* with localStorage fallback)
@@ -127,6 +131,7 @@
 		customWhitelist: new Set(),
 		filterMode: storage.get(STORAGE_KEY_FILTER_MODE, "hard"), // 'hard' (display: none) | 'soft' (opacity: 0.15)
 		allowlistEnabled: storage.get(STORAGE_KEY_ALLOWLIST_ENABLED, true),
+		autoAdvanceEnabled: storage.get(STORAGE_KEY_AUTO_ADVANCE, true),
 		excludeTerms: storage.get(STORAGE_KEY_EXCLUDE_TERMS, ""),
 		mustHaveTerms: storage.get(STORAGE_KEY_MUST_TERMS, ""),
 		stats: {
@@ -134,6 +139,7 @@
 			allowed: 0,
 			filtered: 0,
 		},
+		autoAdvanceTimer: null,
 		observer: null,
 		isDebouncing: false,
 		panelOpen: false,
@@ -500,6 +506,177 @@
 
 		updateTopFilterCount();
 		updateControlPanelStats();
+		checkZeroResultsAndAutoAdvance();
+	}
+
+	// =========================================================================
+	// ALLOWLIST & AUTO-ADVANCE STATE CONTROLLERS
+	// =========================================================================
+	function setAllowlistEnabled(enabled) {
+		state.allowlistEnabled = enabled;
+		storage.set(STORAGE_KEY_ALLOWLIST_ENABLED, enabled);
+		if (state.autoAdvanceTimer) {
+			clearTimeout(state.autoAdvanceTimer);
+			state.autoAdvanceTimer = null;
+		}
+		if (!enabled) {
+			removeZeroResultsBanner();
+			try {
+				sessionStorage.removeItem("abf_auto_advance_hops");
+			} catch (e) {}
+		}
+		applyAllFilters();
+		updateControlPanelStats();
+	}
+
+	function setAutoAdvanceEnabled(enabled) {
+		state.autoAdvanceEnabled = enabled;
+		storage.set(STORAGE_KEY_AUTO_ADVANCE, enabled);
+		if (!enabled && state.autoAdvanceTimer) {
+			clearTimeout(state.autoAdvanceTimer);
+			state.autoAdvanceTimer = null;
+			removeZeroResultsBanner();
+		}
+		applyAllFilters();
+		updateControlPanelStats();
+	}
+
+	function getNextPageElement() {
+		return document.querySelector(
+			'a.s-pagination-next:not(.s-pagination-disabled):not([aria-disabled="true"]), li.a-last:not(.a-disabled) a, a#pagnNextLink'
+		);
+	}
+
+	function removeZeroResultsBanner() {
+		const banner = document.getElementById("abf-zero-results-banner");
+		if (banner) banner.remove();
+	}
+
+	function renderZeroResultsBanner() {
+		const mainSlot =
+			document.querySelector("div.s-main-slot") ||
+			document.getElementById("search") ||
+			document.querySelector(".s-result-list");
+		if (!mainSlot) return;
+
+		let banner = document.getElementById("abf-zero-results-banner");
+		if (!banner) {
+			banner = document.createElement("div");
+			banner.id = "abf-zero-results-banner";
+			banner.style.cssText =
+				"margin: 14px 0 20px 0; padding: 14px 18px; background: #fff8e7; border: 1px solid #ffd599; border-left: 5px solid #ff9900; border-radius: 8px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; box-shadow: 0 2px 6px rgba(0,0,0,0.06);";
+			mainSlot.insertBefore(banner, mainSlot.firstChild);
+		}
+
+		const nextLink = getNextPageElement();
+		let hops = 0;
+		try {
+			hops = parseInt(sessionStorage.getItem("abf_auto_advance_hops") || "0", 10);
+		} catch (e) {}
+
+		const willAutoAdvance = state.autoAdvanceEnabled && nextLink && hops < AUTO_ADVANCE_MAX_HOPS;
+
+		banner.innerHTML = `
+			<div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
+				<div style="flex: 1; min-width: 260px;">
+					<div style="display: flex; align-items: center; gap: 8px;">
+						<span style="font-size: 18px;">⚠️</span>
+						<strong style="color: #0f1111; font-size: 14px;">No products on this page match your brand allowlist</strong>
+						<span style="font-size: 12px; color: #565959;">(${state.stats.total} hidden)</span>
+					</div>
+					<div id="abf-zero-banner-subtext" style="font-size: 12px; color: #565959; margin-top: 5px; line-height: 1.4;">
+						${
+							!nextLink
+								? "🏁 Reached the last page of search results. No matching brands found."
+								: hops >= AUTO_ADVANCE_MAX_HOPS
+								? `🛑 Auto-advanced through ${AUTO_ADVANCE_MAX_HOPS} consecutive pages without matching brands. Auto-advance paused.`
+								: willAutoAdvance
+								? '⏩ Auto-advancing to next page in <strong>1.2s</strong>...'
+								: "Turn off brand filter to view all products or advance to next page manually."
+						}
+					</div>
+				</div>
+				<div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+					<button id="abf-zero-show-all-btn" style="background: #ffffff; color: #0f1111; border: 1px solid #888c8c; border-radius: 6px; padding: 6px 14px; font-size: 12px; font-weight: 600; cursor: pointer; box-shadow: 0 1px 2px rgba(0,0,0,0.05); transition: background 0.15s;">
+						👁️ Show All Items (Turn Off Filter)
+					</button>
+					${
+						willAutoAdvance
+							? '<button id="abf-zero-cancel-advance-btn" style="background: #f0f2f2; color: #0f1111; border: 1px solid #d5d9d9; border-radius: 6px; padding: 6px 14px; font-size: 12px; font-weight: 600; cursor: pointer;">⏹️ Cancel Auto-Advance</button>'
+							: nextLink
+							? '<button id="abf-zero-manual-next-btn" style="background: #ffd814; color: #0f1111; border: 1px solid #fcd200; border-radius: 6px; padding: 6px 14px; font-size: 12px; font-weight: 600; cursor: pointer;">⏭️ Go to Next Page</button>'
+							: ""
+					}
+				</div>
+			</div>
+		`;
+
+		const showAllBtn = banner.querySelector("#abf-zero-show-all-btn");
+		if (showAllBtn) {
+			showAllBtn.addEventListener("click", () => {
+				setAllowlistEnabled(false);
+				showNotificationToast("👁️ Brand allowlist turned off. Showing all items.");
+			});
+		}
+
+		const cancelBtn = banner.querySelector("#abf-zero-cancel-advance-btn");
+		if (cancelBtn) {
+			cancelBtn.addEventListener("click", () => {
+				if (state.autoAdvanceTimer) {
+					clearTimeout(state.autoAdvanceTimer);
+					state.autoAdvanceTimer = null;
+				}
+				try {
+					sessionStorage.removeItem("abf_auto_advance_hops");
+				} catch (e) {}
+				const sub = banner.querySelector("#abf-zero-banner-subtext");
+				if (sub) sub.textContent = "⏹️ Auto-advance cancelled. Products remain hidden.";
+				cancelBtn.remove();
+				showNotificationToast("⏹️ Auto-advance cancelled.");
+			});
+		}
+
+		const manualNextBtn = banner.querySelector("#abf-zero-manual-next-btn");
+		if (manualNextBtn) {
+			manualNextBtn.addEventListener("click", () => {
+				if (nextLink) {
+					if (typeof nextLink.click === "function") nextLink.click();
+					else if (nextLink.href) window.location.href = nextLink.href;
+				}
+			});
+		}
+
+		if (willAutoAdvance) {
+			showNotificationToast("⏩ 0 matching brands. Auto-advancing to next page...");
+			state.autoAdvanceTimer = setTimeout(() => {
+				try {
+					sessionStorage.setItem("abf_auto_advance_hops", (hops + 1).toString());
+				} catch (e) {}
+				if (nextLink) {
+					if (typeof nextLink.click === "function") nextLink.click();
+					else if (nextLink.href) window.location.href = nextLink.href;
+				}
+			}, AUTO_ADVANCE_DELAY_MS);
+		}
+	}
+
+	function checkZeroResultsAndAutoAdvance() {
+		if (state.autoAdvanceTimer) {
+			clearTimeout(state.autoAdvanceTimer);
+			state.autoAdvanceTimer = null;
+		}
+
+		if (!state.allowlistEnabled || state.stats.total === 0 || state.stats.allowed > 0) {
+			removeZeroResultsBanner();
+			if (state.stats.allowed > 0) {
+				try {
+					sessionStorage.removeItem("abf_auto_advance_hops");
+				} catch (e) {}
+			}
+			return;
+		}
+
+		renderZeroResultsBanner();
 	}
 
 	// =========================================================================
@@ -614,18 +791,41 @@
 
 		// Summary row
 		const summaryRow = document.createElement("div");
+		summaryRow.id = "abf-summary-row";
 		summaryRow.style.cssText =
-			"display: flex; align-items: center; justify-content: space-between; font-size: 12px; color: #565959; padding-top: 4px; border-top: 1px solid #f0f2f2;";
+			"display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; font-size: 12px; color: #565959; padding-top: 6px; border-top: 1px solid #f0f2f2;";
 
 		const filterCount = document.createElement("span");
 		filterCount.id = "amazon-filter-count";
 		filterCount.style.cssText = "font-weight: 600; color: #007185;";
 
+		const rightControls = document.createElement("div");
+		rightControls.id = "abf-top-right-controls";
+		rightControls.style.cssText = "display: flex; align-items: center; gap: 12px; flex-wrap: wrap;";
+
+		const autoAdvanceLabel = document.createElement("label");
+		autoAdvanceLabel.style.cssText =
+			"display: flex; align-items: center; gap: 5px; cursor: pointer; user-select: none; font-size: 12px; color: #0f1111;";
+		autoAdvanceLabel.innerHTML = `
+			<input type="checkbox" id="abf-top-auto-advance" ${state.autoAdvanceEnabled ? "checked" : ""} style="cursor: pointer;">
+			<span>⏩ Auto-advance on 0 results</span>
+		`;
+
 		const statusPill = document.createElement("span");
-		statusPill.innerHTML = `🛡️ <strong>Allowlist:</strong> ${state.allowlistEnabled ? '<span style="color:#007600;">ACTIVE</span>' : '<span style="color:#c40000;">OFF</span>'} (${state.remoteAllowlist.size} brands)`;
+		statusPill.id = "abf-top-status-pill";
+
+		const toggleBtn = document.createElement("button");
+		toggleBtn.id = "abf-top-toggle-btn";
+		toggleBtn.type = "button";
+		toggleBtn.style.cssText =
+			"padding: 5px 12px; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; transition: all 0.2s;";
+
+		rightControls.appendChild(autoAdvanceLabel);
+		rightControls.appendChild(statusPill);
+		rightControls.appendChild(toggleBtn);
 
 		summaryRow.appendChild(filterCount);
-		summaryRow.appendChild(statusPill);
+		summaryRow.appendChild(rightControls);
 
 		filterContainer.appendChild(excludeRow);
 		filterContainer.appendChild(mustRow);
@@ -644,17 +844,69 @@
 		filterInput.addEventListener("input", handleInput);
 		mustInput.addEventListener("input", handleInput);
 
+		toggleBtn.addEventListener("click", () => {
+			setAllowlistEnabled(!state.allowlistEnabled);
+			showNotificationToast(
+				state.allowlistEnabled
+					? "🛡️ Brand filter enabled."
+					: "👁️ Brand filter turned off. Showing all items."
+			);
+		});
+
+		const autoAdvanceInput = autoAdvanceLabel.querySelector("#abf-top-auto-advance");
+		if (autoAdvanceInput) {
+			autoAdvanceInput.addEventListener("change", (e) => {
+				setAutoAdvanceEnabled(e.target.checked);
+				showNotificationToast(
+					e.target.checked
+						? "⏩ Auto-advance enabled on 0 results."
+						: "⏸️ Auto-advance disabled."
+				);
+			});
+		}
+
 		setupMutationObserver();
 	}
 
 	function updateTopFilterCount() {
 		const filterCount = document.getElementById("amazon-filter-count");
 		if (filterCount) {
-			if (state.stats.filtered > 0) {
+			if (!state.allowlistEnabled) {
+				filterCount.textContent = `👁️ Brand Filter is OFF: All ${state.stats.total} products visible.`;
+			} else if (state.stats.filtered > 0) {
 				filterCount.textContent = `🛡️ ${state.stats.filtered} of ${state.stats.total} products hidden (not in brand allowlist)`;
 			} else {
 				filterCount.textContent = `All ${state.stats.total} products allowed.`;
 			}
+		}
+
+		const statusPill = document.getElementById("abf-top-status-pill");
+		if (statusPill) {
+			statusPill.innerHTML = `🛡️ <strong>Allowlist:</strong> ${
+				state.allowlistEnabled
+					? '<span style="color:#007600;">ACTIVE</span>'
+					: '<span style="color:#c40000;">OFF</span>'
+			} (${state.remoteAllowlist.size} brands)`;
+		}
+
+		const toggleBtn = document.getElementById("abf-top-toggle-btn");
+		if (toggleBtn) {
+			if (state.allowlistEnabled) {
+				toggleBtn.textContent = "👁️ Show All Items (Turn Off Filter)";
+				toggleBtn.style.background = "#f0f2f2";
+				toggleBtn.style.color = "#0f1111";
+				toggleBtn.style.border = "1px solid #888c8c";
+			} else {
+				toggleBtn.textContent = "🛡️ Turn On Brand Filter";
+				toggleBtn.style.background = "#ffd814";
+				toggleBtn.style.color = "#0f1111";
+				toggleBtn.style.border = "1px solid #fcd200";
+			}
+		}
+
+		const autoAdvanceCheckbox = document.getElementById("abf-top-auto-advance");
+		if (autoAdvanceCheckbox) {
+			autoAdvanceCheckbox.checked = state.autoAdvanceEnabled;
 		}
 	}
 
@@ -721,7 +973,14 @@
 							<span id="abf-toggle-slider" style="position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: ${state.allowlistEnabled ? "#febd69" : "#555"}; border-radius: 20px; transition: .3s;"></span>
 						</label>
 					</div>
-					<div style="display: flex; align-items: center; justify-content: space-between; font-size: 12px; margin-top: 4px;">
+					<div style="display: flex; align-items: center; justify-content: space-between; font-size: 12px;">
+						<span>Auto-Advance on 0:</span>
+						<label style="position: relative; display: inline-block; width: 38px; height: 20px; cursor: pointer;">
+							<input type="checkbox" id="abf-toggle-autoadvance" ${state.autoAdvanceEnabled ? "checked" : ""} style="opacity: 0; width: 0; height: 0;">
+							<span id="abf-toggle-autoadvance-slider" style="position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: ${state.autoAdvanceEnabled ? "#febd69" : "#555"}; border-radius: 20px; transition: .3s;"></span>
+						</label>
+					</div>
+					<div style="display: flex; align-items: center; justify-content: space-between; font-size: 12px; margin-top: 2px;">
 						<span>Filter Mode:</span>
 						<div style="display: flex; gap: 6px;">
 							<button id="abf-mode-hard" style="background: ${state.filterMode === "hard" ? "#febd69" : "#2a3442"}; color: ${state.filterMode === "hard" ? "#111" : "#fff"}; border: none; border-radius: 4px; padding: 3px 8px; font-size: 11px; font-weight: 600; cursor: pointer;">Hard Hide</button>
@@ -760,12 +1019,16 @@
 		document.getElementById("abf-panel-close").addEventListener("click", () => toggleControlPanel(false));
 
 		document.getElementById("abf-toggle-allowlist").addEventListener("change", (e) => {
-			state.allowlistEnabled = e.target.checked;
-			storage.set(STORAGE_KEY_ALLOWLIST_ENABLED, state.allowlistEnabled);
-			document.getElementById("abf-toggle-slider").style.backgroundColor = state.allowlistEnabled
-				? "#febd69"
-				: "#555";
-			applyAllFilters();
+			setAllowlistEnabled(e.target.checked);
+		});
+
+		document.getElementById("abf-toggle-autoadvance").addEventListener("change", (e) => {
+			setAutoAdvanceEnabled(e.target.checked);
+			showNotificationToast(
+				e.target.checked
+					? "⏩ Auto-advance enabled on 0 results."
+					: "⏸️ Auto-advance disabled."
+			);
 		});
 
 		document.getElementById("abf-mode-hard").addEventListener("click", () => {
@@ -850,6 +1113,16 @@
 
 		const statDb = document.getElementById("abf-stat-db");
 		if (statDb) statDb.textContent = state.remoteAllowlist.size;
+
+		const allowlistCheckbox = document.getElementById("abf-toggle-allowlist");
+		if (allowlistCheckbox) allowlistCheckbox.checked = state.allowlistEnabled;
+		const toggleSlider = document.getElementById("abf-toggle-slider");
+		if (toggleSlider) toggleSlider.style.backgroundColor = state.allowlistEnabled ? "#febd69" : "#555";
+
+		const autoAdvanceCheckbox = document.getElementById("abf-toggle-autoadvance");
+		if (autoAdvanceCheckbox) autoAdvanceCheckbox.checked = state.autoAdvanceEnabled;
+		const autoAdvanceSlider = document.getElementById("abf-toggle-autoadvance-slider");
+		if (autoAdvanceSlider) autoAdvanceSlider.style.backgroundColor = state.autoAdvanceEnabled ? "#febd69" : "#555";
 	}
 
 	function renderCustomWhitelistList() {
@@ -947,6 +1220,22 @@
 	// =========================================================================
 	function registerTampermonkeyMenuCommands() {
 		if (typeof GM_registerMenuCommand === "function") {
+			GM_registerMenuCommand("👁️ Show All / Toggle Brand Filter", () => {
+				setAllowlistEnabled(!state.allowlistEnabled);
+				showNotificationToast(
+					state.allowlistEnabled
+						? "🛡️ Brand filter enabled."
+						: "👁️ Brand filter turned off. Showing all items."
+				);
+			});
+			GM_registerMenuCommand("⏩ Toggle Auto-Advance on Zero Results", () => {
+				setAutoAdvanceEnabled(!state.autoAdvanceEnabled);
+				showNotificationToast(
+					state.autoAdvanceEnabled
+						? "⏩ Auto-advance enabled on 0 results."
+						: "⏸️ Auto-advance disabled."
+				);
+			});
 			GM_registerMenuCommand("🛡️ Toggle Brand Filter Control Panel", () => {
 				toggleControlPanel();
 			});
