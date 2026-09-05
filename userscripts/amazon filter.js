@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Amazon Brand Allowlist & Product Filter
 // @namespace    https://github.com/mattdanielmurphy
-// @version      2.0.0
-// @description  Aggressive allowlist (whitelist) brand filter and keyword filter for Amazon (.com, .ca, .co.uk, etc.) to eradicate dropshipping scams and auto-generated seller accounts.
+// @version      2.1.0
+// @description  Strict allowlist brand filter and keyword filter for Amazon (.com, .ca, .co.uk, etc.) - only shows verified brands.
 // @author       Matt Murphy
 // @match        https://www.amazon.com/*
 // @match        https://www.amazon.ca/*
@@ -81,11 +81,10 @@
 	// =========================================================================
 	// CURATED SEED ALLOWLIST (TIER 1 INSTANT COLD START)
 	// =========================================================================
-	// Top ~350 reputable brands across tech, audio, household, appliances, fashion,
-	// tools, and outdoor categories. Enables zero-latency filtering on fresh installs
-	// even before remote community lists finish background fetching.
+	// Established global brand names across major product categories.
+	// Only authentic trademarked brands (no generic nouns or adjectives).
 	const SEED_BRANDS = [
-		"3m", "8bitdo", "acer", "adidas", "akg", "alexa", "alienware", "altra", "amazon", "amazon basics",
+		"3m", "8bitdo", "acer", "adidas", "akg", "alienware", "altra", "amazon", "amazon basics",
 		"amazon essentials", "amd", "anker", "ankerwork", "apc", "apple", "arcteryx", "asics", "asrock", "asus",
 		"audio-technica", "aukey", "avery", "bandai", "bang & olufsen", "barbie", "baseus", "be quiet!", "beats",
 		"belkin", "benq", "beyerdynamic", "big agnes", "birkenstock", "black diamond", "black+decker", "blink",
@@ -126,7 +125,7 @@
 	const state = {
 		remoteAllowlist: new Set(),
 		customWhitelist: new Set(),
-		filterMode: storage.get(STORAGE_KEY_FILTER_MODE, "hard"), // 'hard' | 'soft'
+		filterMode: storage.get(STORAGE_KEY_FILTER_MODE, "hard"), // 'hard' (display: none) | 'soft' (opacity: 0.15)
 		allowlistEnabled: storage.get(STORAGE_KEY_ALLOWLIST_ENABLED, true),
 		excludeTerms: storage.get(STORAGE_KEY_EXCLUDE_TERMS, ""),
 		mustHaveTerms: storage.get(STORAGE_KEY_MUST_TERMS, ""),
@@ -134,17 +133,14 @@
 			total: 0,
 			allowed: 0,
 			filtered: 0,
-			byBrand: 0,
-			byKeyword: 0,
 		},
-		filteredBrandsOnPage: new Map(), // brand -> { count, reason, sampleAsin }
 		observer: null,
 		isDebouncing: false,
 		panelOpen: false,
 	};
 
 	// =========================================================================
-	// STRING NORMALIZATION & PARSING UTILITIES
+	// STRING NORMALIZATION UTILITIES
 	// =========================================================================
 	function normalizeBrand(str) {
 		if (!str || typeof str !== "string") return "";
@@ -178,7 +174,7 @@
 			try {
 				return new RegExp(pattern, flags);
 			} catch (e) {
-				// Fallback to literal if invalid regex
+				// Fallback to literal
 			}
 		}
 
@@ -226,7 +222,7 @@
 	}
 
 	// =========================================================================
-	// TIER 1: EXTERNAL ALLOWLIST FETCHING & LOCAL CACHE
+	// ALLOWLIST LOADING & REMOTE SYNC
 	// =========================================================================
 	function initAllowlists() {
 		// 1. Seed brands into remote set
@@ -254,13 +250,13 @@
 			console.log(`[Amazon Filter] Loaded ${cachedData.length} brands from local cache.`);
 		}
 
-		// 4. If cache is stale or missing, fetch in background
+		// 4. Fetch in background if cache is missing or stale
 		if (!isCacheValid || !cachedData || cachedData.length === 0) {
 			fetchRemoteAllowlist();
 		}
 	}
 
-	function fetchRemoteAllowlist(force = false) {
+	function fetchRemoteAllowlist() {
 		const targetUrl = REMOTE_ALLOWLIST_URLS[0];
 		console.log(`[Amazon Filter] Fetching community allowlist from: ${targetUrl}`);
 
@@ -294,12 +290,9 @@
 				onload(response) {
 					if (response.status >= 200 && response.status < 300) {
 						handleResponse(response.responseText);
-					} else {
-						console.warn("[Amazon Filter] Remote fetch failed with status:", response.status);
 					}
 				},
-				onerror(err) {
-					console.warn("[Amazon Filter] GM_xmlhttpRequest error, falling back to window.fetch:", err);
+				onerror() {
 					fallbackFetch(targetUrl, handleResponse);
 				},
 			});
@@ -316,7 +309,7 @@
 			})
 			.then(callback)
 			.catch((e) => {
-				console.warn("[Amazon Filter] Fallback fetch failed:", e);
+				console.warn("[Amazon Filter] Remote fetch failed:", e);
 			});
 	}
 
@@ -355,295 +348,88 @@
 		return "";
 	}
 
-	/**
-	 * Extracts candidate brand strings, store links, and title prefixes from search card.
-	 */
-	function extractBrandContext(card) {
-		// 1. Check for official store link: /stores/ or me= parameter
-		const storeAnchor = card.querySelector(
-			'a[href*="/stores/"], a[href*="/stores/page/"], a[href*="/stores/node/"], a[href*="me="]:not([href*="/s?"])'
-		);
-		let storeUrl = storeAnchor ? storeAnchor.getAttribute("href") : "";
-		let storeBrandName = "";
+	function extractStoreBrand(anchor) {
+		if (!anchor) return "";
+		const text = anchor.textContent.trim();
+		const visitMatch = text.match(/(?:visit the|brand:)\s+([^.]+?)\s*(?:store|$)/i);
+		if (visitMatch) return visitMatch[1].trim();
 
-		if (storeAnchor) {
-			const anchorText = storeAnchor.textContent.trim();
-			const visitMatch = anchorText.match(/(?:visit the|brand:)\s+([^.]+?)\s*(?:store|$)/i);
-			if (visitMatch) {
-				storeBrandName = visitMatch[1].trim();
-			} else if (anchorText && anchorText.length < 35 && !anchorText.includes("http")) {
-				storeBrandName = anchorText;
-			} else if (storeUrl) {
-				const match = storeUrl.match(/\/stores\/(?:page\/)?([A-Za-z0-9%_-]+)/);
-				if (match && !match[1].startsWith("node")) {
-					storeBrandName = decodeURIComponent(match[1]).replace(/[-_]/g, " ");
-				}
-			}
+		const href = anchor.getAttribute("href") || "";
+		const match = href.match(/\/stores\/(?:page\/)?([A-Za-z0-9%_-]+)/);
+		if (match && !match[1].startsWith("node")) {
+			return decodeURIComponent(match[1]).replace(/[-_]/g, " ").trim();
 		}
+		return "";
+	}
 
-		// 2. Check for explicit brand heading element
-		let explicitBrandName = "";
+	// =========================================================================
+	// STRICT ALLOWLIST EVALUATOR
+	// =========================================================================
+	// Whatever is in the brand whitelist, we see those results.
+	// Otherwise, we do not see them. Simple as that.
+	function isBrandWhitelisted(card) {
+		// 1. Check explicit brand header line on the card (e.g. h2.a-size-mini span)
 		const brandHeading = card.querySelector(
 			"h2.a-size-mini span, h5.s-line-clamp-1 span, span.s-brand-name, a.s-line-clamp-1 span"
 		);
 		if (brandHeading && brandHeading.textContent.trim()) {
-			const text = brandHeading.textContent.trim();
-			if (text.length < 40) explicitBrandName = text;
-		}
-
-		// 3. Title fallback: extract candidate tokens (first 1, 2, or 3 words)
-		const title = getCardTitle(card);
-		let token1 = "";
-		let token2 = "";
-		let token3 = "";
-		if (title) {
-			const words = title.split(/\s+/).filter(Boolean);
-			if (words.length > 0) token1 = words[0];
-			if (words.length > 1) token2 = words.slice(0, 2).join(" ");
-			if (words.length > 2) token3 = words.slice(0, 3).join(" ");
-		}
-
-		// Select best candidate display brand name
-		const primaryBrand = storeBrandName || explicitBrandName || token2 || token1 || "Unknown Brand";
-
-		return {
-			primaryBrand,
-			storeBrandName,
-			storeUrl,
-			explicitBrandName,
-			token1,
-			token2,
-			token3,
-			title,
-		};
-	}
-
-	// =========================================================================
-	// TIER 2 & TIER 3 EVALUATORS
-	// =========================================================================
-
-	/**
-	 * TIER 2: Checks structural on-page Amazon signals (Store URLs, Fulfilled/Sold by Amazon, Badges).
-	 */
-	function checkStructuralSignals(card, ctx) {
-		// Signal A: Official Amazon Brand Store Link
-		if (ctx.storeUrl && (ctx.storeUrl.includes("/stores/") || ctx.storeUrl.includes("/stores/page/"))) {
-			return {
-				legitimate: true,
-				reason: "Official Amazon Brand Store",
-				brand: ctx.storeBrandName || ctx.primaryBrand,
-			};
-		}
-
-		// Signal B: Sold or Shipped by Amazon
-		const cardText = card.textContent || "";
-		if (
-			/ships\s+from\s+(?:amazon|\bamazon\.[a-z.]+)/i.test(cardText) ||
-			/sold\s+by\s+(?:amazon|\bamazon\.[a-z.]+)/i.test(cardText) ||
-			/fulfilled\s+by\s+amazon/i.test(cardText)
-		) {
-			return {
-				legitimate: true,
-				reason: "Ships / Sold by Amazon",
-				brand: ctx.primaryBrand,
-			};
-		}
-
-		// Signal C: Amazon's Choice, Best Seller, or Established Brand Badges
-		const badge = card.querySelector(
-			'.a-badge-text, [aria-label*="Amazon\'s Choice"], [aria-label*="Best Seller"], [aria-label*="Overall Pick"], span[id*="amazons-choice"], span[id*="best-seller"]'
-		);
-		if (badge) {
-			return {
-				legitimate: true,
-				reason: "Amazon Choice / Best Seller badge",
-				brand: ctx.primaryBrand,
-			};
-		}
-
-		if (/\b(?:amazon's\s+choice|best\s+seller|overall\s+pick|climate\s+pledge\s+friendly)\b/i.test(cardText)) {
-			return {
-				legitimate: true,
-				reason: "Verified Amazon Badge",
-				brand: ctx.primaryBrand,
-			};
-		}
-
-		return { legitimate: false };
-	}
-
-	/**
-	 * TIER 3: Algorithmic & Linguistic Heuristic Analyzer.
-	 */
-	function checkLinguisticHeuristics(brandName) {
-		if (!brandName || typeof brandName !== "string") {
-			return { legitimate: false, reason: "No brand name provided" };
-		}
-
-		const clean = brandName.trim();
-		if (clean.length < 2) {
-			return { legitimate: false, reason: "Brand name too short" };
-		}
-
-		// Flag spam seller signature: ALL-CAPS single-block string between 5 and 9 letters
-		const isSingleWord = !/\s/.test(clean);
-		if (isSingleWord && /^[A-Z]{5,9}$/.test(clean)) {
-			return {
-				legitimate: false,
-				reason: `Suspicious ALL-CAPS single-block string ("${clean}")`,
-			};
-		}
-
-		// Positive Test 1: Multi-word real name or recognized corporate suffix
-		const corporateSuffixPattern =
-			/\b(inc|llc|co|ltd|corp|corporation|laboratories|labs|studios|works|supply|outfitters|company|brands|workshop|designs|tech|electronics|audio|sound|living|home|gear|industries|sports|kitchen|craft)\b/i;
-		const words = clean.split(/\s+/).filter(Boolean);
-		if (words.length >= 2 || corporateSuffixPattern.test(clean)) {
-			return {
-				legitimate: true,
-				reason: "Multi-word or recognized corporate brand structure",
-			};
-		}
-
-		// Positive Test 2: Natural Phonetics & Vowel Ratio
-		const lettersOnly = clean.replace(/[^a-zA-Z]/g, "");
-		if (lettersOnly.length === 0) {
-			return { legitimate: false, reason: "No alphabetic letters" };
-		}
-
-		const vowelMatches = lettersOnly.match(/[aeiouy]/gi);
-		const vowelCount = vowelMatches ? vowelMatches.length : 0;
-		const vowelRatio = vowelCount / lettersOnly.length;
-
-		// Disqualify if containing 4 or more consecutive consonants (e.g., ZXKV, QWVB, KCHG)
-		const hasConsonantCluster = /[bcdfghjklmnpqrstvwxz]{4,}/i.test(lettersOnly);
-		if (hasConsonantCluster) {
-			return {
-				legitimate: false,
-				reason: `Unnatural 4+ consonant cluster in "${clean}"`,
-			};
-		}
-
-		// Check for standard Title Case (e.g. "KitchenAid", "Lodge", "Sony", "Soundcore")
-		const isTitleCase = /^[A-Z][a-z0-9]+(?:[A-Z][a-z0-9]+)*$/.test(clean);
-
-		// Natural vowel ratio must be between 25% and 60%
-		if (vowelRatio >= 0.25 && vowelRatio <= 0.6) {
-			if (isTitleCase) {
-				return {
-					legitimate: true,
-					reason: `Title Case with natural phonetics (${Math.round(vowelRatio * 100)}% vowels)`,
-				};
+			const explicit = normalizeBrand(brandHeading.textContent);
+			if (explicit && (state.customWhitelist.has(explicit) || state.remoteAllowlist.has(explicit))) {
+				return true;
 			}
 		}
 
-		return {
-			legitimate: false,
-			reason: `Linguistic heuristic failed (vowel ratio ${Math.round(vowelRatio * 100)}%)`,
-		};
+		// 2. Check official Amazon Store link (/stores/)
+		const storeAnchor = card.querySelector('a[href*="/stores/"], a[href*="/stores/page/"]');
+		if (storeAnchor) {
+			const storeBrand = extractStoreBrand(storeAnchor);
+			if (storeBrand) {
+				const normStore = normalizeBrand(storeBrand);
+				if (state.customWhitelist.has(normStore) || state.remoteAllowlist.has(normStore)) {
+					return true;
+				}
+			}
+		}
+
+		// 3. Check if product title matches a known whitelist brand (exact first words)
+		const title = getCardTitle(card);
+		if (title) {
+			const words = title.split(/\s+/).filter(Boolean);
+			if (words.length > 0) {
+				const w1 = normalizeBrand(words[0]);
+				if (state.customWhitelist.has(w1) || state.remoteAllowlist.has(w1)) {
+					return true;
+				}
+			}
+			if (words.length > 1) {
+				const w2 = normalizeBrand(words.slice(0, 2).join(" "));
+				if (state.customWhitelist.has(w2) || state.remoteAllowlist.has(w2)) {
+					return true;
+				}
+			}
+			if (words.length > 2) {
+				const w3 = normalizeBrand(words.slice(0, 3).join(" "));
+				if (state.customWhitelist.has(w3) || state.remoteAllowlist.has(w3)) {
+					return true;
+				}
+			}
+		}
+
+		// Not in whitelist
+		return false;
 	}
 
 	// =========================================================================
-	// COMPREHENSIVE CARD EVALUATION ENGINE
+	// CARD VISIBILITY APPLIER (CLEAN DISPLAY NONE - NO IN-PAGE PLACEHOLDER JUNK)
 	// =========================================================================
-	function evaluateCard(card) {
-		const ctx = extractBrandContext(card);
-		const normPrimary = normalizeBrand(ctx.primaryBrand);
-		const normExplicit = normalizeBrand(ctx.explicitBrandName);
-		const normToken1 = normalizeBrand(ctx.token1);
-		const normToken2 = normalizeBrand(ctx.token2);
-		const normToken3 = normalizeBrand(ctx.token3);
-
-		// ---------------------------------------------------------------------
-		// 1. TIER 4: Local User Custom Whitelist
-		// ---------------------------------------------------------------------
-		if (
-			state.customWhitelist.has(normPrimary) ||
-			state.customWhitelist.has(normExplicit) ||
-			state.customWhitelist.has(normToken1) ||
-			state.customWhitelist.has(normToken2) ||
-			state.customWhitelist.has(normToken3)
-		) {
-			return {
-				allowed: true,
-				tier: 4,
-				reason: "User Custom Whitelist",
-				brand: ctx.primaryBrand,
-			};
+	function applyCardVisibility(card, isAllowed) {
+		// Clean up any old placeholder bars or overlays
+		const prev = card.previousElementSibling;
+		if (prev && prev.classList && prev.classList.contains("abf-placeholder-bar")) {
+			prev.remove();
 		}
-
-		// ---------------------------------------------------------------------
-		// 2. TIER 1: External Open Allowlist Sync & Seed Database
-		// ---------------------------------------------------------------------
-		let matchedAllowlistBrand = null;
-		if (state.remoteAllowlist.has(normPrimary)) matchedAllowlistBrand = ctx.primaryBrand;
-		else if (state.remoteAllowlist.has(normExplicit)) matchedAllowlistBrand = ctx.explicitBrandName;
-		else if (state.remoteAllowlist.has(normToken3)) matchedAllowlistBrand = ctx.token3;
-		else if (state.remoteAllowlist.has(normToken2)) matchedAllowlistBrand = ctx.token2;
-		else if (state.remoteAllowlist.has(normToken1)) matchedAllowlistBrand = ctx.token1;
-
-		if (matchedAllowlistBrand) {
-			return {
-				allowed: true,
-				tier: 1,
-				reason: "Allowlist Database",
-				brand: matchedAllowlistBrand,
-			};
-		}
-
-		// ---------------------------------------------------------------------
-		// 3. TIER 2: Structural On-Page Amazon Signals
-		// ---------------------------------------------------------------------
-		const tier2 = checkStructuralSignals(card, ctx);
-		if (tier2.legitimate) {
-			return {
-				allowed: true,
-				tier: 2,
-				reason: tier2.reason,
-				brand: tier2.brand || ctx.primaryBrand,
-			};
-		}
-
-		// ---------------------------------------------------------------------
-		// 4. TIER 3: Algorithmic & Linguistic Heuristic Fallback
-		// ---------------------------------------------------------------------
-		const candidateForHeuristic = ctx.explicitBrandName || ctx.token1 || ctx.primaryBrand;
-		const tier3 = checkLinguisticHeuristics(candidateForHeuristic);
-		if (tier3.legitimate) {
-			return {
-				allowed: true,
-				tier: 3,
-				reason: tier3.reason,
-				brand: candidateForHeuristic,
-			};
-		}
-
-		// ---------------------------------------------------------------------
-		// UNVERIFIED / FAILED ALLOWLIST CHECK
-		// ---------------------------------------------------------------------
-		return {
-			allowed: false,
-			tier: 0,
-			reason: tier3.reason || "Unverified Brand",
-			brand: candidateForHeuristic || "Unknown Brand",
-		};
-	}
-
-	// =========================================================================
-	// FILTERING PIPELINE & CARD VISIBILITY APPLIER
-	// =========================================================================
-	function applyCardVisibility(card, isAllowed, filterReason, brandName) {
-		const asin = card.getAttribute("data-asin") || "";
-
-		// Remove any existing placeholder bar
-		const existingBar = card.previousElementSibling;
-		if (existingBar && existingBar.classList.contains("abf-placeholder-bar")) {
-			existingBar.remove();
-		}
-
-		// Remove any existing soft-dim overlay inside card
-		const existingOverlay = card.querySelector(".abf-card-overlay");
-		if (existingOverlay) existingOverlay.remove();
+		const overlay = card.querySelector(".abf-card-overlay");
+		if (overlay) overlay.remove();
 
 		if (isAllowed) {
 			card.style.removeProperty("display");
@@ -651,90 +437,23 @@
 			card.style.removeProperty("filter");
 			card.style.removeProperty("transition");
 			card.removeAttribute("data-abf-hidden");
-			return;
-		}
-
-		card.setAttribute("data-abf-hidden", "true");
-		card.setAttribute("data-abf-brand", brandName);
-
-		if (state.filterMode === "hard") {
-			// HARD HIDE: set display none + inject subtle 1-line bar for recovery/whitelisting
-			card.style.display = "none";
-
-			const placeholder = document.createElement("div");
-			placeholder.className = "abf-placeholder-bar";
-			placeholder.style.cssText =
-				"display: flex; align-items: center; justify-content: space-between; padding: 4px 10px; margin: 4px 0; background: #f8f9fa; border: 1px dashed #d5d9d9; border-radius: 6px; font-size: 11px; color: #565959; box-sizing: border-box;";
-
-			placeholder.innerHTML = `
-				<div style="display: flex; align-items: center; gap: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-					<span style="font-size: 13px;">🛡️</span>
-					<span>Hidden: <strong style="color: #0f1111;">${escapeHtml(brandName)}</strong> <span style="color: #888;">(${escapeHtml(filterReason)})</span></span>
-				</div>
-				<div style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
-					<button class="abf-quick-whitelist-btn" style="background: #ffd814; border: 1px solid #fcd200; border-radius: 12px; padding: 2px 8px; font-size: 10px; font-weight: 600; cursor: pointer; color: #0f1111;">+ Whitelist</button>
-					<button class="abf-quick-reveal-btn" style="background: #ffffff; border: 1px solid #d5d9d9; border-radius: 12px; padding: 2px 8px; font-size: 10px; cursor: pointer; color: #565959;">👁️ Reveal</button>
-				</div>
-			`;
-
-			const whitelistBtn = placeholder.querySelector(".abf-quick-whitelist-btn");
-			whitelistBtn.addEventListener("click", (e) => {
-				e.preventDefault();
-				e.stopPropagation();
-				addCustomWhitelistBrand(brandName);
-			});
-
-			const revealBtn = placeholder.querySelector(".abf-quick-reveal-btn");
-			revealBtn.addEventListener("click", (e) => {
-				e.preventDefault();
-				e.stopPropagation();
-				card.style.removeProperty("display");
-				placeholder.style.opacity = "0.5";
-				revealBtn.textContent = "✓ Shown";
-			});
-
-			card.parentNode.insertBefore(placeholder, card);
 		} else {
-			// SOFT DIM: Dim element to 0.18 opacity + grayscale + inline hover overlay
-			card.style.removeProperty("display");
-			card.style.opacity = "0.18";
-			card.style.filter = "grayscale(100%)";
-			card.style.transition = "opacity 0.2s ease, filter 0.2s ease";
-			card.style.position = "relative";
-
-			const overlay = document.createElement("div");
-			overlay.className = "abf-card-overlay";
-			overlay.style.cssText =
-				"position: absolute; top: 6px; right: 6px; z-index: 20; display: flex; align-items: center; gap: 6px; background: rgba(19, 25, 33, 0.92); color: #ffffff; padding: 4px 8px; border-radius: 6px; font-size: 11px; box-shadow: 0 2px 6px rgba(0,0,0,0.3);";
-
-			overlay.innerHTML = `
-				<span>🛡️ Dimmed: <strong>${escapeHtml(brandName)}</strong></span>
-				<button class="abf-overlay-whitelist-btn" style="background: #febd69; border: none; border-radius: 4px; padding: 2px 6px; font-size: 10px; font-weight: bold; cursor: pointer; color: #111;">+ Whitelist</button>
-			`;
-
-			const whitelistBtn = overlay.querySelector(".abf-overlay-whitelist-btn");
-			whitelistBtn.addEventListener("click", (e) => {
-				e.preventDefault();
-				e.stopPropagation();
-				addCustomWhitelistBrand(brandName);
-			});
-
-			const handleEnter = () => {
-				card.style.opacity = "0.95";
-				card.style.filter = "none";
-			};
-			const handleLeave = () => {
-				card.style.opacity = "0.18";
+			card.setAttribute("data-abf-hidden", "true");
+			if (state.filterMode === "soft") {
+				card.style.removeProperty("display");
+				card.style.opacity = "0.15";
 				card.style.filter = "grayscale(100%)";
-			};
-
-			card.addEventListener("mouseenter", handleEnter);
-			card.addEventListener("mouseleave", handleLeave);
-
-			card.appendChild(overlay);
+				card.style.transition = "opacity 0.2s ease, filter 0.2s ease";
+			} else {
+				// HARD HIDE: completely clean display: none without any in-page DOM pollution
+				card.style.display = "none";
+			}
 		}
 	}
 
+	// =========================================================================
+	// MASTER FILTER PIPELINE
+	// =========================================================================
 	function applyAllFilters() {
 		const excludeTerms = parseExcludeTerms(state.excludeTerms);
 		const mustString = (state.mustHaveTerms || "").trim();
@@ -746,9 +465,6 @@
 		state.stats.total = cards.length;
 		state.stats.allowed = 0;
 		state.stats.filtered = 0;
-		state.stats.byBrand = 0;
-		state.stats.byKeyword = 0;
-		state.filteredBrandsOnPage.clear();
 
 		cards.forEach((card) => {
 			const title = getCardTitle(card);
@@ -756,51 +472,34 @@
 			// 1. Check title keyword exclusions (Exclude terms)
 			if (excludeActive && title && excludeTerms.some((term) => matchTerm(title, term))) {
 				state.stats.filtered++;
-				state.stats.byKeyword++;
-				applyCardVisibility(card, false, "Keyword Excluded", "Product");
+				applyCardVisibility(card, false);
 				return;
 			}
 
 			// 2. Check title keyword requirements (Must have terms)
 			if (mustActive && title && !titleMatchesMustHave(title, mustString)) {
 				state.stats.filtered++;
-				state.stats.byKeyword++;
-				applyCardVisibility(card, false, "Missing Required Term", "Product");
+				applyCardVisibility(card, false);
 				return;
 			}
 
-			// 3. Check Brand Allowlist (if enabled)
+			// 3. Strict Brand Whitelist Check
 			if (state.allowlistEnabled) {
-				const evaluation = evaluateCard(card);
-				if (!evaluation.allowed) {
+				const whitelisted = isBrandWhitelisted(card);
+				if (!whitelisted) {
 					state.stats.filtered++;
-					state.stats.byBrand++;
-
-					const currentBrandStat = state.filteredBrandsOnPage.get(evaluation.brand) || {
-						count: 0,
-						reason: evaluation.reason,
-					};
-					currentBrandStat.count++;
-					state.filteredBrandsOnPage.set(evaluation.brand, currentBrandStat);
-
-					applyCardVisibility(card, false, evaluation.reason, evaluation.brand);
+					applyCardVisibility(card, false);
 					return;
 				}
 			}
 
-			// Product passed all active filters
+			// Product passed
 			state.stats.allowed++;
 			applyCardVisibility(card, true);
 		});
 
 		updateTopFilterCount();
 		updateControlPanelStats();
-	}
-
-	function escapeHtml(text) {
-		const div = document.createElement("div");
-		div.textContent = text || "";
-		return div.innerHTML;
 	}
 
 	// =========================================================================
@@ -817,7 +516,7 @@
 			storage.set(STORAGE_KEY_CUSTOM_WHITELIST, arr);
 		}
 
-		showNotificationToast(`✅ Whitelisted "${brandName}"`);
+		showNotificationToast(`✅ Added "${brandName}" to whitelist`);
 		applyAllFilters();
 		renderCustomWhitelistList();
 	}
@@ -855,7 +554,7 @@
 	}
 
 	// =========================================================================
-	// IN-PAGE TOP SEARCH FILTER INPUTS (PRESERVED FROM ORIGINAL USERSCRIPT)
+	// IN-PAGE TOP SEARCH FILTER INPUTS (PRESERVED FUNCTIONALITY)
 	// =========================================================================
 	function addTopFilterInput() {
 		const targetDiv = document.getElementById("s-skipLinkTargetForMainSearchResults");
@@ -913,7 +612,7 @@
 		mustRow.appendChild(mustLabel);
 		mustRow.appendChild(mustInput);
 
-		// Summary row with Allowlist badge and filter count
+		// Summary row
 		const summaryRow = document.createElement("div");
 		summaryRow.style.cssText =
 			"display: flex; align-items: center; justify-content: space-between; font-size: 12px; color: #565959; padding-top: 4px; border-top: 1px solid #f0f2f2;";
@@ -923,7 +622,7 @@
 		filterCount.style.cssText = "font-weight: 600; color: #007185;";
 
 		const statusPill = document.createElement("span");
-		statusPill.innerHTML = `🛡️ <strong>Allowlist Filter:</strong> ${state.allowlistEnabled ? '<span style="color:#007600;">ACTIVE</span>' : '<span style="color:#c40000;">OFF</span>'} (${state.remoteAllowlist.size} verified brands)`;
+		statusPill.innerHTML = `🛡️ <strong>Allowlist:</strong> ${state.allowlistEnabled ? '<span style="color:#007600;">ACTIVE</span>' : '<span style="color:#c40000;">OFF</span>'} (${state.remoteAllowlist.size} brands)`;
 
 		summaryRow.appendChild(filterCount);
 		summaryRow.appendChild(statusPill);
@@ -952,7 +651,7 @@
 		const filterCount = document.getElementById("amazon-filter-count");
 		if (filterCount) {
 			if (state.stats.filtered > 0) {
-				filterCount.textContent = `🛡️ ${state.stats.filtered} of ${state.stats.total} products filtered (${state.stats.byBrand} unverified brands, ${state.stats.byKeyword} keyword exclusions)`;
+				filterCount.textContent = `🛡️ ${state.stats.filtered} of ${state.stats.total} products hidden (not in brand allowlist)`;
 			} else {
 				filterCount.textContent = `All ${state.stats.total} products allowed.`;
 			}
@@ -960,7 +659,7 @@
 	}
 
 	// =========================================================================
-	// FLOATING COLLAPSIBLE CONTROL PANEL (TIER 4 UI)
+	// COMPACT BOTTOM-RIGHT CONTROL PANEL
 	// =========================================================================
 	function createControlPanel() {
 		if (document.getElementById("abf-control-panel-root")) return;
@@ -970,11 +669,11 @@
 		root.style.cssText =
 			"position: fixed; bottom: 20px; right: 20px; z-index: 999998; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 13px;";
 
-		// Minimized Floating Pill Button
+		// Floating Pill Button
 		const pill = document.createElement("button");
 		pill.id = "abf-pill-toggle";
 		pill.style.cssText =
-			"display: flex; align-items: center; gap: 8px; background: #131921; color: #ffffff; border: 2px solid #febd69; border-radius: 24px; padding: 8px 16px; font-weight: 600; cursor: pointer; box-shadow: 0 4px 14px rgba(0,0,0,0.3); transition: transform 0.2s, background 0.2s;";
+			"display: flex; align-items: center; gap: 8px; background: #131921; color: #ffffff; border: 2px solid #febd69; border-radius: 24px; padding: 8px 16px; font-weight: 600; cursor: pointer; box-shadow: 0 4px 14px rgba(0,0,0,0.3); transition: transform 0.2s;";
 		pill.innerHTML = `<span>🛡️</span> <span id="abf-pill-text">Brand Filter · ${state.stats.filtered} Hidden</span>`;
 
 		pill.addEventListener("mouseenter", () => (pill.style.transform = "scale(1.03)"));
@@ -985,18 +684,18 @@
 		const panel = document.createElement("div");
 		panel.id = "abf-panel-window";
 		panel.style.cssText =
-			"display: none; width: 360px; max-height: 520px; background: #131921; color: #ffffff; border: 1px solid #3a4553; border-radius: 12px; box-shadow: 0 8px 28px rgba(0,0,0,0.4); flex-direction: column; overflow: hidden;";
+			"display: none; width: 340px; max-height: 480px; background: #131921; color: #ffffff; border: 1px solid #3a4553; border-radius: 12px; box-shadow: 0 8px 28px rgba(0,0,0,0.4); flex-direction: column; overflow: hidden;";
 
 		panel.innerHTML = `
 			<div style="display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; background: #232f3e; border-bottom: 1px solid #3a4553;">
 				<div style="display: flex; align-items: center; gap: 8px;">
 					<span style="font-size: 16px;">🛡️</span>
-					<span style="font-weight: 700; font-size: 14px; color: #febd69;">Amazon Brand Allowlist</span>
+					<span style="font-weight: 700; font-size: 14px; color: #febd69;">Brand Allowlist</span>
 				</div>
 				<button id="abf-panel-close" style="background: transparent; border: none; color: #ccc; font-size: 18px; cursor: pointer; line-height: 1;">✕</button>
 			</div>
 
-			<div style="padding: 14px 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; max-height: 450px;">
+			<div style="padding: 14px 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 14px;">
 				<!-- Stats Bar -->
 				<div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; background: #0f1111; padding: 10px; border-radius: 8px; text-align: center; border: 1px solid #3a4553;">
 					<div>
@@ -1004,7 +703,7 @@
 						<div id="abf-stat-allowed" style="font-size: 16px; font-weight: 700; color: #00c853;">${state.stats.allowed}</div>
 					</div>
 					<div>
-						<div style="font-size: 10px; color: #888;">FILTERED</div>
+						<div style="font-size: 10px; color: #888;">HIDDEN</div>
 						<div id="abf-stat-filtered" style="font-size: 16px; font-weight: 700; color: #ff5252;">${state.stats.filtered}</div>
 					</div>
 					<div>
@@ -1013,10 +712,10 @@
 					</div>
 				</div>
 
-				<!-- Filter Mode & Master Switch -->
+				<!-- Toggle & Mode -->
 				<div style="display: flex; flex-direction: column; gap: 8px; background: #1b222c; padding: 10px 12px; border-radius: 8px;">
 					<div style="display: flex; align-items: center; justify-content: space-between;">
-						<span style="font-weight: 600; font-size: 12px;">Allowlist Filtering:</span>
+						<span style="font-weight: 600; font-size: 12px;">Allowlist Active:</span>
 						<label style="position: relative; display: inline-block; width: 38px; height: 20px; cursor: pointer;">
 							<input type="checkbox" id="abf-toggle-allowlist" ${state.allowlistEnabled ? "checked" : ""} style="opacity: 0; width: 0; height: 0;">
 							<span id="abf-toggle-slider" style="position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: ${state.allowlistEnabled ? "#febd69" : "#555"}; border-radius: 20px; transition: .3s;"></span>
@@ -1031,33 +730,22 @@
 					</div>
 				</div>
 
-				<!-- Filtered on This Page Section -->
+				<!-- Add Brand to Whitelist -->
 				<div style="display: flex; flex-direction: column; gap: 6px;">
-					<div style="font-weight: 600; font-size: 12px; color: #febd69; display: flex; justify-content: space-between;">
-						<span>Filtered On This Page:</span>
-						<span id="abf-filtered-count-badge" style="color: #aaa; font-weight: normal;">(${state.filteredBrandsOnPage.size} brands)</span>
-					</div>
-					<div id="abf-filtered-page-list" style="max-height: 100px; overflow-y: auto; background: #0f1111; border: 1px solid #3a4553; border-radius: 6px; padding: 6px; display: flex; flex-direction: column; gap: 4px;">
-						<!-- Dynamically populated -->
-					</div>
-				</div>
-
-				<!-- Custom Whitelist Manager -->
-				<div style="display: flex; flex-direction: column; gap: 6px;">
-					<div style="font-weight: 600; font-size: 12px; color: #febd69;">Custom User Whitelist:</div>
+					<div style="font-weight: 600; font-size: 12px; color: #febd69;">Add Brand to Whitelist:</div>
 					<div style="display: flex; gap: 6px;">
-						<input type="text" id="abf-add-brand-input" placeholder="Enter brand name..." style="flex: 1; background: #0f1111; color: #fff; border: 1px solid #3a4553; border-radius: 4px; padding: 5px 8px; font-size: 12px;">
+						<input type="text" id="abf-add-brand-input" placeholder="Brand name..." style="flex: 1; background: #0f1111; color: #fff; border: 1px solid #3a4553; border-radius: 4px; padding: 5px 8px; font-size: 12px;">
 						<button id="abf-add-brand-btn" style="background: #ffd814; border: none; border-radius: 4px; padding: 5px 12px; font-weight: 600; font-size: 12px; cursor: pointer; color: #111;">Add</button>
 					</div>
 					<div id="abf-custom-tags-container" style="display: flex; flex-wrap: wrap; gap: 4px; max-height: 90px; overflow-y: auto; background: #0f1111; border: 1px solid #3a4553; border-radius: 6px; padding: 6px;">
-						<!-- Dynamically populated -->
+						<!-- Populated dynamically -->
 					</div>
 				</div>
 
-				<!-- Remote Database Sync Action -->
+				<!-- Sync Database -->
 				<div style="display: flex; align-items: center; justify-content: space-between; border-top: 1px solid #3a4553; padding-top: 10px;">
-					<button id="abf-sync-btn" style="background: #232f3e; color: #febd69; border: 1px solid #febd69; border-radius: 4px; padding: 6px 12px; font-size: 11px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 6px;">
-						<span>🔄</span> Sync Allowlist Now
+					<button id="abf-sync-btn" style="background: #232f3e; color: #febd69; border: 1px solid #febd69; border-radius: 4px; padding: 6px 12px; font-size: 11px; font-weight: 600; cursor: pointer;">
+						🔄 Sync Allowlist Now
 					</button>
 					<span id="abf-sync-status" style="font-size: 10px; color: #888;">24h Cache Active</span>
 				</div>
@@ -1068,7 +756,7 @@
 		root.appendChild(panel);
 		document.body.appendChild(root);
 
-		// Event listeners for control panel
+		// Listeners
 		document.getElementById("abf-panel-close").addEventListener("click", () => toggleControlPanel(false));
 
 		document.getElementById("abf-toggle-allowlist").addEventListener("change", (e) => {
@@ -1106,7 +794,7 @@
 		document.getElementById("abf-sync-btn").addEventListener("click", () => {
 			const status = document.getElementById("abf-sync-status");
 			status.textContent = "Syncing...";
-			fetchRemoteAllowlist(true);
+			fetchRemoteAllowlist();
 			setTimeout(() => {
 				status.textContent = "Updated!";
 			}, 1500);
@@ -1162,34 +850,6 @@
 
 		const statDb = document.getElementById("abf-stat-db");
 		if (statDb) statDb.textContent = state.remoteAllowlist.size;
-
-		const countBadge = document.getElementById("abf-filtered-count-badge");
-		if (countBadge) countBadge.textContent = `(${state.filteredBrandsOnPage.size} brands)`;
-
-		// Render list of filtered brands on page
-		const filteredList = document.getElementById("abf-filtered-page-list");
-		if (filteredList) {
-			filteredList.innerHTML = "";
-			if (state.filteredBrandsOnPage.size === 0) {
-				filteredList.innerHTML = '<div style="color: #666; font-size: 11px; text-align: center; padding: 4px;">No unverified brands on this page.</div>';
-			} else {
-				state.filteredBrandsOnPage.forEach((stat, brand) => {
-					const row = document.createElement("div");
-					row.style.cssText =
-						"display: flex; align-items: center; justify-content: space-between; font-size: 11px; padding: 2px 4px; border-radius: 4px; background: #161c24;";
-					row.innerHTML = `
-						<span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 220px;" title="${escapeHtml(stat.reason)}">
-							<strong>${escapeHtml(brand)}</strong> <span style="color: #888;">(${stat.count})</span>
-						</span>
-						<button class="abf-quick-allow-brand" style="background: #ffd814; border: none; border-radius: 3px; padding: 1px 6px; font-size: 10px; font-weight: 600; cursor: pointer; color: #111;">+ Whitelist</button>
-					`;
-					row.querySelector(".abf-quick-allow-brand").addEventListener("click", () => {
-						addCustomWhitelistBrand(brand);
-					});
-					filteredList.appendChild(row);
-				});
-			}
-		}
 	}
 
 	function renderCustomWhitelistList() {
@@ -1199,7 +859,7 @@
 		container.innerHTML = "";
 		const customList = storage.get(STORAGE_KEY_CUSTOM_WHITELIST, []);
 		if (customList.length === 0) {
-			container.innerHTML = '<div style="color: #666; font-size: 11px; text-align: center; width: 100%; padding: 4px;">No custom whitelisted brands yet.</div>';
+			container.innerHTML = '<div style="color: #666; font-size: 11px; text-align: center; width: 100%; padding: 4px;">No custom brands added yet.</div>';
 			return;
 		}
 
@@ -1216,6 +876,12 @@
 			});
 			container.appendChild(tag);
 		});
+	}
+
+	function escapeHtml(text) {
+		const div = document.createElement("div");
+		div.textContent = text || "";
+		return div.innerHTML;
 	}
 
 	// =========================================================================
@@ -1285,7 +951,7 @@
 				toggleControlPanel();
 			});
 			GM_registerMenuCommand("🔄 Sync Brand Allowlist Database Now", () => {
-				fetchRemoteAllowlist(true);
+				fetchRemoteAllowlist();
 			});
 			GM_registerMenuCommand("⚙️ Set Filter Mode: Hard Hide", () => {
 				setFilterMode("hard");
@@ -1307,7 +973,6 @@
 		applyAllFilters();
 	}
 
-	// Run initialization when DOM is ready
 	if (document.readyState === "loading") {
 		document.addEventListener("DOMContentLoaded", init);
 	} else {
