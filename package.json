@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "bun run bundler.cjs",
-    "test": "bun test"
+    "test": "bun test test/"
   },
   "dependencies": {
     "puppeteer-core": "^25.3.0"

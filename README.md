@@ -35,6 +35,8 @@ Install one master userscript in Tampermonkey:
 // @grant        GM_xmlhttpRequest
 // @grant        unsafeWindow
 // @connect      127.0.0.1
+// @connect      githubusercontent.com
+// @connect      raw.githubusercontent.com
 // ==/UserScript==
 ```
 
@@ -48,7 +50,7 @@ Press **`Alt+Shift+U`** or click **Open Userscript Control Center** in the Tampe
 
 ## Bundling Commands
 
-- **Build bundle:** `pnpm build`
-- **Run tests:** `pnpm test`
+- **Build bundle:** `bun run build`
+- **Run tests:** `bun test`
 
 For full API specifications, see [docs/userscript-control-api.md](docs/userscript-control-api.md).

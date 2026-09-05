@@ -30,3 +30,6 @@
 ## 2026-09-04
 - **DOM Automation Recorder & Generator Userscript:** Created a cross-domain DOM action recorder (`dom-automation-recorder.user.js`) that captures clicks, debounced inputs, dropdowns, and form submits across redirects using GM storage, featuring a floating HUD, multi-strategy locators, and 1-click Playwright/Puppeteer script export. See [agent-logs/2026-09-04_09-15_dom-automation-recorder.md](file:///Users/matt/projects/userscript-bundler/agent-logs/2026-09-04_09-15_dom-automation-recorder.md).
 
+## 2026-09-05
+- **Amazon Brand Allowlist & Product Filter Userscript:** Upgraded `userscripts/amazon filter.js` into an aggressive 4-tier allowlist brand filter and keyword filter across global Amazon domains. Implemented 24h cached remote allowlist sync (Chris Mosley community list + seed list), structural on-page Amazon signals, phonetic and linguistic heuristics, and a collapsible bottom-right control panel with hard-hide/soft-dim modes and 1-click whitelist overrides. See [agent-logs/2026-09-05_08-56_amazon-brand-allowlist-filter.md](file:///Users/matt/projects/userscript-bundler/agent-logs/2026-09-05_08-56_amazon-brand-allowlist-filter.md).
+
