@@ -138,6 +138,8 @@
 			total: 0,
 			allowed: 0,
 			filtered: 0,
+			filteredByKeywords: 0,
+			filteredByBrand: 0,
 		},
 		autoAdvanceTimer: null,
 		observer: null,
@@ -165,12 +167,12 @@
 	function parseExcludeTerms(filterString) {
 		return (filterString || "")
 			.split(",")
-			.map((term) => term.trim())
+			.map((term) => term.trim().replace(/^["']|["']$/g, "").trim())
 			.filter(Boolean);
 	}
 
 	function makeTermRegex(term) {
-		term = (term || "").trim();
+		term = (term || "").trim().replace(/^["']|["']$/g, "").trim();
 		if (!term) return null;
 
 		if (term.startsWith("/") && term.lastIndexOf("/") > 0) {
@@ -184,7 +186,7 @@
 			}
 		}
 
-		const lowerTerm = term.toLowerCase();
+		const lowerTerm = term.toLowerCase().replace(/\s+/g, " ");
 		const startsWithWildcard = lowerTerm.startsWith("*");
 		const endsWithWildcard = lowerTerm.endsWith("*");
 
@@ -192,11 +194,18 @@
 		if (startsWithWildcard) coreTerm = coreTerm.slice(1);
 		if (endsWithWildcard) coreTerm = coreTerm.slice(0, -1);
 
-		const escaped = coreTerm.replace(/[-\/\\^$*+?.()|[\]{}]/g, "\\$&");
-		const startBoundary = startsWithWildcard ? "" : "\\b";
-		const endBoundary = endsWithWildcard ? "" : "\\b";
+		// Handle hyphens and spaces flexibly:
+		// If term contains hyphens (e.g. "pull-out"), allow optional hyphen/space [-\s]? so it matches "pull out", "pull-out", "pullout"
+		// If term contains spaces (e.g. "pull out"), allow [-\s]+ so it matches "pull out" and "pull-out"
+		const parts = coreTerm.split(/[-\s]+/);
+		const escapedParts = parts.map((p) => p.replace(/[-\/\\^$*+?.()|[\]{}]/g, "\\$&"));
+		const separator = coreTerm.includes("-") ? "[-\\s]?" : "[-\\s]+";
+		const pattern = escapedParts.join(separator);
 
-		return new RegExp(startBoundary + escaped + endBoundary);
+		const startBoundary = startsWithWildcard ? "" : (/^\w/.test(coreTerm) ? "\\b" : "");
+		const endBoundary = endsWithWildcard ? "" : (/\w$/.test(coreTerm) ? "\\b" : "");
+
+		return new RegExp(startBoundary + pattern + endBoundary, "i");
 	}
 
 	function matchTerm(title, term) {
@@ -209,10 +218,6 @@
 		const expr = (expression || "").trim();
 		if (!expr) return true;
 
-		if (!/\s+(?:and|or)\s+/i.test(expr)) {
-			return matchTerm(title, expr);
-		}
-
 		const orClauses = expr
 			.split(/\s+or\s+/i)
 			.map((s) => s.trim())
@@ -220,8 +225,8 @@
 
 		return orClauses.some((clause) => {
 			const andTerms = clause
-				.split(/\s+and\s+/i)
-				.map((s) => s.trim())
+				.split(/[,;]|\s+and\s+/i)
+				.map((s) => s.trim().replace(/^["']|["']$/g, "").trim())
 				.filter(Boolean);
 			return andTerms.length > 0 && andTerms.every((term) => matchTerm(title, term));
 		});
@@ -351,6 +356,11 @@
 			if (raw) return normalizeTitle(raw);
 		}
 
+		const genericH2 = card.querySelector("h2");
+		if (genericH2?.textContent?.trim()) {
+			return normalizeTitle(genericH2.textContent);
+		}
+
 		return "";
 	}
 
@@ -468,16 +478,25 @@
 
 		const cards = getSearchResultCards();
 
-		state.stats.total = cards.length;
+		state.stats.total = 0;
 		state.stats.allowed = 0;
 		state.stats.filtered = 0;
+		state.stats.filteredByKeywords = 0;
+		state.stats.filteredByBrand = 0;
 
 		cards.forEach((card) => {
+			// Skip unrendered empty skeleton cards
+			if (!card.textContent.trim()) {
+				return;
+			}
+			state.stats.total++;
+
 			const title = getCardTitle(card);
 
 			// 1. Check title keyword exclusions (Exclude terms)
 			if (excludeActive && title && excludeTerms.some((term) => matchTerm(title, term))) {
 				state.stats.filtered++;
+				state.stats.filteredByKeywords++;
 				applyCardVisibility(card, false);
 				return;
 			}
@@ -485,6 +504,7 @@
 			// 2. Check title keyword requirements (Must have terms)
 			if (mustActive && title && !titleMatchesMustHave(title, mustString)) {
 				state.stats.filtered++;
+				state.stats.filteredByKeywords++;
 				applyCardVisibility(card, false);
 				return;
 			}
@@ -494,6 +514,7 @@
 				const whitelisted = isBrandWhitelisted(card);
 				if (!whitelisted) {
 					state.stats.filtered++;
+					state.stats.filteredByBrand++;
 					applyCardVisibility(card, false);
 					return;
 				}
@@ -503,6 +524,21 @@
 			state.stats.allowed++;
 			applyCardVisibility(card, true);
 		});
+
+		// Also filter sponsored ad banners (.AdHolder) if they contain excluded keywords
+		if (excludeActive) {
+			const adHolders = document.querySelectorAll(".AdHolder");
+			adHolders.forEach((ad) => {
+				const text = ad.innerText || "";
+				if (text && excludeTerms.some((term) => matchTerm(text, term))) {
+					ad.style.display = "none";
+					ad.setAttribute("data-abf-hidden", "true");
+				} else if (ad.getAttribute("data-abf-hidden") === "true") {
+					ad.style.removeProperty("display");
+					ad.removeAttribute("data-abf-hidden");
+				}
+			});
+		}
 
 		updateTopFilterCount();
 		updateControlPanelStats();
@@ -871,12 +907,30 @@
 	function updateTopFilterCount() {
 		const filterCount = document.getElementById("amazon-filter-count");
 		if (filterCount) {
+			const total = state.stats.total;
+			const allowed = state.stats.allowed;
+			const filtered = state.stats.filtered;
+			const filteredByKeywords = state.stats.filteredByKeywords || 0;
+			const filteredByBrand = state.stats.filteredByBrand || 0;
+
 			if (!state.allowlistEnabled) {
-				filterCount.textContent = `👁️ Brand Filter is OFF: All ${state.stats.total} products visible.`;
-			} else if (state.stats.filtered > 0) {
-				filterCount.textContent = `🛡️ ${state.stats.filtered} of ${state.stats.total} products hidden (not in brand allowlist)`;
+				if (filteredByKeywords > 0) {
+					filterCount.textContent = `👁️ ${allowed} of ${total} products shown (${filteredByKeywords} hidden by keyword filter). Brand Filter is OFF.`;
+				} else {
+					filterCount.textContent = `👁️ Brand Filter is OFF: All ${total} products visible.`;
+				}
 			} else {
-				filterCount.textContent = `All ${state.stats.total} products allowed.`;
+				if (filtered > 0) {
+					if (filteredByKeywords > 0 && filteredByBrand > 0) {
+						filterCount.textContent = `🛡️ ${filtered} of ${total} products hidden (${filteredByKeywords} by keyword, ${filteredByBrand} not in brand allowlist).`;
+					} else if (filteredByKeywords > 0) {
+						filterCount.textContent = `🛡️ ${filteredByKeywords} of ${total} products hidden by keyword filter (${allowed} shown).`;
+					} else {
+						filterCount.textContent = `🛡️ ${filteredByBrand} of ${total} products hidden (not in brand allowlist).`;
+					}
+				} else {
+					filterCount.textContent = `All ${total} products allowed.`;
+				}
 			}
 		}
 
@@ -1102,7 +1156,13 @@
 	function updateControlPanelStats() {
 		const pillText = document.getElementById("abf-pill-text");
 		if (pillText) {
-			pillText.textContent = `Brand Filter · ${state.stats.filtered} Hidden`;
+			if (state.allowlistEnabled) {
+				pillText.textContent = `Brand Filter · ${state.stats.filtered} Hidden`;
+			} else if ((state.stats.filteredByKeywords || 0) > 0) {
+				pillText.textContent = `Filter · ${state.stats.filteredByKeywords} Hidden`;
+			} else {
+				pillText.textContent = `Brand Filter OFF`;
+			}
 		}
 
 		const statAllowed = document.getElementById("abf-stat-allowed");

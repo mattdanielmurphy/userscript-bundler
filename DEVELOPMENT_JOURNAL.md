@@ -37,3 +37,6 @@
 ## 2026-09-12
 - **Remove YouTube Autoplay Guard:** Removed Section 0 Autoplay Guard from `youtube-master.user.js` to restore native spacebar playback and expected video autoplay on navigation. Tuned Hammerspoon wake muting to only activate after >10 minutes of sleep/lock. See [agent-logs/2026-09-12_11-48_remove-autoplay-guard-and-adjust-wake-mute.md](file:///Users/matt/projects/userscript-bundler/agent-logs/2026-09-12_11-48_remove-autoplay-guard-and-adjust-wake-mute.md).
 
+## 2026-09-20
+- **Fix Amazon Hide Filter Userscript:** Fixed keyword filtering in `amazon filter.js` with flexible hyphen/space delimiter matching (`pull-out` matches `Pull Out` / `pullout`), comma-separated multi-term support in `Require:`, `.AdHolder` sponsored banner filtering, and accurate keyword vs. brand stats reporting. Verified live via Chrome DevTools MCP. See [agent-logs/2026-09-20_14-10_fix-amazon-hide-filter.md](file:///Users/matt/projects/userscript-bundler/agent-logs/2026-09-20_14-10_fix-amazon-hide-filter.md).
+

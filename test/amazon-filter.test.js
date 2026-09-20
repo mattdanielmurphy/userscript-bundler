@@ -111,9 +111,9 @@ test("Amazon Filter - Linguistic & Heuristic Evaluator Logic", (t) => {
 	}
 });
 
-test("Amazon Filter - Title Exclude & Must-Have Matching (Preserved Functionality)", (t) => {
+test("Amazon Filter - Title Exclude & Must-Have Matching (Preserved Functionality & Flexible Delimiters)", (t) => {
 	function makeTermRegex(term) {
-		term = (term || "").trim();
+		term = (term || "").trim().replace(/^["']|["']$/g, "").trim();
 		if (!term) return null;
 
 		if (term.startsWith("/") && term.lastIndexOf("/") > 0) {
@@ -125,7 +125,7 @@ test("Amazon Filter - Title Exclude & Must-Have Matching (Preserved Functionalit
 			} catch (e) {}
 		}
 
-		const lowerTerm = term.toLowerCase();
+		const lowerTerm = term.toLowerCase().replace(/\s+/g, " ");
 		const startsWithWildcard = lowerTerm.startsWith("*");
 		const endsWithWildcard = lowerTerm.endsWith("*");
 
@@ -133,11 +133,15 @@ test("Amazon Filter - Title Exclude & Must-Have Matching (Preserved Functionalit
 		if (startsWithWildcard) coreTerm = coreTerm.slice(1);
 		if (endsWithWildcard) coreTerm = coreTerm.slice(0, -1);
 
-		const escaped = coreTerm.replace(/[-\/\\^$*+?.()|[\]{}]/g, "\\$&");
-		const startBoundary = startsWithWildcard ? "" : "\\b";
-		const endBoundary = endsWithWildcard ? "" : "\\b";
+		const parts = coreTerm.split(/[-\s]+/);
+		const escapedParts = parts.map((p) => p.replace(/[-\/\\^$*+?.()|[\]{}]/g, "\\$&"));
+		const separator = coreTerm.includes("-") ? "[-\\s]?" : "[-\\s]+";
+		const pattern = escapedParts.join(separator);
 
-		return new RegExp(startBoundary + escaped + endBoundary);
+		const startBoundary = startsWithWildcard ? "" : (/^\w/.test(coreTerm) ? "\\b" : "");
+		const endBoundary = endsWithWildcard ? "" : (/\w$/.test(coreTerm) ? "\\b" : "");
+
+		return new RegExp(startBoundary + pattern + endBoundary, "i");
 	}
 
 	function matchTerm(title, term) {
@@ -150,10 +154,6 @@ test("Amazon Filter - Title Exclude & Must-Have Matching (Preserved Functionalit
 		const expr = (expression || "").trim();
 		if (!expr) return true;
 
-		if (!/\s+(?:and|or)\s+/i.test(expr)) {
-			return matchTerm(title, expr);
-		}
-
 		const orClauses = expr
 			.split(/\s+or\s+/i)
 			.map((s) => s.trim())
@@ -161,8 +161,8 @@ test("Amazon Filter - Title Exclude & Must-Have Matching (Preserved Functionalit
 
 		return orClauses.some((clause) => {
 			const andTerms = clause
-				.split(/\s+and\s+/i)
-				.map((s) => s.trim())
+				.split(/[,;]|\s+and\s+/i)
+				.map((s) => s.trim().replace(/^["']|["']$/g, "").trim())
 				.filter(Boolean);
 			return andTerms.length > 0 && andTerms.every((term) => matchTerm(title, term));
 		});
@@ -170,13 +170,26 @@ test("Amazon Filter - Title Exclude & Must-Have Matching (Preserved Functionalit
 
 	const title1 = "anker 65w usb c charger fast charging adapter with hdmi";
 	const title2 = "ugreen nexode 100w gan charger usb-c only";
+	const title3 = "Pull Out Trash Can Under Cabinet with Soft-Close Slides";
+	const title4 = "Step N’ Sort 40L Dual Compartment Recycling Bin – Slim Kitchen Waste & Recycling System";
 
 	// Exclude matching
 	assert.ok(matchTerm(title1, "hdmi"), "Title1 contains hdmi");
 	assert.ok(!matchTerm(title2, "hdmi"), "Title2 does not contain hdmi");
 
+	// Flexible hyphen / space matching ("pull-out" matches "Pull Out")
+	assert.ok(matchTerm(title3, "pull-out"), "pull-out matches 'Pull Out'");
+	assert.ok(matchTerm(title3, "pull out"), "pull out matches 'Pull Out'");
+	assert.ok(matchTerm(title3, "soft close"), "soft close matches 'Soft-Close'");
+	assert.ok(matchTerm(title2, "usb c"), "usb c matches 'usb-c'");
+
 	// Must-Have logic (AND / OR)
 	assert.ok(titleMatchesMustHave(title1, "usb AND c OR hdmi"), "Title1 matches usb AND c OR hdmi");
 	assert.ok(titleMatchesMustHave(title1, "65w AND adapter"), "Title1 matches 65w AND adapter");
 	assert.ok(!titleMatchesMustHave(title2, "100w AND hdmi"), "Title2 fails 100w AND hdmi");
+
+	// Comma-separated must-have terms (e.g. "dual, step")
+	assert.ok(titleMatchesMustHave(title4, "dual, step"), "Title4 matches 'dual, step'");
+	assert.ok(titleMatchesMustHave(title4, "dual, step,"), "Title4 matches trailing comma 'dual, step,'");
+	assert.ok(!titleMatchesMustHave(title3, "dual, step"), "Title3 fails 'dual, step'");
 });
