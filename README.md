@@ -33,8 +33,10 @@ Install one master userscript in Tampermonkey:
 // @grant        GM_setValue
 // @grant        GM_unregisterMenuCommand
 // @grant        GM_xmlhttpRequest
+// @grant        GM_download
 // @grant        unsafeWindow
 // @connect      127.0.0.1
+// @connect      canvas.ualberta.ca
 // @connect      githubusercontent.com
 // @connect      raw.githubusercontent.com
 // ==/UserScript==

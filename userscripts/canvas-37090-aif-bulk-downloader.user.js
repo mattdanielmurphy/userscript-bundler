@@ -6,6 +6,7 @@
 // @match        https://canvas.ualberta.ca/courses/37090/modules
 // @grant        GM_download
 // @grant        GM_registerMenuCommand
+// @connect      canvas.ualberta.ca
 // @run-at       document-idle
 // ==/UserScript==
 
@@ -176,6 +177,13 @@
         } catch (error) {
           file.status = "failed";
           file.error = String(error?.message || error);
+
+          if (file.error.includes('"error":"not_whitelisted"')) {
+            report.state = "blocked";
+            report.fatalError = "Tampermonkey blocked Canvas. Add `// @connect canvas.ualberta.ca` to the installed master userscript, save it, then reload this page.";
+            report.events.push({ name: file.name, status: "blocked", error: file.error });
+            break;
+          }
         }
 
         if (index < report.files.length - 1) {
@@ -188,7 +196,7 @@
       report.fatalError = String(error?.message || error);
     } finally {
       report.finishedAt = new Date().toISOString();
-      report.state = report.fatalError ? "failed" : "complete";
+      report.state = report.state === "blocked" ? "blocked" : report.fatalError ? "failed" : "complete";
       isRunning = false;
     }
   }
