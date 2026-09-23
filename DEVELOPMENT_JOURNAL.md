@@ -40,3 +40,5 @@
 ## 2026-09-20
 - **Fix Amazon Hide Filter Userscript:** Fixed keyword filtering in `amazon filter.js` with flexible hyphen/space delimiter matching (`pull-out` matches `Pull Out` / `pullout`), comma-separated multi-term support in `Require:`, `.AdHolder` sponsored banner filtering, and accurate keyword vs. brand stats reporting. Verified live via Chrome DevTools MCP. See [agent-logs/2026-09-20_14-10_fix-amazon-hide-filter.md](file:///Users/matt/projects/userscript-bundler/agent-logs/2026-09-20_14-10_fix-amazon-hide-filter.md).
 
+## 2026-09-23
+- **Canvas 37090 AIF Bulk Downloader:** Added an exact-URL Tampermonkey userscript that finds the 24 Canvas `.aif` module attachments, derives their file download routes from `Attachment_<fileId>` classes, and requests downloads one second apart through an explicit menu command. Its single final `console.log(report)` preserves a real expandable object even after partial failures. See [agent-logs/2026-09-23_16-38_canvas-aif-bulk-downloader.md](file:///Users/matt/projects/userscript-bundler/agent-logs/2026-09-23_16-38_canvas-aif-bulk-downloader.md).
