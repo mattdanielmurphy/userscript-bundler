@@ -1,9 +1,10 @@
 // ==UserScript==
 // @name         Canvas 37090 AIF Bulk Downloader
 // @namespace    https://canvas.ualberta.ca/
-// @version      1.0.0
+// @version      1.1.0
 // @description  Downloads the 24 .aif module attachments for MUSIC 193A/493A/693A.
 // @match        https://canvas.ualberta.ca/courses/37090/modules
+// @grant        GM_download
 // @grant        GM_registerMenuCommand
 // @run-at       document-idle
 // ==/UserScript==
@@ -11,12 +12,29 @@
 (() => {
   "use strict";
 
-  const PAUSE_BETWEEN_DOWNLOADS_MS = 1000;
+  const MIN_PAUSE_BETWEEN_DOWNLOADS_MS = 3500;
+  const MAX_PAUSE_BETWEEN_DOWNLOADS_MS = 6500;
   const EXPECTED_FILE_COUNT = 24;
   let isRunning = false;
 
   const clean = value => (value || "").replace(/\s+/g, " ").trim();
   const pause = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
+  const randomPause = () => Math.floor(
+    MIN_PAUSE_BETWEEN_DOWNLOADS_MS
+      + Math.random() * (MAX_PAUSE_BETWEEN_DOWNLOADS_MS - MIN_PAUSE_BETWEEN_DOWNLOADS_MS + 1),
+  );
+
+  function downloadFile(url, name) {
+    return new Promise((resolve, reject) => {
+      GM_download({
+        url,
+        name,
+        saveAs: false,
+        onload: resolve,
+        onerror: details => reject(new Error(JSON.stringify(details))),
+      });
+    });
+  }
 
   function getSection(moduleItem) {
     for (
@@ -57,7 +75,8 @@
       events: [],
       fatalError: null,
       finishedAt: null,
-      note: "download-requested means Canvas accepted the click; Chrome must be allowed to download multiple files from this site.",
+      delayPolicy: `${MIN_PAUSE_BETWEEN_DOWNLOADS_MS}-${MAX_PAUSE_BETWEEN_DOWNLOADS_MS} ms, randomized after each completed download`,
+      note: "Each GM_download request is awaited to completion before the next file begins.",
     };
 
     try {
@@ -101,7 +120,7 @@
         });
       }
 
-      for (const file of report.files) {
+      for (const [index, file] of report.files.entries()) {
         if (!file.downloadUrl) {
           file.status = "skipped";
           file.error = "No Canvas Attachment_<fileId> class was found for this module item.";
@@ -109,22 +128,22 @@
         }
 
         try {
-          const downloadLink = document.createElement("a");
-          downloadLink.href = file.downloadUrl;
-          downloadLink.download = file.name;
-          downloadLink.hidden = true;
-          document.body.append(downloadLink);
-          downloadLink.click();
-          downloadLink.remove();
-
-          file.status = "download-requested";
+          file.status = "downloading";
+          file.startedAt = new Date().toISOString();
+          await downloadFile(file.downloadUrl, file.name);
+          file.status = "downloaded";
+          file.finishedAt = new Date().toISOString();
           report.events.push({ name: file.name, status: file.status });
         } catch (error) {
           file.status = "failed";
           file.error = String(error?.message || error);
         }
 
-        await pause(PAUSE_BETWEEN_DOWNLOADS_MS);
+        if (index < report.files.length - 1) {
+          const delayMs = randomPause();
+          file.delayBeforeNextMs = delayMs;
+          await pause(delayMs);
+        }
       }
     } catch (error) {
       report.fatalError = String(error?.message || error);
@@ -137,5 +156,5 @@
     }
   }
 
-  GM_registerMenuCommand("Download the 24 Canvas .aif files", downloadAllAifFiles);
+  GM_registerMenuCommand("Download Canvas .aif files slowly (one at a time)", downloadAllAifFiles);
 })();
