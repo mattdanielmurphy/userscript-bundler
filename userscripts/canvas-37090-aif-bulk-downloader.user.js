@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Canvas 37090 AIF Bulk Downloader
 // @namespace    https://canvas.ualberta.ca/
-// @version      1.1.0
+// @version      1.2.0
 // @description  Downloads the 24 .aif module attachments for MUSIC 193A/493A/693A.
 // @match        https://canvas.ualberta.ca/courses/37090/modules
 // @grant        GM_download
@@ -25,12 +25,46 @@
   );
 
   function downloadFile(url, name) {
+    if (typeof GM_download !== "function") {
+      if (typeof GM_xmlhttpRequest !== "function") {
+        throw new Error("Neither GM_download nor GM_xmlhttpRequest is available to this userscript.");
+      }
+
+      return new Promise((resolve, reject) => {
+        GM_xmlhttpRequest({
+          method: "GET",
+          url,
+          responseType: "blob",
+          onload: response => {
+            if (response.status < 200 || response.status >= 300 || !response.response) {
+              reject(new Error(`Canvas returned HTTP ${response.status}.`));
+              return;
+            }
+
+            const blobUrl = URL.createObjectURL(response.response);
+            const downloadLink = document.createElement("a");
+            downloadLink.href = blobUrl;
+            downloadLink.download = name;
+            downloadLink.hidden = true;
+            document.body.append(downloadLink);
+            downloadLink.click();
+            downloadLink.remove();
+            setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
+
+            resolve({ backend: "GM_xmlhttpRequest" });
+          },
+          onerror: details => reject(new Error(JSON.stringify(details))),
+          ontimeout: () => reject(new Error("Canvas download request timed out.")),
+        });
+      });
+    }
+
     return new Promise((resolve, reject) => {
       GM_download({
         url,
         name,
         saveAs: false,
-        onload: resolve,
+        onload: () => resolve({ backend: "GM_download" }),
         onerror: details => reject(new Error(JSON.stringify(details))),
       });
     });
@@ -69,6 +103,7 @@
     const report = {
       startedAt: new Date().toISOString(),
       expectedCount: EXPECTED_FILE_COUNT,
+      state: "running",
       foundCount: 0,
       countsBySection: {},
       files: [],
@@ -76,8 +111,11 @@
       fatalError: null,
       finishedAt: null,
       delayPolicy: `${MIN_PAUSE_BETWEEN_DOWNLOADS_MS}-${MAX_PAUSE_BETWEEN_DOWNLOADS_MS} ms, randomized after each completed download`,
-      note: "Each GM_download request is awaited to completion before the next file begins.",
+      note: "Exactly one Canvas transfer is awaited before the next request begins. GM_xmlhttpRequest is used only if the installed loader lacks GM_download.",
     };
+
+    // The object is live: expand or copy it after the run finishes to see final state.
+    console.log("[aif-bulk-downloader]\n", report);
 
     try {
       const moduleLinks = [...document.querySelectorAll("a.ig-title.item_link")]
@@ -130,7 +168,8 @@
         try {
           file.status = "downloading";
           file.startedAt = new Date().toISOString();
-          await downloadFile(file.downloadUrl, file.name);
+          const result = await downloadFile(file.downloadUrl, file.name);
+          file.downloadBackend = result.backend;
           file.status = "downloaded";
           file.finishedAt = new Date().toISOString();
           report.events.push({ name: file.name, status: file.status });
@@ -149,10 +188,8 @@
       report.fatalError = String(error?.message || error);
     } finally {
       report.finishedAt = new Date().toISOString();
+      report.state = report.fatalError ? "failed" : "complete";
       isRunning = false;
-
-      // One real Console object, including partial state if the run failed.
-      console.log(report);
     }
   }
 
