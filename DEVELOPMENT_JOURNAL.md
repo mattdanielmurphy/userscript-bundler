@@ -45,3 +45,7 @@
 - **Canvas downloader serialization:** Replaced synthetic anchor clicks with awaited `GM_download` requests. The next file starts only after the previous file finishes, with a randomized 3.5–6.5 second pause to reduce Canvas/server pressure.
 - **Canvas downloader live diagnostics:** Added one immediate `[aif-bulk-downloader]` console entry containing a live report object and a sequential `GM_xmlhttpRequest` fallback for installations whose dynamic-loader metadata has not yet been reinstalled with the `GM_download` grant.
 - **Canvas downloader connection allowlist:** The live report showed Tampermonkey returning `not_whitelisted` for every `GM_download` request. Added Canvas's `@connect` metadata and immediate blocked-state reporting with the exact master-loader change required.
+
+## 2026-09-27
+- **Speed up YouTube transcript retrieval:** Replaced repeated full-DOM polling and spinner-dependent waits with mutation-observer readiness checks; kept internal-data parsing, DOM parsing, and the virtualized scroll fallback.
+- **Transcript-first skill/rule:** Added `_fetch-youtube-transcript` in AI-OS, using the active Chrome tab's native transcript export first; added the global Codex transcript-first rule.

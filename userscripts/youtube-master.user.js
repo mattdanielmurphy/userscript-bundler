@@ -403,28 +403,40 @@
 		// Ensure transcript panel is active
 		let showTranscriptBtn = document.querySelector('button[aria-label="Show transcript"]')
 		if (showTranscriptBtn) showTranscriptBtn.click()
-		
-		await new Promise(r => setTimeout(r, 1000))
-		
-		const container = document.querySelector("#segments-container")
+
+		const findContainer = () => document.querySelector("#segments-container") || document.querySelector("ytd-transcript-segment-list-renderer")
+		let container = findContainer()
+		if (!container) {
+			container = await new Promise((resolve) => {
+				const observer = new MutationObserver(() => {
+					const found = findContainer()
+					if (found) {
+						observer.disconnect()
+						clearTimeout(timeout)
+						resolve(found)
+					}
+				})
+				observer.observe(document.documentElement, { childList: true, subtree: true })
+				const timeout = setTimeout(() => {
+					observer.disconnect()
+					resolve(null)
+				}, 2500)
+			})
+		}
 		if (!container) return null
-		
-		const nodes = container.querySelectorAll("ytd-transcript-segment-renderer, transcript-segment-view-model, ytw-transcript-segment-view-model")
-		const segments = []
-		
-		nodes.forEach(n => {
-			const timeEl = n.querySelector(".timestamp, .ytw-transcript-segment-view-model-timestamp")
-			const textEl = n.querySelector(".segment-text, .ytw-transcript-segment-view-model-body")
-			if (timeEl && textEl) {
-				const time = timeEl.innerText.trim()
-				const text = textEl.innerText.trim()
-				const p = time.split(":").map(Number)
-				const sec = p.length === 3 ? p[0]*3600 + p[1]*60 + p[2] : (p.length === 2 ? p[0]*60 + p[1] : p[0])
-				segments.push({ sec, text })
-			}
-		})
-		
-		return segments.sort((a,b) => a.sec - b.sec).map(s => `[${s.sec}s] ${s.text}`).join("\n")
+
+		const nodes = container.querySelectorAll("ytd-transcript-segment-renderer, transcript-segment-view-model, ytw-transcript-segment-view-model, .ytw-transcript-segment-view-model")
+		const segments = Array.from(nodes, (n) => {
+			const data = n.data || n.segmentsViewModel || n.transcriptSegmentViewModel
+			const time = data?.timestampText?.simpleText || data?.timestampText?.runs?.map((r) => r.text).join("") || n.querySelector(".timestamp, .ytw-transcript-segment-view-model-timestamp, #segment-timestamp")?.innerText?.trim()
+			const text = data?.bodyText?.simpleText || data?.bodyText?.runs?.map((r) => r.text).join("") || n.querySelector(".segment-text, .ytw-transcript-segment-view-model-body, #segment-text")?.innerText?.trim()
+			if (!time || !text) return null
+			const p = time.split(":").map(Number)
+			const sec = p.length === 3 ? p[0] * 3600 + p[1] * 60 + p[2] : (p.length === 2 ? p[0] * 60 + p[1] : p[0])
+			return { sec, text }
+		}).filter(Boolean)
+
+		return segments.length ? segments.sort((a, b) => a.sec - b.sec).map((s) => `[${s.sec}s] ${s.text}`).join("\n") : null
 	}
 
 	function startClipboardWatcher(originalPrompt) {
@@ -628,10 +640,8 @@ Select the most essential soundbites and insights that summarize the video's cor
 				}
 			}
 
-			// 2. Wait for container with Shadow DOM piercing
+			// 2. Find the transcript container without polling the full DOM every 50ms.
 			console.log("[Transcript] Waiting for transcript container to appear...")
-			let maxTries = 100,
-				tries = 0
 			let transcriptContainer = null
 
 			// Helper: Find element piercing shadow roots
@@ -649,53 +659,63 @@ Select the most essential soundbites and insights that summarize the video's cor
 				return null
 			}
 
-			while (!transcriptContainer && tries < maxTries) {
-				await new Promise((res) => setTimeout(res, 50))
-
+			const findTranscriptContainer = () => {
 				// A. Check for any expanded panel first (Modern YouTube often uses a unified panel)
-				const activePanel = document.querySelector('ytd-engagement-panel-section-list-renderer[visibility="ENGAGEMENT_PANEL_VISIBILITY_EXPANDED"]')
+				const activePanel = document.querySelector('ytd-engagement-panel-section-list-renderer[visibility="ENGAGEMENT_PANEL_VISIBILITY_EXPANDED"][target-id="PAmodern_transcript_view"], ytd-engagement-panel-section-list-renderer[visibility="ENGAGEMENT_PANEL_VISIBILITY_EXPANDED"][target-id="engagement-panel-searchable-transcript"]')
 				if (activePanel) {
 					// Check if it's a tabbed panel and we need to switch to Transcript tab
 					const transcriptTab = activePanel.querySelector('button[role="tab"][aria-label="Transcript"]')
 					if (transcriptTab && transcriptTab.getAttribute("aria-selected") !== "true") {
 						console.log("[Transcript] Found Transcript tab (not selected). Clicking...")
 						transcriptTab.click()
-						await new Promise((res) => setTimeout(res, 300))
 					}
 
-					transcriptContainer =
+					const found =
 						activePanel.querySelector(".ytSectionListRendererContents") ||
-						activePanel.querySelector("#contents") ||
 						activePanel.querySelector("#segments-container") ||
 						activePanel.querySelector("ytd-transcript-segment-list-renderer") ||
 						activePanel.querySelector("ytd-macro-markers-list-renderer") ||
 						activePanel.querySelector("ytd-transcript-renderer") ||
-						activePanel.querySelector("#content") ||
-						activePanel
+						activePanel.querySelector("#content")
+					if (found) return found
 				}
 
 				// B. Try standard selectors globally
-				if (!transcriptContainer) {
-					transcriptContainer = document.querySelector("#segments-container") || document.querySelector("ytd-transcript-segment-list-renderer") || document.querySelector("ytd-transcript-renderer")
-				}
+				const direct = document.querySelector("#segments-container") || document.querySelector("ytd-transcript-segment-list-renderer") || document.querySelector("ytd-transcript-renderer")
+				if (direct) return direct
 
 				// C. Try looking specifically inside known panels by ID (even if hidden/old)
-				if (!transcriptContainer) {
+				{
 					const panels = document.querySelectorAll(
 						'ytd-engagement-panel-section-list-renderer[target-id="PAmodern_transcript_view"], ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-searchable-transcript"]',
 					)
 					for (const panel of panels) {
-						transcriptContainer = panel.querySelector("#segments-container") || panel.querySelector("ytd-transcript-segment-list-renderer") || panel.querySelector("ytd-macro-markers-list-renderer")
-						if (transcriptContainer) break
+						const found = panel.querySelector("#segments-container") || panel.querySelector("ytd-transcript-segment-list-renderer") || panel.querySelector("ytd-macro-markers-list-renderer")
+						if (found) return found
 					}
 				}
 
 				// D. Try deep search if still not found
-				if (!transcriptContainer) {
-					transcriptContainer = querySelectorDeep("#segments-container") || querySelectorDeep("ytd-transcript-segment-list-renderer")
-				}
+				return querySelectorDeep("#segments-container") || querySelectorDeep("ytd-transcript-segment-list-renderer")
+			}
 
-				tries++
+			transcriptContainer = findTranscriptContainer()
+			if (!transcriptContainer) {
+				transcriptContainer = await new Promise((resolve) => {
+					const observer = new MutationObserver(() => {
+						const found = findTranscriptContainer()
+						if (found) {
+							observer.disconnect()
+							clearTimeout(timeout)
+							resolve(found)
+						}
+					})
+					observer.observe(document.documentElement, { childList: true, subtree: true })
+					const timeout = setTimeout(() => {
+						observer.disconnect()
+						resolve(null)
+					}, 5000)
+				})
 			}
 
 			if (!transcriptContainer) {
@@ -713,12 +733,13 @@ Select the most essential soundbites and insights that summarize the video's cor
 
 			console.log("[Transcript] Container found. Waiting for content to populate...")
 
-			// 2. Wait for content to load (Replacing hardcoded delays with MutationObserver)
+			// 2. Wait only until at least one transcript segment exists. The scroll sweep
+			// loads later virtualized segments; waiting for YouTube's continuation spinner
+			// to disappear here can stall several seconds without improving extraction.
 			await new Promise((resolve) => {
 				const checkReady = () => {
 					const hasSegments = transcriptContainer.querySelector("ytd-transcript-segment-renderer, transcript-segment-view-model, ytw-transcript-segment-view-model, .ytw-transcript-segment-view-model, macro-markers-panel-item-view-model, .ytwMacroMarkersPanelItemViewModelHost")
-					const isLoading = transcriptContainer.querySelector("tp-yt-paper-spinner, #spinner, ytd-continuation-item-renderer, #loading-message")
-					return hasSegments && !isLoading
+					return !!hasSegments
 				}
 
 				if (checkReady()) {
@@ -736,7 +757,7 @@ Select the most essential soundbites and insights that summarize the video's cor
 				setTimeout(() => {
 					observer.disconnect()
 					resolve()
-				}, 7000) // 7s absolute max wait
+				}, 2500) // bounded fallback if YouTube provides no segment nodes
 			})
 
 			// 3. Extract Text (Try Fast Data Extraction first, then fallback to innerText, then Ultra-Fast Sweep)
