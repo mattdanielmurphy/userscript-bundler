@@ -49,3 +49,6 @@
 ## 2026-09-27
 - **Speed up YouTube transcript retrieval:** Replaced repeated full-DOM polling and spinner-dependent waits with mutation-observer readiness checks; kept internal-data parsing, DOM parsing, and the virtualized scroll fallback.
 - **Transcript-first skill/rule:** Added `_fetch-youtube-transcript` in AI-OS, using the active Chrome tab's native transcript export first; added the global Codex transcript-first rule.
+
+## 2026-10-01
+- **Fix Gemini Chat Response Table Misalignment:** Removed broken `.horizontal-scroll-wrapper` breakout styles (`left: 50%`, `transform`, flexbox centering of collapsed wrappers) and stripped ancestor overflow mutation from `fixChatHistoryTableVisibility()`, restoring Gemini's native container-query-based table layout. See [agent-logs/2026-10-01_16-08_fix-gemini-table-alignment.md](file:///Users/matt/projects/userscript-bundler/agent-logs/2026-10-01_16-08_fix-gemini-table-alignment.md).
