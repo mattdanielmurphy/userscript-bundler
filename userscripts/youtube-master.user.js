@@ -1468,7 +1468,8 @@ Select the most essential soundbites and insights that summarize the video's cor
 - End-of-episode "next time" previews
 - Sponsor reads, ads, "like and subscribe" plugs
 Keep:
-- The actual experiments, builds and results, including the setup needed to understand them`
+- The actual experiments, builds and results, including the setup needed to understand them
+- Verdicts (confirmed / busted / plausible), the introduction of each new myth, and the build-up right before a test`
 
 	function fillerHash(str) {
 		let h = 5381
