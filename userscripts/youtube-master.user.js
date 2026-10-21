@@ -7,6 +7,12 @@
 // @match        https://www.youtube.com/*
 // @grant        GM.getValue
 // @grant        GM.setValue
+// @grant        GM_getValue
+// @grant        GM_setValue
+// @grant        GM_registerMenuCommand
+// @grant        GM_xmlhttpRequest
+// @grant        unsafeWindow
+// @connect      yt.mattmurphy.ca
 // @run-at       document-start
 // ==/UserScript==
 
@@ -553,7 +559,7 @@
 			}
 
 			reelBtn.onclick = async () => {
-				if (_highlightSegments.length === 0) {
+				if (_highlightSegments.length === 0 || _reelMode === "filler") {
 					showToast("⏳ Extracting transcript & building prompt...")
 					const transcriptText = await getCompleteTranscript()
 					if (!transcriptText) {
@@ -1195,6 +1201,18 @@ Select the most essential soundbites and insights that summarize the video's cor
 		_reelTimeUpdateHandler = () => {
 			if (!_isReelActive || _highlightSegments.length === 0) return
 			const cur = _videoEl.currentTime
+
+			// Filler mode: jump over the skip span we're in (keep-segments are its inverse).
+			if (_reelMode === "filler") {
+				const skip = _fillerSkips.find((s) => cur >= s.start && cur < s.end)
+				if (skip) {
+					const dur = _videoEl.duration
+					_videoEl.currentTime = Number.isFinite(dur) ? Math.min(skip.end, dur - 0.2) : skip.end
+					showFillerSkipToast(skip)
+				}
+				return
+			}
+
 			if (cur < _skipCooldownUntil) return
 
 			// 1. Check if current playback time is inside ANY highlight segment
@@ -1309,6 +1327,7 @@ Select the most essential soundbites and insights that summarize the video's cor
 	}
 
 	window.clearHighlightReel = () => {
+		_reelMode = "highlight"
 		_highlightSegments = []
 		_isReelActive = false
 		_currentSegmentIndex = -1
@@ -1342,11 +1361,12 @@ Select the most essential soundbites and insights that summarize the video's cor
 		Object.assign(container.style, { position: "absolute", top: "0", left: "0", width: "100%", height: "100%", pointerEvents: "none", zIndex: "10" })
 		progressBar.appendChild(container)
 		const duration = (_videoEl && _videoEl.duration) ? _videoEl.duration : 1
-		_highlightSegments.forEach((s) => {
+		const isFiller = _reelMode === "filler"
+		;(isFiller ? _fillerSkips : _highlightSegments).forEach((s) => {
 			const bar = document.createElement("div")
 			const left = (s.start / duration) * 100
-			const width = ((s.end - s.start) / duration) * 100
-			Object.assign(bar.style, { position: "absolute", left: `${left}%`, width: `${width}%`, height: "100%", background: "rgba(255, 215, 0, 0.8)" })
+			const width = ((Math.min(s.end, duration) - s.start) / duration) * 100
+			Object.assign(bar.style, { position: "absolute", left: `${left}%`, width: `${width}%`, height: "100%", background: isFiller ? FILLER_COLOR : "rgba(255, 215, 0, 0.8)" })
 			container.appendChild(bar)
 		})
 	}
@@ -1359,14 +1379,15 @@ Select the most essential soundbites and insights that summarize the video's cor
 	function updateReelButton() {
 		const reelBtn = document.getElementById("yt-highlight-reel-btn")
 		if (!reelBtn) return
-		reelBtn.style.background = _isReelActive ? "rgba(255, 215, 0, 0.2)" : "rgba(255, 255, 255, 0.1)"
-		reelBtn.textContent = _isReelActive && _highlightSegments.length > 0 ? `⚡ Reel: ON (${_currentSegmentIndex + 1}/${_highlightSegments.length})` : "⚡ Highlight reel"
+		const reelOn = _isReelActive && _reelMode === "highlight"
+		reelBtn.style.background = reelOn ? "rgba(255, 215, 0, 0.2)" : "rgba(255, 255, 255, 0.1)"
+		reelBtn.textContent = reelOn && _highlightSegments.length > 0 ? `⚡ Reel: ON (${_currentSegmentIndex + 1}/${_highlightSegments.length})` : "⚡ Highlight reel"
 	}
 
 	function updateScrubberBadge() {
 		let badge = document.getElementById("yt-highlight-scrubber-badge")
 		const leftControls = document.querySelector(".ytp-left-controls")
-		if (!_isReelActive || _highlightSegments.length === 0) {
+		if (!_isReelActive || _highlightSegments.length === 0 || _reelMode === "filler") {
 			if (badge) badge.remove()
 			return
 		}
@@ -1402,6 +1423,7 @@ Select the most essential soundbites and insights that summarize the video's cor
 					const tryLoad = (retries = 10) => {
 						_videoEl = document.querySelector("video")
 						if (_videoEl) {
+							_reelMode = "highlight"
 							window.loadHighlightReel(parsed, true)
 							showToast(`⚡ Highlight reel loaded (${parsed.length} segments)`)
 						} else if (retries > 0) {
@@ -1430,6 +1452,417 @@ Select the most essential soundbites and insights that summarize the video's cor
 
 	window.addEventListener("popstate", () => { if (isWatchPage()) initHighlightReel() })
 	window.addEventListener("hashchange", () => { if (isWatchPage()) initHighlightReel() })
+
+	// --- 8b. AI FILLER SKIPPER (Watch Page) ---
+	// Front end of the YouTube filler skipper. The AI back end is POST /api/skip in
+	// ~/projects/yt-highlight-reel (deployed at yt.mattmurphy.ca). Skips are inverted into
+	// keep-segments and fed to the highlight reel engine above in "filler" mode.
+
+	// <filler-core> (pure helpers; test/youtube-filler.test.js evaluates this block directly)
+	const FILLER_CACHE_MAX = 300
+
+	const FILLER_DEFAULT_TASTE = `Skip:
+- Recaps ("previously on", "earlier we saw", "when we left off", re-showing what already happened)
+- "Coming up" / "after the break" teasers and pre-break cliffhangers that preview later footage
+- Repeated intros, cold-open montages and title sequences
+- End-of-episode "next time" previews
+- Sponsor reads, ads, "like and subscribe" plugs
+Keep:
+- The actual experiments, builds and results, including the setup needed to understand them`
+
+	function fillerHash(str) {
+		let h = 5381
+		for (let i = 0; i < str.length; i++) h = ((h << 5) + h + str.charCodeAt(i)) | 0
+		return (h >>> 0).toString(36)
+	}
+
+	function formatClock(sec) {
+		sec = Math.max(0, Math.round(sec))
+		const h = Math.floor(sec / 3600)
+		const m = Math.floor((sec % 3600) / 60)
+		const s = String(sec % 60).padStart(2, "0")
+		return h ? `${h}:${String(m).padStart(2, "0")}:${s}` : `${m}:${s}`
+	}
+
+	// Validate the /api/skip response into sorted, non-overlapping { start, end, label, reason }.
+	function parseFillerResponse(data, duration = 0) {
+		const list = Array.isArray(data) ? data : Array.isArray(data?.skips) ? data.skips : null
+		if (!list) return null
+		const max = duration > 0 ? duration : Infinity
+		const out = []
+		list
+			.map((s) => ({ start: Math.max(0, Number(s?.start)), end: Math.min(max, Number(s?.end)), label: String(s?.label || "filler"), reason: String(s?.reason || "") }))
+			.filter((s) => Number.isFinite(s.start) && Number.isFinite(s.end) && s.end - s.start >= 1)
+			.sort((a, b) => a.start - b.start)
+			.forEach((s) => {
+				const prev = out[out.length - 1]
+				if (prev && s.start <= prev.end) prev.end = Math.max(prev.end, s.end)
+				else out.push(s)
+			})
+		return out
+	}
+
+	// Skips -> the spans to play. The last keep runs to `duration` (or Infinity if unknown).
+	function invertSkipsToKeeps(skips, duration = 0) {
+		const end = duration > 0 ? duration : Infinity
+		const keeps = []
+		let cursor = 0
+		for (const s of skips) {
+			if (s.start > cursor + 0.5) keeps.push({ start: cursor, end: s.start, title: "Content" })
+			cursor = Math.max(cursor, s.end)
+		}
+		if (end - cursor > 0.5) keeps.push({ start: cursor, end, title: "Content" })
+		return keeps
+	}
+
+	function fillerCacheGet(cache, videoId, tasteHash) {
+		const e = cache && cache[videoId]
+		return e && e.taste === tasteHash && Array.isArray(e.skips) ? e.skips : null
+	}
+
+	function fillerCachePut(cache, videoId, tasteHash, skips, now = Date.now(), max = FILLER_CACHE_MAX) {
+		const next = { ...(cache || {}), [videoId]: { taste: tasteHash, skips, at: now } }
+		const ids = Object.keys(next)
+		if (ids.length > max) {
+			ids.sort((a, b) => next[a].at - next[b].at).slice(0, ids.length - max).forEach((id) => delete next[id])
+		}
+		return next
+	}
+
+	// Params for youtubei/v1/get_panel (PAmodern_transcript_view): protobuf { 1189: { 1: videoId, 3: 1 } }.
+	function transcriptPanelParams(videoId) {
+		const bytes = [0xaa, 0x09, 0x0f, 0x0a, 0x0b, ...Array.from(videoId, (c) => c.charCodeAt(0)), 0x18, 0x01]
+		return btoa(String.fromCharCode(...bytes)).replace(/=+$/, "")
+	}
+
+	// get_panel JSON -> "[Ns] text" lines (same format as getCompleteTranscript).
+	function transcriptFromPanelJson(json) {
+		const lines = []
+		const walk = (o) => {
+			if (!o || typeof o !== "object") return
+			const v = o.transcriptSegmentViewModel
+			if (v && v.timestamp && v.simpleText) {
+				const p = String(v.timestamp).split(":").map(Number)
+				const sec = p.length === 3 ? p[0] * 3600 + p[1] * 60 + p[2] : p.length === 2 ? p[0] * 60 + p[1] : p[0]
+				if (Number.isFinite(sec)) lines.push({ sec, text: v.simpleText })
+				return
+			}
+			for (const k in o) walk(o[k])
+		}
+		walk(json)
+		lines.sort((a, b) => a.sec - b.sec)
+		return lines.length ? lines.map((l) => `[${l.sec}s] ${l.text}`).join("\n") : null
+	}
+	// </filler-core>
+
+	const FILLER_API = "https://yt.mattmurphy.ca/api/skip"
+	const FILLER_COLOR = "rgba(110, 200, 255, 0.85)"
+	let _reelMode = "highlight" // "highlight" | "filler"
+	let _fillerSkips = []
+	let _fillerVideoId = ""
+	let _fillerState = "off" // off | working | on | none | error
+	let _fillerStateDetail = ""
+	let _fillerRun = 0
+
+	const fillerEnabled = () => gm.getValue("yt_filler_enabled", false) === true
+	const fillerTaste = () => gm.getValue("yt_filler_taste", "") || FILLER_DEFAULT_TASTE
+	const pageWindow = typeof unsafeWindow !== "undefined" ? unsafeWindow : window
+
+	async function fetchTranscriptHeadless(videoId) {
+		const cfg = pageWindow.ytcfg
+		const res = await fetch("/youtubei/v1/get_panel?prettyPrint=false", {
+			method: "POST",
+			credentials: "include",
+			headers: {
+				"Content-Type": "application/json",
+				"X-Youtube-Client-Name": String(cfg?.get?.("INNERTUBE_CONTEXT_CLIENT_NAME") || 1),
+				"X-Youtube-Client-Version": cfg?.get?.("INNERTUBE_CLIENT_VERSION") || "2.20261020.01.00",
+			},
+			body: JSON.stringify({ context: cfg?.get?.("INNERTUBE_CONTEXT") || { client: { clientName: "WEB", clientVersion: "2.20261020.01.00" } }, panelId: "PAmodern_transcript_view", params: transcriptPanelParams(videoId) }),
+		})
+		if (!res.ok) return null
+		return transcriptFromPanelJson(await res.json())
+	}
+
+	function postFillerApi(payload) {
+		const body = JSON.stringify(payload)
+		const viaGm = () =>
+			new Promise((resolve, reject) => {
+				gm.xmlHttpRequest({
+					method: "POST",
+					url: FILLER_API,
+					headers: { "Content-Type": "application/json" },
+					data: body,
+					timeout: 90000,
+					onload: (r) => {
+						try {
+							resolve({ status: r.status, data: JSON.parse(r.responseText) })
+						} catch (e) {
+							reject(e)
+						}
+					},
+					onerror: (e) => reject(new Error(e?.error || "network error")),
+					ontimeout: () => reject(new Error("timed out")),
+				})
+			})
+		return fetch(FILLER_API, { method: "POST", headers: { "Content-Type": "application/json" }, body })
+			.then(async (r) => ({ status: r.status, data: await r.json() }))
+			.catch(viaGm)
+	}
+
+	// Length from the player response, only if it belongs to this video (the <video> element is reused across SPA navigations).
+	function currentVideoLength(videoId) {
+		try {
+			const d = pageWindow.document.querySelector("#movie_player")?.getPlayerResponse?.()?.videoDetails
+			return d && d.videoId === videoId ? Number(d.lengthSeconds) || 0 : 0
+		} catch (e) {
+			return 0
+		}
+	}
+
+	function setFillerState(state, detail = "") {
+		_fillerState = state
+		_fillerStateDetail = detail
+		updateFillerButton()
+		if (state === "error") showToast(`Skip filler couldn't run: ${detail}`, 5000)
+	}
+
+	function updateFillerButton() {
+		const btn = document.getElementById("yt-filler-btn")
+		if (!btn) return
+		const dot = btn.firstChild
+		const on = fillerEnabled()
+		const colors = { off: "rgba(255,255,255,0.35)", working: "#e8c547", on: "#5fd38d", none: "#5fd38d", error: "#ff7a6b" }
+		dot.style.background = on ? colors[_fillerState] || colors.off : colors.off
+		dot.style.animation = on && _fillerState === "working" ? "ytFillerPulse 1s ease-in-out infinite" : "none"
+		btn.setAttribute("aria-pressed", String(on))
+		btn.style.background = on ? "rgba(110, 200, 255, 0.16)" : "rgba(255, 255, 255, 0.1)"
+		const states = { working: "analyzing…", on: `${_fillerSkips.length} skip${_fillerSkips.length === 1 ? "" : "s"}`, none: "no filler found", error: _fillerStateDetail || "error" }
+		btn.title = on ? `Skip filler: ON (${states[_fillerState] || "waiting"}). Click to turn off.` : "Skip filler: OFF. Click to turn on."
+	}
+
+	function ensureFillerButton() {
+		if (!isWatchPage() || document.getElementById("yt-filler-btn")) return
+		const row = document.querySelector("#above-the-fold #top-level-buttons-computed, #top-level-buttons-computed")
+		if (!row) return
+		if (!document.getElementById("yt-filler-style")) {
+			const style = document.createElement("style")
+			style.id = "yt-filler-style"
+			style.textContent = "@keyframes ytFillerPulse { 0%,100% { opacity: 1 } 50% { opacity: 0.3 } }"
+			try {
+				document.head.appendChild(style)
+			} catch (e) {}
+		}
+		const btn = document.createElement("button")
+		btn.id = "yt-filler-btn"
+		Object.assign(btn.style, {
+			height: "36px", padding: "0 14px", borderRadius: "18px", marginLeft: "8px", border: "none",
+			color: "#fff", cursor: "pointer", fontSize: "14px", fontWeight: "500", fontFamily: "Roboto, Arial, sans-serif",
+			display: "inline-flex", alignItems: "center", gap: "8px", flex: "0 0 auto", whiteSpace: "nowrap",
+		})
+		const dot = document.createElement("span")
+		Object.assign(dot.style, { width: "8px", height: "8px", borderRadius: "50%", display: "inline-block" })
+		btn.appendChild(dot)
+		btn.appendChild(document.createTextNode("Skip filler"))
+		btn.onclick = (e) => {
+			e.preventDefault()
+			e.stopPropagation()
+			const next = !fillerEnabled()
+			gm.setValue("yt_filler_enabled", next)
+			if (next) runFillerForCurrentVideo(true)
+			else disableFillerForVideo()
+			updateFillerButton()
+		}
+		const reelBtn = document.getElementById("yt-highlight-reel-btn")
+		if (reelBtn && reelBtn.parentNode) reelBtn.parentNode.insertBefore(btn, reelBtn.nextSibling)
+		else row.appendChild(btn)
+		updateFillerButton()
+	}
+
+	function disableFillerForVideo() {
+		if (_reelMode === "filler") {
+			_reelMode = "highlight"
+			_fillerSkips = []
+			window.clearHighlightReel()
+		}
+		_fillerVideoId = ""
+		_fillerRun++
+		setFillerState("off")
+	}
+
+	function applyFillerSkips(skips) {
+		_videoEl = document.querySelector("video")
+		_fillerSkips = skips
+		if (!skips.length) {
+			setFillerState("none")
+			return
+		}
+		_reelMode = "filler"
+		window.loadHighlightReel(invertSkipsToKeeps(skips), false)
+		setFillerState("on")
+	}
+
+	async function runFillerForCurrentVideo(force = false) {
+		if (!fillerEnabled() || !isWatchPage()) return
+		if (getHighlightsFromUrl()) return // explicit ?highlights= reel wins
+		const videoId = getCurrentVideoId()
+		if (!videoId || (!force && videoId === _fillerVideoId)) return
+		_fillerVideoId = videoId
+		const run = ++_fillerRun
+		if (_reelMode === "filler") {
+			_fillerSkips = []
+			window.clearHighlightReel()
+		}
+		const taste = fillerTaste()
+		const tasteHash = fillerHash(taste)
+		const cached = fillerCacheGet(gm.getValue("yt_filler_cache", {}), videoId, tasteHash)
+		if (cached) {
+			console.log("[Filler] Cache hit", videoId, cached)
+			applyFillerSkips(cached)
+			return
+		}
+		setFillerState("working")
+		try {
+			const transcript = await fetchTranscriptHeadless(videoId)
+			if (run !== _fillerRun) return
+			if (!transcript) return setFillerState("error", "no transcript available")
+			const title = document.querySelector("#above-the-fold #title h1, h1.ytd-watch-metadata")?.textContent?.trim() || document.title.replace(/ - YouTube$/, "")
+			const { status, data } = await postFillerApi({ videoId, title, duration: currentVideoLength(videoId), transcript, taste })
+			if (run !== _fillerRun) return
+			const skips = status === 200 ? parseFillerResponse(data) : null
+			if (!skips) return setFillerState("error", data?.error ? String(data.error).slice(0, 120) : `server error ${status}`)
+			gm.setValue("yt_filler_cache", fillerCachePut(gm.getValue("yt_filler_cache", {}), videoId, tasteHash, skips))
+			console.log("[Filler] Skips for", videoId, skips)
+			applyFillerSkips(skips)
+		} catch (e) {
+			if (run === _fillerRun) setFillerState("error", String(e?.message || e).slice(0, 120))
+		}
+	}
+
+	// Called by the reel engine when it jumps over a filler span.
+	function showFillerSkipToast(skip) {
+		document.getElementById("yt-filler-toast")?.remove()
+		const toast = document.createElement("div")
+		toast.id = "yt-filler-toast"
+		Object.assign(toast.style, {
+			position: "fixed", bottom: "96px", left: "24px", zIndex: "100000",
+			display: "flex", alignItems: "center", gap: "12px", padding: "10px 12px 10px 14px",
+			background: "rgba(24, 24, 24, 0.94)", color: "#fff", borderRadius: "8px",
+			borderLeft: `3px solid ${FILLER_COLOR}`, fontFamily: "Roboto, Arial, sans-serif", fontSize: "13px",
+			boxShadow: "0 4px 16px rgba(0,0,0,0.45)",
+		})
+		const label = document.createElement("span")
+		label.textContent = `Skipped ${skip.label}, ${formatClock(skip.start)}–${formatClock(skip.end)}`
+		if (skip.reason) label.title = skip.reason
+		const back = document.createElement("button")
+		back.textContent = "Go back"
+		Object.assign(back.style, { background: "none", border: "1px solid rgba(255,255,255,0.35)", color: "#fff", borderRadius: "4px", padding: "3px 8px", cursor: "pointer", fontSize: "12px" })
+		toast.append(label, back)
+		document.body.appendChild(toast)
+
+		const close = () => {
+			clearTimeout(timer)
+			document.removeEventListener("keydown", onKey, true)
+			document.removeEventListener("pointerdown", onOutside, true)
+			toast.remove()
+		}
+		const onKey = (e) => {
+			if (e.key === "Escape") close()
+		}
+		const onOutside = (e) => {
+			if (!toast.contains(e.target)) close()
+		}
+		const timer = setTimeout(close, 6000)
+		document.addEventListener("keydown", onKey, true)
+		document.addEventListener("pointerdown", onOutside, true)
+		back.onclick = (e) => {
+			e.preventDefault()
+			e.stopPropagation()
+			close()
+			// Allow this span for the rest of this viewing, then rewind to its start.
+			const remaining = _fillerSkips.filter((s) => s !== skip)
+			_fillerSkips = remaining
+			if (remaining.length) window.loadHighlightReel(invertSkipsToKeeps(remaining), false)
+			else window.clearHighlightReel()
+			if (_videoEl) {
+				_skipCooldownUntil = 0
+				_videoEl.currentTime = skip.start
+				_videoEl.play().catch(() => {})
+			}
+		}
+	}
+
+	function openFillerTasteEditor() {
+		document.getElementById("yt-filler-taste")?.remove()
+		const overlay = document.createElement("div")
+		overlay.id = "yt-filler-taste"
+		Object.assign(overlay.style, { position: "fixed", inset: "0", zIndex: "100001", background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center" })
+		const box = document.createElement("div")
+		Object.assign(box.style, { width: "min(560px, calc(100vw - 32px))", background: "#fff", color: "#111", borderRadius: "10px", padding: "16px", fontFamily: "Roboto, Arial, sans-serif", boxShadow: "0 12px 40px rgba(0,0,0,0.35)" })
+		const h = document.createElement("div")
+		h.textContent = "Skip filler: taste notes"
+		Object.assign(h.style, { fontSize: "16px", fontWeight: "600", marginBottom: "4px" })
+		const sub = document.createElement("div")
+		sub.textContent = "What counts as filler for you. Changing this re-analyzes videos on the next watch."
+		Object.assign(sub.style, { fontSize: "12px", color: "#555", marginBottom: "10px" })
+		const ta = document.createElement("textarea")
+		ta.value = fillerTaste()
+		Object.assign(ta.style, { width: "100%", boxSizing: "border-box", height: "220px", fontFamily: "ui-monospace, Menlo, monospace", fontSize: "12px", padding: "8px", border: "1px solid #ccc", borderRadius: "6px", resize: "vertical", color: "#111", background: "#fff" })
+		const row = document.createElement("div")
+		Object.assign(row.style, { display: "flex", justifyContent: "space-between", marginTop: "12px", gap: "8px" })
+		const mk = (text, primary) => {
+			const b = document.createElement("button")
+			b.textContent = text
+			Object.assign(b.style, { padding: "6px 14px", borderRadius: "6px", cursor: "pointer", fontSize: "13px", border: primary ? "none" : "1px solid #ccc", background: primary ? "#1f6feb" : "#fff", color: primary ? "#fff" : "#111" })
+			return b
+		}
+		const reset = mk("Reset to default", false)
+		const right = document.createElement("div")
+		Object.assign(right.style, { display: "flex", gap: "8px" })
+		const cancel = mk("Cancel", false)
+		const save = mk("Save", true)
+		right.append(cancel, save)
+		row.append(reset, right)
+		box.append(h, sub, ta, row)
+		overlay.appendChild(box)
+		document.body.appendChild(overlay)
+		ta.focus()
+
+		const close = () => {
+			document.removeEventListener("keydown", onKey, true)
+			overlay.remove()
+		}
+		const onKey = (e) => {
+			if (e.key === "Escape") {
+				e.stopPropagation()
+				close()
+			}
+			e.stopPropagation() // keep YouTube hotkeys out of the textarea
+		}
+		document.addEventListener("keydown", onKey, true)
+		overlay.addEventListener("pointerdown", (e) => {
+			if (e.target === overlay) close()
+		})
+		cancel.onclick = close
+		reset.onclick = () => (ta.value = FILLER_DEFAULT_TASTE)
+		save.onclick = () => {
+			const v = ta.value.trim()
+			gm.setValue("yt_filler_taste", v && v !== FILLER_DEFAULT_TASTE ? v : "")
+			close()
+			showToast("Taste notes saved")
+			if (fillerEnabled()) runFillerForCurrentVideo(true)
+		}
+	}
+
+	gm.registerMenuCommand("Skip filler: edit taste notes", openFillerTasteEditor)
+	gm.registerMenuCommand("Skip filler: re-analyze this video", () => {
+		const id = getCurrentVideoId()
+		const cache = { ...gm.getValue("yt_filler_cache", {}) }
+		delete cache[id]
+		gm.setValue("yt_filler_cache", cache)
+		if (fillerEnabled()) runFillerForCurrentVideo(true)
+		else showToast("Cleared. Turn on Skip filler to analyze.")
+	})
 
 	// --- 7. YOUTUBE SEARCH EXCLUDE TERMS (Search Page Only) ---
 
@@ -2072,6 +2505,9 @@ min-height: " +
 		// 4. Refresh on Error (Watch Page)
 		checkAndRefresh()
 
+		// 4a. Skip filler toggle (Watch Page)
+		ensureFillerButton()
+
 		// 5. Search Exclusion (Search Page)
 		if (isSearchPage()) {
 			// Re-apply filter to newly loaded results
@@ -2117,6 +2553,9 @@ min-height: " +
             
             // Highlight Reel
             initHighlightReel()
+
+            // AI filler skipper (auto-runs when toggled on; cached per video)
+            runFillerForCurrentVideo()
 		}
 
 	}

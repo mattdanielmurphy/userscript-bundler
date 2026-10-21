@@ -39,6 +39,7 @@ Install one master userscript in Tampermonkey:
 // @connect      canvas.ualberta.ca
 // @connect      githubusercontent.com
 // @connect      raw.githubusercontent.com
+// @connect      yt.mattmurphy.ca
 // ==/UserScript==
 ```
 

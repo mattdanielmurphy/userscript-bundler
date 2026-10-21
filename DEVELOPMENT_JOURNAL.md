@@ -52,3 +52,6 @@
 
 ## 2026-10-01
 - **Fix Gemini Chat Response Table Misalignment:** Removed broken `.horizontal-scroll-wrapper` breakout styles (`left: 50%`, `transform`, flexbox centering of collapsed wrappers) and stripped ancestor overflow mutation from `fixChatHistoryTableVisibility()`, restoring Gemini's native container-query-based table layout. See [agent-logs/2026-10-01_16-08_fix-gemini-table-alignment.md](file:///Users/matt/projects/userscript-bundler/agent-logs/2026-10-01_16-08_fix-gemini-table-alignment.md).
+
+## 2026-10-20
+- **YouTube AI filler skipper:** Added a "Skip filler" toggle to `youtube-master.user.js`. It fetches the transcript headlessly (`get_panel`), asks yt-highlight-reel's `/api/skip` (Claude Haiku) for recaps/teasers/intros/next-time/sponsor spans per Matt's taste notes, caches per video, skips them via the reel engine in a new filler mode, marks them light blue on the scrubber, and shows a "Go back" toast. Added `@connect yt.mattmurphy.ca` to the loader and README.
