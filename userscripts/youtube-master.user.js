@@ -528,80 +528,84 @@
 			shareBtn.innerText = "Get transcript"
 		}
 
-		let reelBtn = document.getElementById("yt-highlight-reel-btn")
-		if (!reelBtn) {
-			reelBtn = document.createElement("button")
-			reelBtn.id = "yt-highlight-reel-btn"
-			reelBtn.title = "Click to toggle or generate reel. Right-click to copy shareable Highlight URL."
-			Object.assign(reelBtn.style, {
-				height: "36px",
-				padding: "0 16px",
-				borderRadius: "18px",
-				marginLeft: "8px",
-				border: "none",
-				background: _isReelActive ? "rgba(255, 215, 0, 0.2)" : "rgba(255, 255, 255, 0.1)",
-				color: "#fff",
-				cursor: "pointer",
-				fontSize: "14px",
-				fontWeight: "500",
-				fontFamily: "Roboto, Arial, sans-serif",
-				display: "inline-flex",
-				alignItems: "center",
-				justifyContent: "center"
-			})
+		// Highlight reel button: on by default; App Shack's Safari extension turns it off (yt_highlight_reel = false).
+		const reelOn = typeof GM_getValue === "function" ? GM_getValue("yt_highlight_reel", true) !== false : true
+		if (reelOn) {
+			let reelBtn = document.getElementById("yt-highlight-reel-btn")
+			if (!reelBtn) {
+				reelBtn = document.createElement("button")
+				reelBtn.id = "yt-highlight-reel-btn"
+				reelBtn.title = "Click to toggle or generate reel. Right-click to copy shareable Highlight URL."
+				Object.assign(reelBtn.style, {
+					height: "36px",
+					padding: "0 16px",
+					borderRadius: "18px",
+					marginLeft: "8px",
+					border: "none",
+					background: _isReelActive ? "rgba(255, 215, 0, 0.2)" : "rgba(255, 255, 255, 0.1)",
+					color: "#fff",
+					cursor: "pointer",
+					fontSize: "14px",
+					fontWeight: "500",
+					fontFamily: "Roboto, Arial, sans-serif",
+					display: "inline-flex",
+					alignItems: "center",
+					justifyContent: "center"
+				})
 
-			reelBtn.oncontextmenu = async (e) => {
-				e.preventDefault()
-				e.stopPropagation()
-				if (typeof window.copyHighlightReelUrl === "function") {
-					await window.copyHighlightReelUrl()
-				}
-			}
-
-			reelBtn.onclick = async () => {
-				if (_highlightSegments.length === 0 || _reelMode === "filler") {
-					showToast("⏳ Extracting transcript & building prompt...")
-					const transcriptText = await getCompleteTranscript()
-					if (!transcriptText) {
-						showToast("Could not extract transcript")
-						return
-					}
-					const fullPrompt = `You are a Video Editor creating a tight, high-signal "Highlight Reel / Supercut" of a YouTube video using its transcript.
-
-### Goal:
-Select the most essential soundbites and insights that summarize the video's core arguments, demonstrations, and conclusions.
-
-### Constraints:
-1. Target Cumulative Duration: ~3 to 5 minutes (or ~10-15% of total runtime).
-2. Continuous Soundbites: Each segment must start at the beginning of a complete sentence and end after the thought is fully expressed (do not cut mid-sentence).
-3. Cut Fluff: Completely omit sponsor reads, channel intros/outros, repetitive filler, and low-information chit-chat.
-4. Output Format: Return ONLY a raw JSON array of objects (no markdown code fences, no extra commentary).
-
-### JSON Schema:
-[
-  {
-    "start": 42,
-    "end": 85,
-    "title": "The Core Problem Explained",
-    "tier": 1
-  }
-]
-
-* Note: "start" and "end" MUST be integer seconds from the start of the video.
-
-### Transcript to Analyze:
-` + transcriptText
-					await navigator.clipboard.writeText(fullPrompt)
-					startClipboardWatcher(fullPrompt)
-				} else {
-					if (typeof window.toggleHighlightReel === 'function') {
-						window.toggleHighlightReel()
+				reelBtn.oncontextmenu = async (e) => {
+					e.preventDefault()
+					e.stopPropagation()
+					if (typeof window.copyHighlightReelUrl === "function") {
+						await window.copyHighlightReelUrl()
 					}
 				}
+
+				reelBtn.onclick = async () => {
+					if (_highlightSegments.length === 0 || _reelMode === "filler") {
+						showToast("⏳ Extracting transcript & building prompt...")
+						const transcriptText = await getCompleteTranscript()
+						if (!transcriptText) {
+							showToast("Could not extract transcript")
+							return
+						}
+						const fullPrompt = `You are a Video Editor creating a tight, high-signal "Highlight Reel / Supercut" of a YouTube video using its transcript.
+
+	### Goal:
+	Select the most essential soundbites and insights that summarize the video's core arguments, demonstrations, and conclusions.
+
+	### Constraints:
+	1. Target Cumulative Duration: ~3 to 5 minutes (or ~10-15% of total runtime).
+	2. Continuous Soundbites: Each segment must start at the beginning of a complete sentence and end after the thought is fully expressed (do not cut mid-sentence).
+	3. Cut Fluff: Completely omit sponsor reads, channel intros/outros, repetitive filler, and low-information chit-chat.
+	4. Output Format: Return ONLY a raw JSON array of objects (no markdown code fences, no extra commentary).
+
+	### JSON Schema:
+	[
+	  {
+	    "start": 42,
+	    "end": 85,
+	    "title": "The Core Problem Explained",
+	    "tier": 1
+	  }
+	]
+
+	* Note: "start" and "end" MUST be integer seconds from the start of the video.
+
+	### Transcript to Analyze:
+	` + transcriptText
+						await navigator.clipboard.writeText(fullPrompt)
+						startClipboardWatcher(fullPrompt)
+					} else {
+						if (typeof window.toggleHighlightReel === 'function') {
+							window.toggleHighlightReel()
+						}
+					}
+				}
+				shareBtn.parentNode.insertBefore(reelBtn, shareBtn.nextSibling)
 			}
-			shareBtn.parentNode.insertBefore(reelBtn, shareBtn.nextSibling)
+			reelBtn.textContent = _isReelActive && _highlightSegments.length > 0 ? `⚡ Reel: ON (${_currentSegmentIndex + 1}/${_highlightSegments.length})` : "⚡ Highlight reel"
 		}
-		reelBtn.textContent = _isReelActive && _highlightSegments.length > 0 ? `⚡ Reel: ON (${_currentSegmentIndex + 1}/${_highlightSegments.length})` : "⚡ Highlight reel"
 
 		shareBtn.onclick = async function (e) {
 			e.preventDefault()
@@ -1643,6 +1647,8 @@ Keep:
 	}
 
 	function ensureFillerButton() {
+		// Part of the highlight reel tools; hidden with them (yt_highlight_reel = false).
+		if (typeof GM_getValue === "function" && GM_getValue("yt_highlight_reel", true) === false) return
 		if (!isWatchPage() || document.getElementById("yt-filler-btn")) return
 		const row = document.querySelector("#above-the-fold #top-level-buttons-computed, #top-level-buttons-computed")
 		if (!row) return
