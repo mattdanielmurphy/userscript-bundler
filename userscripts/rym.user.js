@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Rate Your Music
 // @namespace    http://tampermonkey.net/
-// @version      2026-11-10
+// @version      2026-11-11
 // @description  Feeds Music Connect's RYM score database: saves ratings from the RYM pages you open, and fetches (slowly, with your session) the pages Music Connect asks for while an RYM tab is open. Also embeds the Apple Music player on release pages.
 // @author       Matt
 // @match        https://rateyourmusic.com/*
@@ -40,6 +40,13 @@
 		const num = (s) => {
 			const m = String(s || "").replace(/,/g, "").match(/\d+(\.\d+)?/);
 			return m ? Number(m[0]) : null;
+		};
+		// Rating counts: charts abbreviate them ("2k", "1.2k"); album pages write them out ("1,234").
+		const ratingCount = (s) => {
+			const m = String(s || "").replace(/,/g, "").match(/(\d+(?:\.\d+)?)\s*([km])?/i);
+			if (!m) return null;
+			const mult = !m[2] ? 1 : m[2].toLowerCase() === "k" ? 1000 : 1000000;
+			return Math.round(Number(m[1]) * mult);
 		};
 		const idFrom = (s) => {
 			const m = String(s || "").match(/\[(?:Album|Artist|Genre)(\d+)\]/);
@@ -97,7 +104,7 @@
 			});
 			const artists = Array.from((info.artist || doc).querySelectorAll("a.artist")).map(text).filter(Boolean);
 			const artist = artists.length ? [...new Set(artists)].join(" & ") : text(doc.querySelector(".album_artist_small a.artist"));
-			const count = num(text(doc.querySelector(".album_info .num_ratings b")) || text(doc.querySelector(".num_ratings")));
+			const count = ratingCount(text(doc.querySelector(".album_info .num_ratings b")) || text(doc.querySelector(".num_ratings")));
 			const rating = num(text(doc.querySelector(".album_info .avg_rating")) || text(doc.querySelector(".avg_rating")));
 			const typeText = text(info.type);
 			const tracks = Array.from(doc.querySelectorAll("#tracks .track")).map((li) => ({
@@ -147,7 +154,7 @@
 					url: abs(rel.getAttribute("href"), url),
 					year: yearOf(text(item.querySelector(".page_charts_section_charts_item_date, .topcharts_date"))),
 					rating: num(text(item.querySelector(".page_charts_section_charts_item_details_average_num, .topcharts_avg"))),
-					count: num(text(item.querySelector(".page_charts_section_charts_item_details_ratings .full, .page_charts_section_charts_item_details_ratings"))),
+					count: ratingCount(text(item.querySelector(".page_charts_section_charts_item_details_ratings .full, .page_charts_section_charts_item_details_ratings"))),
 					genres: genreList(item, ".page_charts_section_charts_item_genres_primary a.genre"),
 					secondary: genreList(item, ".page_charts_section_charts_item_genres_secondary a.genre"),
 					descriptors: Array.from(item.querySelectorAll(".page_charts_section_charts_item_genre_descriptors span")).map(text).filter(Boolean),
@@ -178,7 +185,7 @@
 					url: abs(a.getAttribute("href"), url),
 					year: yearOf(text(r.querySelector(".disco_subline, .disco_year_ymd, .disco_year_y"))),
 					rating: num(text(r.querySelector(".disco_avg_rating"))),
-					count: num(text(r.querySelector(".disco_ratings"))),
+					count: ratingCount(text(r.querySelector(".disco_ratings"))),
 					type: sec ? { s: "album", e: "ep", i: "single", c: "compilation", l: "live" }[sec.id.slice(-1)] || null : null,
 				};
 			}).filter((x) => x && x.rating);
