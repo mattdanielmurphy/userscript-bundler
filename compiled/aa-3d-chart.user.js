@@ -542,18 +542,23 @@ if (typeof globalThis !== "undefined") {
 		// view turns flat, so points glide straight to their place instead of overshooting and coming back
 		// Perspective is included, so corners swung towards the camera don't get cut off at the top or bottom.
 		function fit() {
-			let ex = 0, ey = 0
+			let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity
 			const pf = view.persp ? 1 - flatness() : 0
-			for (const a of [-1, 1]) for (const b of [-1, 1]) for (const c of [-1, 1]) { const q = rot([a, b, c]), m = 1 + (5 / (5 + q[2]) - 1) * pf; ex = Math.max(ex, Math.abs(q[0]) * m); ey = Math.max(ey, Math.abs(q[1]) * m) }
-			return 1 / Math.max(ex, ey)
+			for (const a of [-1, 1]) for (const b of [-1, 1]) for (const c of [-1, 1]) {
+				const q = rot([a, b, c]), m = 1 + (5 / (5 + q[2]) - 1) * pf, x = q[0] * m, y = q[1] * m
+				x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y)
+			}
+			// centre the box's real (perspective) outline, not the origin: corners near the camera project
+			// bigger, so a box centred on its origin sits low and loses its bottom edge
+			return { s: 2 / Math.max(x1 - x0, y1 - y0), cx: (x0 + x1) / 2, cy: (y0 + y1) / 2 }
 		}
-		let fitNow = 1
+		let fitNow = { s: 1, cx: 0, cy: 0 }
 		function project(p, W, H) {
 			const [x1, z2, y2] = rot(p)
 			const pf = view.persp ? 1 - flatness() : 0
 			const m = 1 + (5 / (5 + y2) - 1) * pf // 1 when flat; above 1 for points nearer the camera
-			const k = m * Math.min(W, H * 1.35) * 0.29 * view.zoom * fitNow
-			return [W / 2 + x1 * k + view.panX, H * 0.5 - z2 * k + view.panY, y2, m]
+			const k = Math.min(W, H * 1.35) * 0.29 * view.zoom * fitNow.s
+			return [W / 2 + (x1 * m - fitNow.cx) * k + view.panX, H * 0.5 - (z2 * m - fitNow.cy) * k + view.panY, y2, m]
 		}
 		function draw() {
 			paint()
