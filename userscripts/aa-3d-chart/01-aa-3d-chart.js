@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Artificial Analysis 3D Frontier Chart
 // @namespace    local.aa.3d-chart
-// @version      2.0.0
+// @version      2.1.0
 // @description  Adds Matt's own 3D model chart (intelligence × cost per task × time per task) under the homepage rankings. It shows AA's shared model selection, and quick picks (frontier, one or more makers) change that selection for every chart on the page.
 // @match        https://artificialanalysis.ai/*
 // @grant        GM_addElement
@@ -113,12 +113,35 @@
 	const monthsBefore = (iso, n) => { const d = new Date(iso); d.setMonth(d.getMonth() - n); return d.toISOString().slice(0, 10) }
 	// a maker's models worth caring about: not deprecated, released within 6 months of its newest,
 	// and not clearly beaten by another of its own models (that drops superseded versions)
-	function makerPick(all, maker) {
-		const mine = all.filter((r) => r.creator === maker && !r.deprecated)
+	// strict Pareto: p goes unless some q is at least as good on all three and better on one
+	const paretoFront = (rows) => rows.filter((p) => !rows.some((q) => q !== p && q.score >= p.score && q.cost <= p.cost && q.minutes <= p.minutes && (q.score > p.score || q.cost < p.cost || q.minutes < p.minutes)))
+	// a maker's models worth using day to day: publicly available, not deprecated, released within
+	// 6 months of its newest, and on that maker's own 3D frontier (nothing of theirs is smarter,
+	// cheaper and faster at once, so there's no reason to pick anything below it)
+	function makerPool(all, maker) {
+		const mine = all.filter((r) => r.creator === maker && !r.deprecated && !r.muted)
 		const newest = mine.map((r) => r.released).filter(Boolean).sort().at(-1)
-		const recent = newest ? mine.filter((r) => !r.released || r.released >= monthsBefore(newest, 6)) : mine
-		const live = nearFront(recent.filter((r) => !r.muted), 2, 0.2)
-		return live.concat(recent.filter((r) => r.muted))
+		return newest ? mine.filter((r) => !r.released || r.released >= monthsBefore(newest, 6)) : mine
+	}
+	const makerPick = (all, maker) => paretoFront(makerPool(all, maker))
+	const EFFORT_ORDER = ["minimal", "low", "medium", "high", "xhigh", "max"]
+	const effortRank = (e) => { const i = EFFORT_ORDER.indexOf(e); return i < 0 ? 99 : i }
+	// "Everyday": your makers' frontiers, remembered in this browser (Anthropic until you change it)
+	const EVERYDAY_KEY = "aa3d-everyday-makers"
+	function everydayMakers() {
+		try { const v = JSON.parse(localStorage.getItem(EVERYDAY_KEY)); if (Array.isArray(v) && v.length) return v } catch {}
+		return ["Anthropic"]
+	}
+	function saveEveryday(makers) { try { localStorage.setItem(EVERYDAY_KEY, JSON.stringify(makers)) } catch {} }
+	const makersSlugs = (rows, makers) => makers.flatMap((mk) => makerPick(rows, mk)).sort((a, b) => b.score - a.score).map((r) => r.id)
+	// with model or effort chips on, show every matching level (you asked for them), not just the frontier.
+	// Models with no effort levels always pass the effort filter.
+	function currentPick(rows) {
+		const makers = [...pickedMakers]
+		if (!pickedFamilies.size && !pickedEfforts.size) return makersSlugs(rows, makers)
+		return makers.flatMap((mk) => makerPool(rows, mk))
+			.filter((r) => (!pickedFamilies.size || pickedFamilies.has(r.family)) && (!pickedEfforts.size || !r.effort || pickedEfforts.has(r.effort)))
+			.sort((a, b) => b.score - a.score).map((r) => r.id)
 	}
 	const framePick = (all) => nearFront(all.filter((r) => !r.muted && !r.deprecated), 1.5, 0.15)
 
@@ -136,12 +159,14 @@
 #${CARD_ID} .aa3d-picks button[aria-pressed=true]{background:#17181a;color:#fff;border-color:#17181a}
 #${CARD_ID} .aa3d-picks button:active{transform:translateY(1px)}
 #${CARD_ID} .aa3d-picks .sep{width:1px;height:22px;background:rgb(217,217,217);margin:0 4px}
+#${CARD_ID} .aa3d-picks .brk{flex-basis:100%;height:0}
+#${CARD_ID} .aa3d-picks .hint2{font-size:12.5px;color:#8a8c91;margin-left:4px}
 #${CARD_ID} .aa3d-status{color:#55575c;font-size:13px;padding:0 10px 10px;margin:0}
 #${CARD_ID} .aa3d-status b{font-weight:600;color:#17181a}
 html.dark #${CARD_ID} .mc{--bg:#161716;--panel:#161716;--border:#30312e}`
 
 	let card = null, picksEl = null, statusEl = null, host = null, chart = null
-	let lastSig = "", lastData = null, pickedMakers = new Set(), busyTimer = 0
+	let lastSig = "", lastData = null, pickedMakers = new Set(), pickedFamilies = new Set(), pickedEfforts = new Set(), busyTimer = 0, startedEveryday = false
 	const isDark = () => document.documentElement.classList.contains("dark")
 	const sigOf = (slugs) => [...slugs].sort().join(",")
 
@@ -163,23 +188,33 @@ html.dark #${CARD_ID} .mc{--bg:#161716;--panel:#161716;--border:#30312e}`
 	}
 	function togglemaker(maker) {
 		pickedMakers.has(maker) ? pickedMakers.delete(maker) : pickedMakers.add(maker)
+		pickedFamilies.clear()
 		if (!pickedMakers.size) return apply(lastData.defaults, "AA default")
-		const slugs = [...pickedMakers].flatMap((mk) => makerPick(lastData.rows, mk)).sort((a, b) => b.score - a.score).map((r) => r.id)
-		apply(slugs, [...pickedMakers].join(" + "))
+		saveEveryday([...pickedMakers])
+		apply(currentPick(lastData.rows), [...pickedMakers].join(" + "))
 	}
 	function onPick(e) {
 		const b = e.target.closest("button[data-pick]")
 		if (!b || !lastData) return
 		const k = b.dataset.pick
-		if (k === "frontier") { pickedMakers.clear(); apply(framePick(lastData.rows).sort((a, b) => b.score - a.score).map((r) => r.id), "frontier") }
+		if (k.startsWith("fam:") || k.startsWith("eff:")) {
+			const set = k.startsWith("fam:") ? pickedFamilies : pickedEfforts, v = k.slice(4)
+			set.has(v) ? set.delete(v) : set.add(v)
+			return apply(currentPick(lastData.rows), v)
+		}
+		pickedFamilies.clear(); pickedEfforts.clear()
+		if (k === "everyday") { pickedMakers = new Set(everydayMakers()); apply(makersSlugs(lastData.rows, [...pickedMakers]), "everyday") }
+		else if (k === "frontier") { pickedMakers.clear(); apply(framePick(lastData.rows).sort((a, b) => b.score - a.score).map((r) => r.id), "frontier") }
 		else if (k === "default") { pickedMakers.clear(); apply(lastData.defaults, "AA default") }
 		else if (k.startsWith("maker:")) togglemaker(k.slice(6))
 	}
 
 	function renderPicks(d, selSig) {
 		const frontSig = sigOf(framePick(d.rows).map((r) => r.id)), defSig = sigOf(d.defaults)
-		const makersSig = pickedMakers.size ? sigOf([...pickedMakers].flatMap((mk) => makerPick(d.rows, mk)).map((r) => r.id)) : null
-		if (makersSig !== selSig) pickedMakers.clear() // selection was changed elsewhere (AA's own picker)
+		const makersSig = pickedMakers.size ? sigOf(currentPick(d.rows)) : null
+		if (makersSig !== selSig) { pickedMakers.clear(); pickedFamilies.clear(); pickedEfforts.clear() } // changed elsewhere (AA's own picker)
+		const every = everydayMakers(), everySig = sigOf(makersSlugs(d.rows, every))
+		if (!pickedMakers.size && selSig === everySig) pickedMakers = new Set(every) // Everyday is on: show its makers' chips
 		const counts = new Map()
 		d.rows.filter((r) => !r.deprecated).forEach((r) => counts.set(r.creator, (counts.get(r.creator) || 0) + 1))
 		const makers = [...counts.entries()].sort((a, b) => b[1] - a[1]).map((x) => x[0])
@@ -187,11 +222,30 @@ html.dark #${CARD_ID} .mc{--bg:#161716;--panel:#161716;--border:#30312e}`
 		const btn = (k, txt, on, title) => `<button type="button" data-pick="${k}" aria-pressed="${on}" title="${title}">${txt}</button>`
 		const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c])
 		picksEl.innerHTML = `<span class="lbl">Show</span>` +
+			btn("everyday", "Everyday", selSig === everySig, `The models worth using: current ${esc(every.join(" + "))} models on the frontier, nothing below it. Shown when the page opens; pick makers below to change which makers it uses.`) +
 			btn("frontier", "Frontier", selSig === frontSig, "Publicly available models on or close to the 3D frontier, across all makers") +
 			btn("default", "AA default", selSig === defSig && !pickedMakers.size, "Artificial Analysis's default selection") +
 			`<span class="sep"></span><span class="lbl">Makers</span>` +
-			top.map((m) => btn("maker:" + esc(m), esc(m), pickedMakers.has(m), `${esc(m)}'s current models (superseded and deprecated ones left out). Pick several to compare them.`)).join("") +
-			(more.length ? `<select aria-label="More makers"><option value="">More makers…</option>${more.map((m) => `<option value="${esc(m)}">${pickedMakers.has(m) ? "✓ " : ""}${esc(m)}</option>`).join("")}</select>` : "")
+			top.map((m) => btn("maker:" + esc(m), esc(m), pickedMakers.has(m), `${esc(m)}'s current public models on its own frontier (superseded, deprecated and beaten ones left out). Pick several to compare; your picks become Everyday.`)).join("") +
+			(more.length ? `<select aria-label="More makers"><option value="">More makers…</option>${more.map((m) => `<option value="${esc(m)}">${pickedMakers.has(m) ? "✓ " : ""}${esc(m)}</option>`).join("")}</select>` : "") + subRow(d, btn, esc)
+	}
+
+	// models and effort levels of the picked makers' current lineup
+	function subRow(d, btn, esc) {
+		if (!pickedMakers.size) return ""
+		const pool = [...pickedMakers].flatMap((mk) => makerPool(d.rows, mk))
+		const fams = new Map()
+		pool.forEach((r) => fams.set(r.family, Math.max(fams.get(r.family) || 0, r.score)))
+		const famList = [...fams.entries()].sort((a, b) => b[1] - a[1]).map((x) => x[0])
+		const effs = [...new Set(pool.filter((r) => !pickedFamilies.size || pickedFamilies.has(r.family)).map((r) => r.effort).filter(Boolean))].sort((a, b) => effortRank(a) - effortRank(b) || a.localeCompare(b))
+		if (famList.length < 2 && effs.length < 2) return ""
+		// "Claude Fable 5.2", "Claude Opus 5.5" → "Fable 5.2", "Opus 5.5" when they all share the first word
+		const first = famList[0].split(" ")[0], shared = famList.length > 1 && famList.every((f) => f.startsWith(first + " "))
+		const trim = (f) => (shared ? f.slice(first.length + 1) : f)
+		return `<span class="brk"></span><span class="lbl">Models</span>` +
+			famList.map((f) => btn("fam:" + esc(f), esc(trim(f)), pickedFamilies.has(f), `Only ${esc(f)} (all its effort levels). Pick several to compare.`)).join("") +
+			(effs.length ? `<span class="sep"></span><span class="lbl">Effort</span>` + effs.map((e) => btn("eff:" + esc(e), esc(e), pickedEfforts.has(e), `Only the ${esc(e)} effort level. Pick several.`)).join("") : "") +
+			(pickedFamilies.size || pickedEfforts.size ? "" : `<span class="hint2">Showing the frontier only. Pick a model or effort to see all its levels.</span>`)
 	}
 
 	function mountChart(d, rows) {
@@ -216,6 +270,15 @@ html.dark #${CARD_ID} .mc{--bg:#161716;--panel:#161716;--border:#30312e}`
 	function refresh(force) {
 		const raw = ask()
 		if (!raw) return false
+		if (!startedEveryday) {
+			startedEveryday = true
+			// open on Everyday unless the URL already names models (a shared link or AA's picker)
+			if (!new URLSearchParams(location.search).has("models")) {
+				const rows0 = raw.models.map((m) => toRow(m, new Set(raw.noApi))).filter(Boolean)
+				const slugs = makersSlugs(rows0, everydayMakers())
+				if (slugs.length && sigOf(slugs) !== sigOf(raw.selected)) { pickedMakers = new Set(everydayMakers()); setSelection(slugs) }
+			}
+		}
 		const sel = raw.selected, sig = sigOf(sel)
 		if (!force && sig === lastSig) return true
 		lastSig = sig
