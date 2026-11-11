@@ -306,5 +306,20 @@
     ],
     "file": "dom-automation-recorder.user.js",
     "sharedFiles": []
+  },
+  {
+    "id": "aa-3d-chart",
+    "name": "Artificial Analysis 3D Frontier Chart",
+    "description": "Matt's 3D model chart (intelligence, cost and time per task) with the 3D frontier, under the artificialanalysis.ai homepage rankings",
+    "kind": "grouped",
+    "matches": [
+      "https://artificialanalysis.ai/*"
+    ],
+    "noframes": true,
+    "files": [
+      "aa-3d-chart/00-model-chart.js",
+      "aa-3d-chart/01-aa-3d-chart.js"
+    ],
+    "sharedFiles": []
   }
 ]
