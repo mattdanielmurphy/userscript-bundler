@@ -1,287 +1,401 @@
 // ==UserScript==
 // @name         Rate Your Music
 // @namespace    http://tampermonkey.net/
-// @version      2023-12-21
-// @description  Save RateYourMusic ratings for personal use
-// @author       You
+// @version      2026-11-10
+// @description  Feeds Music Connect's RYM score database: saves ratings from the RYM pages you open, and fetches (slowly, with your session) the pages Music Connect asks for while an RYM tab is open. Also embeds the Apple Music player on release pages.
+// @author       Matt
 // @match        https://rateyourmusic.com/*
 // @icon         https://www.google.com/s2/favicons?sz=256&domain=rateyourmusic.com
 // @grant        GM_setValue
 // @grant        GM_getValue
 // @grant        GM.setValue
 // @grant        GM.getValue
+// @grant        GM_xmlhttpRequest
+// @grant        GM.xmlHttpRequest
+// @connect      127.0.0.1
 // ==/UserScript==
 
-//TODO ==FIXES==
-//TODO [ ] handle multi-artist releases
-//TODO [ ] sync over web through vercel kv
+// How it works
+// - Every RYM page you open (album, chart, artist, genre) is parsed and posted to Music Connect
+//   (http://127.0.0.1:47821/rym/ingest), which stores it in music.db. A small corner note says so.
+// - While a RYM tab is open, this asks Music Connect every ~20 s for wanted pages (GET /rym/wanted), and
+//   fetches them in the background with your own session: at most one page every 12 s, 40 an hour,
+//   250 a day, so your account looks like a person reading. If RYM answers with its Cloudflare check,
+//   it stops for 10 minutes and tells Music Connect; it never tries to get past the check itself.
+// - Only one RYM tab fetches at a time (a lock in GM storage).
+// - Old behaviour kept: the Apple Music embed next to the tracklist on release pages.
+// Pure parsers sit between the <rym-core> markers so tests can run them on saved pages.
 
-// * Third-Party Utilities
+(() => {
+	"use strict";
+	if (window.top !== window.self) return;
 
-//? https://www.npmjs.com/package/string-similarity
-// prettier-ignore
-!function (t, e) { "object" == typeof exports && "object" == typeof module ? module.exports = e() : "function" == typeof define && define.amd ? define([], e) : "object" == typeof exports ? exports.stringSimilarity = e() : t.stringSimilarity = e() }(self, (function () { return t = { 138: t => { function e(t, e) { if ((t = t.replace(/\s+/g, "")) === (e = e.replace(/\s+/g, ""))) return 1; if (t.length < 2 || e.length < 2) return 0; let r = new Map; for (let e = 0; e < t.length - 1; e++) { const n = t.substring(e, e + 2), o = r.has(n) ? r.get(n) + 1 : 1; r.set(n, o) } let n = 0; for (let t = 0; t < e.length - 1; t++) { const o = e.substring(t, t + 2), s = r.has(o) ? r.get(o) : 0; s > 0 && (r.set(o, s - 1), n++) } return 2 * n / (t.length + e.length - 2) } t.exports = { compareTwoStrings: e, findBestMatch: function (t, r) { if (!function (t, e) { return "string" == typeof t && !!Array.isArray(e) && !!e.length && !e.find((function (t) { return "string" != typeof t })) }(t, r)) throw new Error("Bad args: 1st = string, 2nd = array of strings"); const n = []; let o = 0; for (let s = 0; s < r.length; s++) { const i = r[s], f = e(t, i); n.push({ target: i, rating: f }), f > n[o].rating && (o = s) } return { ratings: n, bestMatch: n[o], bestMatchIndex: o } } } } }, e = {}, function r(n) { if (e[n]) return e[n].exports; var o = e[n] = { exports: {} }; return t[n](o, o.exports, r), o.exports }(138) }))
-const { compareTwoStrings } = stringSimilarity;
+	const MC = "http://127.0.0.1:47821";
+	const LIMITS = { gapMs: 12000, perHour: 40, perDay: 250, blockedPauseMs: 10 * 60 * 1000 };
+	const store = typeof gm !== "undefined" ? gm : null;
 
-// * Utilities
+	// <rym-core>
+	const RYMCore = (() => {
+		const text = (el) => (el ? el.textContent.replace(/\s+/g, " ").trim() : "");
+		const num = (s) => {
+			const m = String(s || "").replace(/,/g, "").match(/\d+(\.\d+)?/);
+			return m ? Number(m[0]) : null;
+		};
+		const idFrom = (s) => {
+			const m = String(s || "").match(/\[(?:Album|Artist|Genre)(\d+)\]/);
+			return m ? Number(m[1]) : null;
+		};
+		const abs = (href, base) => {
+			try { return new URL(href, base || "https://rateyourmusic.com/").href; } catch { return null; }
+		};
+		const yearOf = (s) => {
+			const m = String(s || "").match(/\b(1[89]\d\d|20\d\d)\b/);
+			return m ? Number(m[1]) : null;
+		};
+		const genreList = (root, sel) =>
+			Array.from(root.querySelectorAll(sel)).map((a) => ({ name: text(a), id: idFrom(a.getAttribute("title")) })).filter((g) => g.name);
+		/** Apple Music album id from RYM's media links JSON ({"applemusic":{"<id>":{...}}}). */
+		const appleFrom = (el) => {
+			if (!el) return null;
+			try {
+				const links = JSON.parse(el.getAttribute("data-links") || "{}");
+				const am = links.applemusic;
+				if (!am) return null;
+				const first = Object.entries(am).find(([, v]) => v && v.default) || Object.entries(am)[0];
+				if (!first) return null;
+				const [key, v] = first;
+				const fromUrl = String((v && (v.album || v.url)) || "").match(/(\d{6,})(?:\D*$)/);
+				return /^\d+$/.test(key) ? key : fromUrl ? fromUrl[1] : null;
+			} catch { return null; }
+		};
 
-class Utilities {
-  normalizeString(string) {
-    return string
-      ?.toLowerCase()
-      .replace(/\s(\(|\[)[^\(\[]*(\]|\))$/gm, "")
-      .replace(": expanded edition", "")
-      .trim();
-  }
-  getNode = (selector, baseElement = document) =>
-    baseElement.querySelector(selector);
-  getNodes = (selector, baseElement = document) =>
-    Array.from(baseElement.querySelectorAll(selector));
-  getHTML = (selector, baseElement = document) =>
-    baseElement.querySelector(selector).innerHTML.trim();
-  getValue = (selector, baseElement) =>
-    this.getNode(selector, baseElement).innerText.trim();
-  getValues = (selector, baseElement) =>
-    Array.from(this.getNodes(selector, baseElement))?.map((v) =>
-      v.innerText.trim()
-    );
-  getListOfGenres(arrayOfNodes) {
-    return arrayOfNodes.map((node) => ({
-      text: node.innerText,
-      href: node.href,
-    }));
-  }
-}
+		function pageKind(url) {
+			const p = new URL(url).pathname;
+			if (/^\/release\//.test(p)) return "release";
+			if (/^\/charts\//.test(p)) return "chart";
+			if (/^\/artist\/[^/]+\/?$/.test(p)) return "artist";
+			if (/^\/genre\/[^/]+\/?$/.test(p)) return "genre";
+			if (/^\/search/.test(p)) return "search";
+			return null;
+		}
 
-const util = new Utilities();
+		function release(doc, url) {
+			const title = doc.querySelector(".album_title");
+			if (!title) return null;
+			// The title node also holds the shortcut input and a small-screen "By …" block; take only its own text.
+			const own = Array.from(title.childNodes).filter((n) => n.nodeType === 3).map((n) => n.textContent).join(" ").replace(/\s+/g, " ").trim();
+			const info = {};
+			doc.querySelectorAll(".album_info tr").forEach((tr) => {
+				const h = text(tr.querySelector("th"));
+				if (h) info[h.toLowerCase()] = tr.querySelector("td");
+			});
+			const artists = Array.from((info.artist || doc).querySelectorAll("a.artist")).map(text).filter(Boolean);
+			const artist = artists.length ? [...new Set(artists)].join(" & ") : text(doc.querySelector(".album_artist_small a.artist"));
+			const count = num(text(doc.querySelector(".album_info .num_ratings b")) || text(doc.querySelector(".num_ratings")));
+			const rating = num(text(doc.querySelector(".album_info .avg_rating")) || text(doc.querySelector(".avg_rating")));
+			const typeText = text(info.type);
+			const tracks = Array.from(doc.querySelectorAll("#tracks .track")).map((li) => ({
+				title: text(li.querySelector(".tracklist_title .rendered_text")) || text(li.querySelector(".tracklist_title")),
+				rating: num(text(li.querySelector(".track_rating_avg"))),
+			})).filter((t) => t.title);
+			return {
+				rymId: idFrom(doc.querySelector(".album_shortcut")?.value),
+				title: own || text(title),
+				artist,
+				year: yearOf(text(info.released) || text(info["recorded"])),
+				type: typeText ? typeText.split(",")[0].trim().toLowerCase() : null,
+				rating,
+				count,
+				rankText: text(info.ranked) || null,
+				genres: genreList(doc, ".release_pri_genres a.genre"),
+				secondary: genreList(doc, ".release_sec_genres a.genre"),
+				descriptors: text(doc.querySelector(".release_pri_descriptors")).split(",").map((s) => s.trim()).filter(Boolean),
+				language: text(info.language) || null,
+				appleMusicId: appleFrom(doc.querySelector("#media_link_button_container_top")),
+				url: url.split("#")[0],
+				tracks,
+			};
+		}
 
-// * rateyourmusic.com
-//TODO: Fix format
-async function getInfoForChart() {
-  console.log("Getting ratings from charts page...");
-  const chartEntries = util.getNodes(".page_section_charts_item_wrapper");
+		function chart(doc, url) {
+			const items = [];
+			const nodes = doc.querySelectorAll(".page_charts_section_charts_item, .page_section_charts_item_wrapper .object_release");
+			const seen = new Set();
+			nodes.forEach((n) => {
+				const item = n.classList.contains("page_charts_section_charts_item") ? n : n.closest(".page_section_charts_item_wrapper") || n;
+				if (seen.has(item)) return;
+				seen.add(item);
+				const rel = item.querySelector(".page_charts_section_charts_item_link.release, a.release, a[href*='/release/']");
+				const art = item.querySelector(".page_charts_section_charts_item_credited_links_primary a.artist, a.artist, a[href*='/artist/']");
+				if (!rel || !art) return;
+				const idAttr = (item.id || "") + " " + (item.querySelector("[id*='release']")?.id || "");
+				const idm = idAttr.match(/(\d{3,})/);
+				const pos = num(text(item.querySelector(".page_charts_section_charts_item_number, .topcharts_position")));
+				items.push({
+					rank: pos || undefined,
+					rymId: idm ? Number(idm[1]) : null,
+					title: text(rel),
+					artist: Array.from(item.querySelectorAll(".page_charts_section_charts_item_credited_links_primary a.artist")).map(text).join(" & ") || text(art),
+					url: abs(rel.getAttribute("href"), url),
+					year: yearOf(text(item.querySelector(".page_charts_section_charts_item_date, .topcharts_date"))),
+					rating: num(text(item.querySelector(".page_charts_section_charts_item_details_average_num, .topcharts_avg"))),
+					count: num(text(item.querySelector(".page_charts_section_charts_item_details_ratings .full, .page_charts_section_charts_item_details_ratings"))),
+					genres: genreList(item, ".page_charts_section_charts_item_genres_primary a.genre"),
+					secondary: genreList(item, ".page_charts_section_charts_item_genres_secondary a.genre"),
+					descriptors: Array.from(item.querySelectorAll(".page_charts_section_charts_item_genre_descriptors span")).map(text).filter(Boolean),
+					appleMusicId: appleFrom(item.querySelector("[data-links]")),
+				});
+			});
+			const pm = new URL(url).pathname.match(/\/(\d+)\/?$/);
+			return { items, page: pm ? Number(pm[1]) : 1 };
+		}
 
-  const releases = (await GM.getValue("releases")) || {};
-  const existingReleases = Object.keys(releases).length;
-  if (existingReleases === 0) console.log("No existing releases!");
+		function artist(doc, url) {
+			const name = text(doc.querySelector("h1.artist_name_hdr"));
+			if (!name) return null;
+			const items = Array.from(doc.querySelectorAll(".disco_release")).map((r) => {
+				const a = r.querySelector(".disco_mainline a, a.album");
+				if (!a) return null;
+				const sec = r.closest("[id^='disco_type_']");
+				return {
+					rymId: num((r.id || "").replace(/\D+/g, " ")),
+					title: text(a),
+					artist: name,
+					url: abs(a.getAttribute("href"), url),
+					year: yearOf(text(r.querySelector(".disco_subline, .disco_year_ymd, .disco_year_y"))),
+					rating: num(text(r.querySelector(".disco_avg_rating"))),
+					count: num(text(r.querySelector(".disco_ratings"))),
+					type: sec ? { s: "album", e: "ep", i: "single", c: "compilation", l: "live" }[sec.id.slice(-1)] || null : null,
+				};
+			}).filter((x) => x && x.rating);
+			return { artist: name, items };
+		}
 
-  chartEntries?.forEach((chartEntry) => {
-    const getHref = (selector) => util.getNode(selector, chartEntry)?.href;
-    const getChartItemValue = (selector) => util.getValue(selector, chartEntry);
+		function genre(doc, url) {
+			const name = text(doc.querySelector("#page_genre_section_name h1, .page_genre_section h1"));
+			if (!name) return null;
+			const full = doc.querySelector(".page_genre_description_full .rendered_text") || doc.querySelector(".page_genre_description_short .rendered_text");
+			const shortcut = Array.from(doc.querySelectorAll("input")).map((i) => i.value).find((v) => /^\[Genre\d+\]$/.test(v || ""));
+			return {
+				name,
+				id: idFrom(shortcut),
+				description: text(full),
+				related: [...new Set(Array.from((full || doc.createElement("div")).querySelectorAll("a.genre")).map(text))],
+				akas: Array.from(doc.querySelectorAll(".page_genre_akas bdi")).map(text),
+			};
+		}
 
-    const artistName =
-      getChartItemValue(".artist span") ||
-      getChartItemValue(".artist span span");
-    const rawReleaseName =
-      getChartItemValue(".release span") ||
-      getChartItemValue(".release span span");
+		function search(doc, url) {
+			return Array.from(doc.querySelectorAll("a.searchpage[href*='/release/']")).map((a) => {
+				const row = a.closest("tr") || a.parentElement;
+				const art = row && row.querySelector("a.artist, a[href*='/artist/']");
+				return { title: text(a), artist: text(art), url: abs(a.getAttribute("href"), url), year: yearOf(text(row)) };
+			}).filter((r) => r.url);
+		}
 
-    const releaseName = util.normalizeString(rawReleaseName);
-    const chartEntryNode = util.getNode(
-      ".page_charts_section_charts_item.object_release",
-      chartEntry
-    );
-    const releaseIDString = /\d*$/.exec(chartEntryNode.id);
-    const releaseID = Number(releaseIDString);
-    const releaseDate = getChartItemValue(
-      ".page_charts_section_charts_item_date span:first-of-type"
-    );
-    //? tracks aren't available in this view, so if they exist don't overwrite them
-    const tracks = {};
-    if (releases[releaseID]) Object.assign(tracks, releases[releaseID].tracks);
+		/** Word overlap 0-1 between a query and "artist title". */
+		function score(q, r) {
+			const w = (s) => new Set(String(s).toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^\p{L}\p{N}]+/gu, " ").split(" ").filter(Boolean));
+			const qw = w(q), rw = w(`${r.artist} ${r.title}`);
+			if (!qw.size) return 0;
+			let hit = 0;
+			qw.forEach((x) => { if (rw.has(x)) hit++; });
+			return hit / qw.size;
+		}
 
-    const href = getHref(".release");
-    const artistHref = getHref(".artist");
-    const rating = getChartItemValue(
-      ".page_charts_section_charts_item_details_average_num"
-    );
-    const primary = util.getNodes(
-      ".page_charts_section_charts_item_genres_primary .genre",
-      chartEntry
-    );
-    const genres = util.getListOfGenres(primary);
-    const secondary = util.getNodes(
-      ".page_charts_section_charts_item_genres_secondary .genre",
-      chartEntry
-    );
-    const secondaryGenres = util.getListOfGenres(secondary);
-    const descriptors = util.getValues(
-      ".page_charts_section_charts_item_genre_descriptors span",
-      chartEntry
-    );
-    const mediaLinks = JSON.parse(
-      util
-        .getNode(".page_charts_section_charts_item_media_links div", chartEntry)
-        .getAttribute("data-links")
-    );
-    const release = {
-      artistName,
-      releaseName,
-      releaseDate,
-      releaseID,
-      href,
-      artistHref,
-      rating,
-      genres,
-      secondaryGenres,
-      descriptors,
-      mediaLinks,
-    };
-    console.log(release);
-    releases[releaseID] = release;
-  });
+		/** The page as an ingest payload, or null when there's nothing to save. */
+		function parse(doc, url) {
+			const kind = pageKind(url);
+			if (kind === "release") { const r = release(doc, url); return r && r.rating ? { kind, url, release: r } : null; }
+			if (kind === "chart") { const c = chart(doc, url); return c.items.length ? { kind, url, items: c.items, page: c.page } : null; }
+			if (kind === "artist") { const a = artist(doc, url); return a && a.items.length ? { kind, url, items: a.items } : null; }
+			if (kind === "genre") { const g = genre(doc, url); return g ? { kind, url, genre: g } : null; }
+			return null;
+		}
 
-  await GM.setValue("releases", releases);
-  const totalReleases = Object.keys(releases).length;
-  const releasesAdded = totalReleases - existingReleases;
+		const isChallenge = (html) => /<title>\s*Just a moment|cf-chl-|challenge-platform|Performing security verification/i.test(html);
 
-  console.log(
-    `${releasesAdded} releases added to database (${totalReleases} total).`
-  );
-}
+		return { parse, search, score, pageKind, isChallenge, release, chart, artist, genre };
+	})();
+	// </rym-core>
 
-async function getInfoForAlbum() {
-  console.log("Getting info for album page...");
-  const releases = (await GM.getValue("releases")) || {};
-  const getHref = (selector) => util.getNode(selector)?.href;
+	if (typeof module !== "undefined") { module.exports = RYMCore; return; }
 
-  const releaseViewButton = util.getNode(".release_view");
-  releaseViewButton?.click(); // Get combined release view (instead of view for some random CD deluxe version with 3 ratings)
+	// * Talking to Music Connect
 
-  const artistName = util.getValue(".artist") || util.getValue(".artist span");
+	function mc(method, path, body) {
+		return new Promise((resolve, reject) => {
+			const xhr = store?.xmlHttpRequest || (typeof GM_xmlhttpRequest === "function" ? GM_xmlhttpRequest : null);
+			if (!xhr) return reject(new Error("GM.xmlHttpRequest unavailable"));
+			xhr({
+				method, url: MC + path, timeout: 15000,
+				headers: { "X-MC-Client": "rym-userscript", "Content-Type": "application/json" },
+				data: body ? JSON.stringify(body) : undefined,
+				onload: (r) => { try { resolve(JSON.parse(r.responseText)); } catch { resolve({ ok: false }); } },
+				onerror: () => reject(new Error("Music Connect isn't running")),
+				ontimeout: () => reject(new Error("Music Connect timed out")),
+			});
+		});
+	}
 
-  const rawReleaseName = util.getValue(".album_title");
-  const releaseName = util.normalizeString(rawReleaseName);
-  const releaseID = util.getNode(".album_shortcut").value.match(/\d+/)[0];
+	// * Corner note (small, see-through, fades; never covers anything)
 
-  console.log(releaseID, releaseName);
-  if (!releases[releaseID])
-    console.log(`🟢 new release added: "${releaseName}" by ${artistName}`);
-  const primary = util.getNodes(".release_pri_genres .genre");
-  const secondary = util.getNodes(".release_sec_genres .genre");
+	function note(msg, bad = false) {
+		let el = document.getElementById("mc-rym-note");
+		if (!el) {
+			el = document.createElement("div");
+			el.id = "mc-rym-note";
+			el.style.cssText = "position:fixed;right:10px;bottom:10px;z-index:2147483646;font:12px/1.3 -apple-system,system-ui,sans-serif;padding:4px 8px;border-radius:6px;pointer-events:none;transition:opacity .6s;opacity:0;background:transparent;";
+			document.documentElement.appendChild(el);
+		}
+		el.style.color = bad ? "rgba(180,40,60,.85)" : "rgba(120,120,130,.85)";
+		el.textContent = msg;
+		el.style.opacity = "1";
+		clearTimeout(el._t);
+		el._t = setTimeout(() => (el.style.opacity = "0"), bad ? 6000 : 2500);
+	}
 
-  const releaseDate = util.getNode(".album_info tr:nth-of-type(3)").lastChild
-    .innerText;
+	// * Save what you're looking at
 
-  // get track ratings, durations & save them in tracks[]
-  const trackTitles = util.getValues("#tracks .tracklist_title .rendered_text");
-  const trackDurations = util.getValues("#tracks .tracklist_duration");
-  const tracks = [];
-  util.getValues("#tracks .track_rating_avg").forEach(
-    (rating, i) =>
-      (tracks[i] = {
-        title: trackTitles[i],
-        duration: trackDurations[i],
-        rating: Number(rating),
-        artistName,
-        trackNumber: i,
-      })
-  );
+	async function saveThisPage() {
+		const payload = RYMCore.parse(document, location.href);
+		if (!payload) return;
+		try {
+			const r = await mc("POST", "/rym/ingest", payload);
+			if (r.ok) note(`Music Connect: saved ${r.saved} ${payload.kind === "release" ? "album" : "albums"}`);
+		} catch (e) {
+			console.log("[RYM → Music Connect]", e.message);
+		}
+	}
 
-  // get first page of reviews (highest voted ~9) for later in case I want them
-  const reviewsHTML = util.getHTML(".section_reviews");
-  const release = {
-    artistName,
-    releaseName,
-    releaseDate,
-    releaseID,
-    href: window.location.href,
-    artistHref: getHref(".artist"),
-    rating: util.getValue(".avg_rating").trim(),
-    genres: util.getListOfGenres(primary),
-    secondaryGenres: util.getListOfGenres(secondary),
-    descriptors: util.getValue(".release_pri_descriptors").split(", "),
-    mediaLinks: JSON.parse(
-      util
-        .getNode("#media_link_button_container_top")
-        .getAttribute("data-links")
-    ),
-    tracks,
-    reviewsHTML,
-  };
-  console.log(release);
-  releases[releaseID] = release;
-  await GM.setValue("releases", releases);
+	// * Fetch what Music Connect wants (slowly, one tab at a time)
 
-  const allTracks = (await GM.getValue("tracks")) || [];
-  tracks.forEach((track) => {
-    const uniqueTrackID =
-      track.artistName + "." + releaseName + "." + track.title;
-    allTracks[uniqueTrackID] = { ...track, releaseName };
-  });
-  await GM.setValue("tracks", allTracks);
-  console.log(allTracks);
-}
+	const now = () => Date.now();
+	const tabId = Math.random().toString(36).slice(2);
+	const get = (k, d) => (store ? store.getValue(k, d) : d);
+	const set = (k, v) => store && store.setValue(k, v);
 
-async function getInfoFromChartsPage() {
-  function getInfoForChartWhenPageChanges() {
-    console.log("get info");
-    const paginationNodes = document.querySelectorAll(".ui_pagination");
-    paginationNodes.forEach((node) => {
-      //? top & bottom navigation
-      node.addEventListener(
-        "click",
-        () => {
-          setTimeout(() => {
-            console.log("\n\npage changed!\n");
-            getInfoForChartWhenPageChanges(); //? pagination nodes are replaced on dom reload
-            getInfoForChart();
-          }, 1000);
-        },
-        { once: true }
-      );
-    });
-  }
-  getInfoForChart();
-  getInfoForChartWhenPageChanges();
-}
+	function haveLock() {
+		const l = get("mc_rym_lock", null);
+		if (!l || l.tab === tabId || now() - l.at > 60000) { set("mc_rym_lock", { tab: tabId, at: now() }); return true; }
+		return false;
+	}
 
-// * START HERE
+	function budgetOK() {
+		const log = (get("mc_rym_fetches", []) || []).filter((t) => now() - t < 86400000);
+		set("mc_rym_fetches", log);
+		const last = log[log.length - 1] || 0;
+		if (now() - last < LIMITS.gapMs) return false;
+		if (log.filter((t) => now() - t < 3600000).length >= LIMITS.perHour) return false;
+		return log.length < LIMITS.perDay;
+	}
+	function spend() { set("mc_rym_fetches", [...(get("mc_rym_fetches", []) || []), now()]); }
 
-const date = new Date();
-console.clear();
-if (window.location.href.includes("/charts")) {
-  // console.log('Not getting info from charts page until data format updated!')
-  // [15165166] JPEG
-  console.log("getting info from charts page");
-  getInfoFromChartsPage();
-} else if (window.location.href.includes("/release/")) {
-  const int = setInterval(() => {
-    console.log("checking for apple music link...");
-    const element = document.querySelector(
-      'a[aria-label="Open in Apple Music"]'
-    );
-    if (element) {
-      clearInterval(int);
-      const href = element.href;
-      console.log("href", href, element);
+	async function getPage(url) {
+		while (!budgetOK()) await new Promise((r) => setTimeout(r, 3000));
+		spend();
+		const res = await fetch(url, { credentials: "include" });
+		const html = await res.text();
+		if (res.status === 403 || res.status === 503 || RYMCore.isChallenge(html)) {
+			const e = new Error("RYM is showing its human check");
+			e.blocked = true;
+			throw e;
+		}
+		if (res.status === 429) { const e = new Error("RYM says too many requests"); e.blocked = true; throw e; }
+		if (!res.ok) throw new Error(`RYM answered ${res.status}`);
+		return new DOMParser().parseFromString(html, "text/html");
+	}
 
-      const embeddedAppleMusic = document.createElement("iframe");
-      embeddedAppleMusic.src = href.replace("https://geo", "https://embed");
-      embeddedAppleMusic.width = 300;
-      embeddedAppleMusic.height = 1000;
+	async function work(w) {
+		if (w.kind === "search") {
+			const sUrl = `https://rateyourmusic.com/search?searchterm=${encodeURIComponent(w.query)}&searchtype=l`;
+			const results = RYMCore.search(await getPage(sUrl), sUrl);
+			const best = results.map((r) => ({ r, s: RYMCore.score(w.query, r) })).sort((a, b) => b.s - a.s)[0];
+			if (!best || best.s < 0.5) return mc("POST", "/rym/ingest", { kind: "search", url: sUrl, items: [], wantedId: w.id, note: "RYM search found no matching album" });
+			const doc = await getPage(best.r.url);
+			const p = RYMCore.parse(doc, best.r.url);
+			if (!p) return mc("POST", "/rym/failed", { id: w.id, note: "Couldn't read the album page" });
+			// An artist search: "radiohead" matches an album by them; save it and also their page for the rest.
+			return mc("POST", "/rym/ingest", { ...p, wantedId: w.id });
+		}
+		const url = w.url || w.query;
+		const doc = await getPage(url);
+		const p = RYMCore.parse(doc, url);
+		if (!p) {
+			const why = RYMCore.pageKind(url) === "chart" ? "The chart page had no albums (wrong genre name, or RYM changed its layout)" : "Nothing to read on that page";
+			return mc("POST", "/rym/ingest", { kind: RYMCore.pageKind(url) || "release", url, items: [], wantedId: w.id, note: why });
+		}
+		return mc("POST", "/rym/ingest", { ...p, wantedId: w.id });
+	}
 
-      const tracklisting = document.querySelector(
-        ".hide-for-small .section_tracklisting"
-      );
-      const tracklistingContainer = tracklisting.parentNode;
-      // if display isn't none then set to flex and append iframe
-      // tracklistingContainer.style.display !== 'none' ? (tracklistingContainer.style.display = 'flex') : ''
+	let busy = false;
+	async function poll() {
+		if (busy || !haveLock()) return;
+		if (now() < (get("mc_rym_paused_until", 0) || 0)) return;
+		busy = true;
+		try {
+			const r = await mc("GET", "/rym/wanted");
+			for (const w of r.wanted || []) {
+				try {
+					await work(w);
+					note(`Music Connect: fetched ${w.kind === "search" ? `“${w.query}”` : "a chart"} from RYM`);
+				} catch (e) {
+					if (e.blocked) {
+						set("mc_rym_paused_until", now() + LIMITS.blockedPauseMs);
+						await mc("POST", "/rym/blocked", { note: e.message });
+						note("RYM wants its human check: reload this tab and pass it; Music Connect waits 10 min", true);
+						break;
+					}
+					await mc("POST", "/rym/failed", { id: w.id, note: e.message });
+				}
+				haveLock();
+			}
+		} catch (e) {
+			// Music Connect not running: try again later, quietly.
+		} finally {
+			busy = false;
+		}
+	}
 
-      tracklistingContainer.style.display = "flex";
-      tracklistingContainer.parentNode.style.overflowX = "scroll";
-      tracklistingContainer.style.width = "max-content";
-      tracklistingContainer.style.minWidth = "fit-content";
-      tracklistingContainer.append(embeddedAppleMusic);
+	// * Apple Music embed next to the tracklist (from the 2023 script)
 
-      tracklistingContainer.querySelector("li.tracklist_line").style.display =
-        "flex";
-      tracklistingContainer.querySelector("li.tracklist_title").style.textWrap =
-        "no-wrap";
-      document.querySelector("#column_container_left").style.overflowX =
-        "scroll";
-    }
-  }, 500);
+	function embedAppleMusic() {
+		let tries = 0;
+		const int = setInterval(() => {
+			const element = document.querySelector('a[aria-label="Open in Apple Music"]');
+			if (++tries > 40) clearInterval(int);
+			if (!element) return;
+			clearInterval(int);
+			const tracklisting = document.querySelector(".hide-for-small .section_tracklisting");
+			if (!tracklisting) return;
+			const iframe = document.createElement("iframe");
+			iframe.src = element.href.replace("https://geo", "https://embed");
+			iframe.width = 300;
+			iframe.height = 1000;
+			const box = tracklisting.parentNode;
+			box.style.display = "flex";
+			box.parentNode.style.overflowX = "scroll";
+			box.style.width = "max-content";
+			box.style.minWidth = "fit-content";
+			box.append(iframe);
+		}, 500);
+	}
 
-  // getInfoForAlbum()
-}
+	// * Start
+
+	if (RYMCore.isChallenge(document.documentElement.outerHTML.slice(0, 5000))) return;   // the check page itself
+	set("mc_rym_paused_until", 0);   // you passed the check (or never hit it): fetching may resume
+	saveThisPage();
+	if (RYMCore.pageKind(location.href) === "chart") {
+		// Charts can fill in after load; save again when they change.
+		let t, last = RYMCore.parse(document, location.href)?.items.length || 0;
+		new MutationObserver(() => {
+			clearTimeout(t);
+			t = setTimeout(() => { const n = RYMCore.parse(document, location.href)?.items.length || 0; if (n !== last) { last = n; saveThisPage(); } }, 1500);
+		})
+			.observe(document.body, { childList: true, subtree: true });
+	}
+	if (RYMCore.pageKind(location.href) === "release") embedAppleMusic();
+	setTimeout(poll, 3000);
+	setInterval(poll, 20000);
+})();
