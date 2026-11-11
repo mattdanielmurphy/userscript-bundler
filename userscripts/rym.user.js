@@ -69,6 +69,12 @@
 			} catch { return null; }
 		};
 
+		/** "/release/album/akusmi/terra-incognita/" → "Terra Incognita" (a fallback; the next page view saves the real title). */
+		const slugTitle = (href) => {
+			const last = decodeURIComponent(String(href || "").replace(/\/+$/, "").split("/").pop() || "");
+			return last.replace(/[-_]+/g, " ").replace(/\b\p{L}/gu, (c) => c.toUpperCase()).trim();
+		};
+
 		function pageKind(url) {
 			const p = new URL(url).pathname;
 			if (/^\/release\//.test(p)) return "release";
@@ -125,7 +131,9 @@
 				const item = n.classList.contains("page_charts_section_charts_item") ? n : n.closest(".page_section_charts_item_wrapper") || n;
 				if (seen.has(item)) return;
 				seen.add(item);
-				const rel = item.querySelector(".page_charts_section_charts_item_link.release, a.release, a[href*='/release/']");
+				// The first release link is often the cover image (no text): take the first one with text, else the URL's slug.
+				const rels = Array.from(item.querySelectorAll(".page_charts_section_charts_item_title a, a.release, a[href*='/release/']"));
+				const rel = rels.find((a) => text(a)) || rels[0];
 				const art = item.querySelector(".page_charts_section_charts_item_credited_links_primary a.artist, a.artist, a[href*='/artist/']");
 				if (!rel || !art) return;
 				const idAttr = (item.id || "") + " " + (item.querySelector("[id*='release']")?.id || "");
@@ -134,7 +142,7 @@
 				items.push({
 					rank: pos || undefined,
 					rymId: idm ? Number(idm[1]) : null,
-					title: text(rel),
+					title: text(rel) || slugTitle(rel.getAttribute("href")),
 					artist: Array.from(item.querySelectorAll(".page_charts_section_charts_item_credited_links_primary a.artist")).map(text).join(" & ") || text(art),
 					url: abs(rel.getAttribute("href"), url),
 					year: yearOf(text(item.querySelector(".page_charts_section_charts_item_date, .topcharts_date"))),
@@ -147,7 +155,13 @@
 				});
 			});
 			const pm = new URL(url).pathname.match(/\/(\d+)\/?$/);
-			return { items, page: pm ? Number(pm[1]) : 1 };
+			// Plain /charts/ is RYM's default chart; name it by the chart it really is (from the page's own link).
+			let canonical = url;
+			if (/^\/charts\/?$/.test(new URL(url).pathname)) {
+				const v = Array.from(doc.querySelectorAll("input[value*='/charts/']")).map((i) => i.value)[0];
+				canonical = v || `https://rateyourmusic.com/charts/top/album/${new Date().getFullYear()}/`;
+			}
+			return { items, page: pm ? Number(pm[1]) : 1, url: canonical };
 		}
 
 		function artist(doc, url) {
@@ -207,7 +221,7 @@
 		function parse(doc, url) {
 			const kind = pageKind(url);
 			if (kind === "release") { const r = release(doc, url); return r && r.rating ? { kind, url, release: r } : null; }
-			if (kind === "chart") { const c = chart(doc, url); return c.items.length ? { kind, url, items: c.items, page: c.page } : null; }
+			if (kind === "chart") { const c = chart(doc, url); return c.items.length ? { kind, url: c.url, items: c.items, page: c.page } : null; }
 			if (kind === "artist") { const a = artist(doc, url); return a && a.items.length ? { kind, url, items: a.items } : null; }
 			if (kind === "genre") { const g = genre(doc, url); return g ? { kind, url, genre: g } : null; }
 			return null;
