@@ -265,8 +265,11 @@ if (typeof globalThis !== "undefined") {
 //           groupBy?: "family" | "creator", labelBy?: "effort" | "name", lines?: boolean,
 //           view?: "front" | "top" | "side" | "iso", fronts?: ["xy" | "xz" | "zy" | "all"], table?: boolean,
 //           labels?: "all" | "front" (front = only points on a showing trade-off line get a name),
-//           fade?: 0..1 (opacity of points off the showing lines, default 0.45), theme?: "light" | "dark" }
-//   A row with a `url` opens it when its point is clicked. mount() returns { data, redraw, view, setTheme }.
+//           fade?: 0..1 (opacity of points off the showing lines, default 0.45), theme?: "light" | "dark",
+//           height?: canvas px (default 580), camera?: { yaw, pitch, zoom, panX, panY } to start from (e.g. a previous mount's view) }
+//   Zoom: ⌘/Ctrl + scroll or pinch (plain scroll scrolls the page). Shift-drag moves the chart; double-click recentres.
+//   A row with a `url` opens it when its point is clicked. A row with `muted: true` (e.g. no public API) is drawn grey,
+//   never counts towards a trade-off line, and may have 0 on a log axis: it then sits on that axis's floor. mount() returns { data, redraw, view, setTheme }.
 ;(function (global) {
 	const MEASURES = {
 		score: { label: "Intelligence index", short: "Score", log: false, better: "high", fmt: (v) => v.toFixed(1), tick: (v) => String(v) },
@@ -341,7 +344,7 @@ if (typeof globalThis !== "undefined") {
 	}
 
 	// a value can be drawn: a number, and above zero on a log axis (AA uses 0 for "not measured")
-	const usable = (d, k) => typeof d[k] === "number" && (!MEASURES[k].log || d[k] > 0)
+	const usable = (d, k) => typeof d[k] === "number" && (!MEASURES[k].log || d[k] > 0 || (d.muted && d[k] === 0))
 	const hasAxes = (d, spec) => !spec.axes || [spec.axes.x, spec.axes.y, spec.axes.z].every((k) => !MEASURES[k] || usable(d, k))
 
 	// keep the rows a spec asks for. Besides plain matching, a filter can trim a big list to a readable one:
@@ -417,7 +420,8 @@ if (typeof globalThis !== "undefined") {
 		const A = spec.axes, MX = MEASURES[A.x], MY = MEASURES[A.y], MZ = MEASURES[A.z]
 		if (!MX || !MY || !MZ) throw new Error(`Unknown measure in axes: ${JSON.stringify(A)}. Known: ${Object.keys(MEASURES).join(", ")}`)
 		const picked = select(rows, spec)
-		const DATA = picked.filter((r) => [A.x, A.y, A.z].every((k) => typeof r[k] === "number" && (!MEASURES[k].log || r[k] > 0)))
+		const DATA = picked.filter((r) => [A.x, A.y, A.z].every((k) => usable(r, k)))
+		const LIVE = DATA.filter((d) => !d.muted) // muted rows never shape the trade-off lines
 		const dropped = picked.length - DATA.length
 		const prefix = commonPrefix([...new Set(DATA.map((r) => r.family))])
 		DATA.forEach((d) => { d._group = spec.groupBy === "creator" ? d.creator : d.family.slice(prefix.length) || d.family })
@@ -433,13 +437,14 @@ if (typeof globalThis !== "undefined") {
 		let pi = 0
 		const GCOL = Object.fromEntries(groups.map((g) => { const k = Object.keys(KNOWN).find((n) => g.includes(n)); return [g, k ? KNOWN[k] : PALETTE[pi++ % PALETTE.length]] }))
 		const gcol = (g) => GCOL[g][isDark() ? 1 : 0]
+		const dcol = (d) => (d.muted ? (isDark() ? "#6b6c69" : "#b4b5b1") : gcol(d._group))
 		const acol = (a) => AXIS_COL[a][isDark() ? 1 : 0]
 
 		// pairs for best trade-off lines; "xy" is the opening flat view
 		const PAIRS = { xy: [A.x, A.y], zy: [A.z, A.y], xz: [A.x, A.z], all: [A.x, A.y, A.z] }
 		const FNAME = { view: "follow the view", xy: `${MY.short.toLowerCase()} vs ${MX.short.toLowerCase()}`, zy: `${MY.short.toLowerCase()} vs ${MZ.short.toLowerCase()}`, xz: `${MX.short.toLowerCase()} vs ${MZ.short.toLowerCase()}`, all: "all three" }
 		const OBJ = (k) => (d) => (MEASURES[k].better === "high" ? d[k] : -d[k])
-		const front = (keys) => new Set(DATA.filter((p) => !DATA.some((q) => q !== p && keys.every((k) => OBJ(k)(q) >= OBJ(k)(p)) && keys.some((k) => OBJ(k)(q) > OBJ(k)(p)))))
+		const front = (keys) => new Set(LIVE.filter((p) => !LIVE.some((q) => q !== p && keys.every((k) => OBJ(k)(q) >= OBJ(k)(p)) && keys.some((k) => OBJ(k)(q) > OBJ(k)(p)))))
 		const FR = Object.fromEntries(Object.entries(PAIRS).map(([k, keys]) => [k, front(keys)]))
 		// "view" shows each pair's line on its wall, faded by how squarely that wall faces you
 		const fon = { view: false, xy: false, zy: false, xz: false, all: false }
@@ -450,7 +455,7 @@ if (typeof globalThis !== "undefined") {
   <div class="legend">${groups.map((g) => `<span><i data-g="${esc(g)}"></i>${esc(g)}</span>`).join("")}</div>
   <section class="card">
     <h2>${esc(title)}</h2>
-    <p class="cap">${esc(spec.note || `Starts flat on ${MY.short.toLowerCase()} vs ${MX.short.toLowerCase()}. Drag to rotate freely and scroll to zoom. Near any straight-on view the chart flattens and snaps into place.`)}</p>
+    <p class="cap">${esc(spec.note || `Starts flat on ${MY.short.toLowerCase()} vs ${MX.short.toLowerCase()}. Drag to rotate, ⌘-scroll or pinch to zoom, Shift-drag to move, double-click to recentre. Near any straight-on view the chart flattens and snaps into place.`)}</p>
     <div class="views" data-r="views">
       <button type="button" data-v="iso">3D view</button>
       <button type="button" data-v="front">${MY.short} × ${MX.short.toLowerCase()}</button>
@@ -487,12 +492,13 @@ if (typeof globalThis !== "undefined") {
 			const msg = rows.length ? "No models match this chart's filter." : "No model data yet. It appears after the next refresh from Artificial Analysis."
 			root.querySelector(".stage").replaceWith(Object.assign(document.createElement("p"), { className: "cap", textContent: msg }))
 			root.querySelectorAll(".views, .legend").forEach((n) => n.remove())
-			return
+			return { data: [], redraw() {}, view: Object.assign({}, spec.camera), setTheme() {}, destroy() {} }
 		}
 
 		function showTip(d, e) {
 			const on = Object.keys(FR).filter((f) => FR[f].has(d)).map((f) => FNAME[f])
-			tip.innerHTML = `<b><i style="background:${gcol(d._group)}"></i>${esc(d.name)}</b>${MY.short} ${MY.fmt(d[A.y])} · ${MX.fmt(d[A.x])} · ${MZ.fmt(d[A.z])}<small>${on.length ? "Best trade-off for: " + on.join(", ") : "Beaten by another model on every pair"}</small>`
+			const f = (M, k) => (d.muted && d[k] === 0 && M.log ? `no ${M.short.toLowerCase()} data` : M.fmt(d[k]))
+			tip.innerHTML = `<b><i style="background:${dcol(d)}"></i>${esc(d.name)}</b>${MY.short} ${f(MY, A.y)} · ${f(MX, A.x)} · ${f(MZ, A.z)}<small>${d.muted ? esc(d.mutedNote || "Not publicly available: left out of the trade-off lines") : on.length ? "Best trade-off for: " + on.join(", ") : "Beaten by another model on every pair"}</small>`
 			tip.hidden = false
 			const w = tip.offsetWidth, h = tip.offsetHeight
 			const left = Math.min(Math.max(8, e.clientX - w / 2), innerWidth - w - 8)
@@ -503,14 +509,16 @@ if (typeof globalThis !== "undefined") {
 		const hideTip = () => { tip.hidden = true }
 
 		// 3D space: p = [across (x), depth (z), up (y)], each in -1..1
-		const R = { x: range(DATA.map((d) => d[A.x]), MX.log), y: range(DATA.map((d) => d[A.y]), MY.log), z: range(DATA.map((d) => d[A.z]), MZ.log) }
+		const RS = LIVE.length ? LIVE : DATA, rv = (k, M) => RS.map((d) => d[k]).filter((v) => !M.log || v > 0)
+		const R = { x: range(rv(A.x, MX), MX.log), y: range(rv(A.y, MY), MY.log), z: range(rv(A.z, MZ), MZ.log) }
 		const T = { x: niceTicks(R.x[0], R.x[1], MX.log), y: niceTicks(R.y[0], R.y[1], MY.log), z: niceTicks(R.z[0], R.z[1], MZ.log) }
-		const nrm = (v, r, log) => (log ? (Math.log(v) - Math.log(r[0])) / (Math.log(r[1]) - Math.log(r[0])) : (v - r[0]) / (r[1] - r[0])) * 2 - 1
+		const nrm = (v, r, log) => (v = log && v <= 0 ? r[0] : Math.min(r[1], Math.max(r[0], v)), log ? (Math.log(v) - Math.log(r[0])) / (Math.log(r[1]) - Math.log(r[0])) : (v - r[0]) / (r[1] - r[0])) * 2 - 1
 		const X = (v) => nrm(v, R.x, MX.log), Zd = (v) => nrm(v, R.z, MZ.log), Y = (v) => nrm(v, R.y, MY.log)
 		const P3 = DATA.map((d) => ({ d, p: [X(d[A.x]), Zd(d[A.z]), Y(d[A.y])] }))
 
-		const PRESETS = { iso: { yaw: -0.55, pitch: 0.42, zoom: 1 }, top: { yaw: 0, pitch: Math.PI / 2, zoom: 1 }, front: { yaw: 0, pitch: 0, zoom: 1 }, side: { yaw: -Math.PI / 2, pitch: 0, zoom: 1 } }
-		const view = Object.assign({ persp: true }, PRESETS[spec.view] || PRESETS.front)
+		const PRESETS = { iso: { yaw: -0.55, pitch: 0.42 }, top: { yaw: 0, pitch: Math.PI / 2 }, front: { yaw: 0, pitch: 0 }, side: { yaw: -Math.PI / 2, pitch: 0 } }
+		Object.values(PRESETS).forEach((p) => Object.assign(p, { zoom: 1, panX: 0, panY: 0 }))
+		const view = Object.assign({ persp: true }, PRESETS[spec.view] || PRESETS.front, spec.camera || {})
 		let proj3 = [], hover = null, anim = null
 		const css = (n) => getComputedStyle(root).getPropertyValue(n).trim()
 		const smooth = (a, b, x) => { const u = Math.min(1, Math.max(0, (x - a) / (b - a))); return u * u * (3 - 2 * u) }
@@ -532,9 +540,11 @@ if (typeof globalThis !== "undefined") {
 		}
 		// scale the box so its rotated outline always fills the same space. This grows smoothly as the
 		// view turns flat, so points glide straight to their place instead of overshooting and coming back
+		// Perspective is included, so corners swung towards the camera don't get cut off at the top or bottom.
 		function fit() {
 			let ex = 0, ey = 0
-			for (const a of [-1, 1]) for (const b of [-1, 1]) for (const c of [-1, 1]) { const q = rot([a, b, c]); ex = Math.max(ex, Math.abs(q[0])); ey = Math.max(ey, Math.abs(q[1])) }
+			const pf = view.persp ? 1 - flatness() : 0
+			for (const a of [-1, 1]) for (const b of [-1, 1]) for (const c of [-1, 1]) { const q = rot([a, b, c]), m = 1 + (5 / (5 + q[2]) - 1) * pf; ex = Math.max(ex, Math.abs(q[0]) * m); ey = Math.max(ey, Math.abs(q[1]) * m) }
 			return 1 / Math.max(ex, ey)
 		}
 		let fitNow = 1
@@ -543,7 +553,7 @@ if (typeof globalThis !== "undefined") {
 			const pf = view.persp ? 1 - flatness() : 0
 			const m = 1 + (5 / (5 + y2) - 1) * pf // 1 when flat; above 1 for points nearer the camera
 			const k = m * Math.min(W, H * 1.35) * 0.29 * view.zoom * fitNow
-			return [W / 2 + x1 * k, H * 0.5 - z2 * k, y2, m]
+			return [W / 2 + x1 * k + view.panX, H * 0.5 - z2 * k + view.panY, y2, m]
 		}
 		function draw() {
 			paint()
@@ -652,7 +662,7 @@ if (typeof globalThis !== "undefined") {
 				}
 				const on = hover === o.o.d, rg = ringed(o)
 				c.globalAlpha = anyOn && !rg ? spec.fade ?? 0.45 : 1
-				c.fillStyle = gcol(o.o.d._group); c.strokeStyle = panel
+				c.fillStyle = dcol(o.o.d); c.strokeStyle = panel
 				c.lineWidth = 2 * o.s[3]; c.beginPath(); c.arc(o.s[0], o.s[1], on ? dotR(o) * 1.3 : dotR(o), 0, 7); c.fill(); c.stroke()
 				if (rg) {
 					c.strokeStyle = fg; c.lineWidth = 2; c.beginPath(); c.arc(o.s[0], o.s[1], dotR(o) + 4 * o.s[3], 0, 7); c.stroke()
@@ -688,14 +698,15 @@ if (typeof globalThis !== "undefined") {
 		}
 		const reduced = () => matchMedia("(prefers-reduced-motion: reduce)").matches
 		function tween(p, ms) {
-			const from = { yaw: view.yaw, pitch: view.pitch, zoom: view.zoom }
-			const to = { yaw: p.yaw ?? from.yaw, pitch: p.pitch ?? from.pitch, zoom: p.zoom ?? from.zoom }
+			const from = { yaw: view.yaw, pitch: view.pitch, zoom: view.zoom, panX: view.panX, panY: view.panY }
+			const to = { yaw: p.yaw ?? from.yaw, pitch: p.pitch ?? from.pitch, zoom: p.zoom ?? from.zoom, panX: p.panX ?? from.panX, panY: p.panY ?? from.panY }
 			const dy = Math.atan2(Math.sin(to.yaw - from.yaw), Math.cos(to.yaw - from.yaw))
 			const t0 = performance.now(), dur = reduced() ? 0 : ms
 			cancelAnimationFrame(anim)
 			const step = (now) => {
 				const u = dur ? Math.min(1, (now - t0) / dur) : 1, e = 1 - Math.pow(1 - u, 3)
 				view.yaw = from.yaw + dy * e; view.pitch = from.pitch + (to.pitch - from.pitch) * e; view.zoom = from.zoom + (to.zoom - from.zoom) * e
+				view.panX = from.panX + (to.panX - from.panX) * e; view.panY = from.panY + (to.panY - from.panY) * e
 				draw()
 				if (u < 1) anim = requestAnimationFrame(step)
 			}
@@ -730,28 +741,68 @@ if (typeof globalThis !== "undefined") {
 		}
 		let drag = null, touched = false
 		const touch = () => { touched = true; root.querySelector(".hint").classList.add("gone") }
-		cv.addEventListener("pointerdown", (e) => { drag = { x: e.clientX, y: e.clientY }; cv.setPointerCapture(e.pointerId); cv.style.cursor = "grabbing" })
+		// one pointer rotates (Shift: moves); two touch pointers pinch to zoom
+		const ptrs = new Map()
+		let pinch = null
+		const zoomAt = (f, cx, cy) => {
+			const r = cv.getBoundingClientRect(), nz = Math.max(0.5, Math.min(4, view.zoom * f)), g = nz / view.zoom
+			const ox = cx - r.left - r.width / 2, oy = cy - r.top - r.height / 2 // keep the spot under the cursor still
+			view.panX = ox - (ox - view.panX) * g; view.panY = oy - (oy - view.panY) * g; view.zoom = nz
+		}
+		cv.addEventListener("pointerdown", (e) => {
+			ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY })
+			cv.setPointerCapture(e.pointerId)
+			if (ptrs.size === 2) { const [p, q] = [...ptrs.values()]; pinch = { d: Math.hypot(p.x - q.x, p.y - q.y) }; drag = null; return }
+			drag = { x: e.clientX, y: e.clientY, pan: e.shiftKey }; cv.style.cursor = e.shiftKey ? "move" : "grabbing"
+		})
 		cv.addEventListener("pointermove", (e) => {
+			if (ptrs.has(e.pointerId)) ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY })
+			if (pinch && ptrs.size === 2) {
+				const [p, q] = [...ptrs.values()], d = Math.hypot(p.x - q.x, p.y - q.y)
+				touch(); cancelAnimationFrame(anim); zoomAt(d / pinch.d, (p.x + q.x) / 2, (p.y + q.y) / 2); pinch.d = d; draw(); return
+			}
 			if (drag && (e.buttons || e.pointerType === "touch")) {
-				touch(); cancelAnimationFrame(anim); viewBtns().forEach((x) => x.classList.remove("on"))
-				view.yaw += (e.clientX - drag.x) * 0.008
-				view.pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, view.pitch + (e.clientY - drag.y) * 0.008))
-				drag = { x: e.clientX, y: e.clientY, moved: true }
+				touch(); cancelAnimationFrame(anim)
+				if (drag.pan || e.shiftKey) { view.panX += e.clientX - drag.x; view.panY += e.clientY - drag.y }
+				else {
+					viewBtns().forEach((x) => x.classList.remove("on"))
+					view.yaw += (e.clientX - drag.x) * 0.008
+					view.pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, view.pitch + (e.clientY - drag.y) * 0.008))
+				}
+				drag = { x: e.clientX, y: e.clientY, pan: drag.pan, moved: true, rotated: drag.rotated || !(drag.pan || e.shiftKey) }
 			}
 			hover = pick(e)
 			hover ? showTip(hover, e) : hideTip()
 			if (!drag) cv.style.cursor = hover && hover.url ? "pointer" : "grab"
 			draw()
 		})
+		const release = (e) => { ptrs.delete(e.pointerId); if (ptrs.size < 2) pinch = null }
+		cv.addEventListener("pointercancel", (e) => { release(e); drag = null })
 		cv.addEventListener("pointerup", (e) => {
-			const moved = drag && drag.moved; drag = null; cv.style.cursor = "grab"
-			if (moved) return snap()
+			const wasPinch = !!pinch; release(e)
+			const d0 = drag; drag = null; cv.style.cursor = "grab"
+			if (wasPinch || !d0) return
+			if (d0.moved) return d0.rotated ? snap() : undefined
 			const d = pick(e)
 			if (d && d.url) location.href = d.url
 		})
+		cv.addEventListener("dblclick", () => { touch(); tween({ zoom: 1, panX: 0, panY: 0 }, 350) })
 		cv.addEventListener("pointerleave", () => { hover = null; hideTip(); draw() })
-		cv.addEventListener("wheel", (e) => { e.preventDefault(); touch(); view.zoom = Math.max(0.6, Math.min(3.2, view.zoom * (e.deltaY < 0 ? 1.08 : 0.92))); draw() }, { passive: false })
+		// plain scroll keeps scrolling the page; ⌘/Ctrl + scroll (a trackpad pinch arrives as Ctrl + scroll) zooms
+		let hintTimer = 0
+		cv.addEventListener("wheel", (e) => {
+			if (!e.ctrlKey && !e.metaKey) {
+				const h = root.querySelector(".hint")
+				h.querySelector("span").textContent = "Hold ⌘ and scroll, or pinch, to zoom"
+				h.classList.remove("gone"); clearTimeout(hintTimer); hintTimer = setTimeout(() => h.classList.add("gone"), 1400)
+				return
+			}
+			e.preventDefault(); touch(); cancelAnimationFrame(anim)
+			zoomAt(Math.exp(-Math.max(-50, Math.min(50, e.deltaY)) * 0.01), e.clientX, e.clientY); draw()
+		}, { passive: false })
 		addEventListener("resize", draw)
+		if (spec.height) cv.style.height = spec.height + "px"
+		if (spec.camera) touch()
 		// once the chart scrolls into view, tilt it briefly and spring back, so the hidden third axis is noticed
 		if (window.IntersectionObserver && !reduced() && spec.view !== "iso") {
 			const io = new IntersectionObserver((es) => {
@@ -764,7 +815,8 @@ if (typeof globalThis !== "undefined") {
 			io.observe(cv)
 		}
 		const repaint = () => setTimeout(() => { paintKeys(); draw() }, 50)
-		matchMedia("(prefers-color-scheme: dark)").addEventListener("change", repaint)
+		const mq = matchMedia("(prefers-color-scheme: dark)")
+		mq.addEventListener("change", repaint)
 		draw()
 		if (document.fonts) document.fonts.ready.then(draw)
 
@@ -776,7 +828,9 @@ if (typeof globalThis !== "undefined") {
 			root.querySelectorAll("tbody .sw").forEach((s, i) => (s.style.background = gcol(rows[i]._group)))
 		}
 		const setTheme = (t) => { if (t) root.dataset.theme = t; else delete root.dataset.theme; paintKeys(); draw() }
-		return { data: DATA, redraw: draw, view, setTheme }
+		// remove the window-level listeners when the host drops this chart (e.g. to mount a new selection)
+		const destroy = () => { removeEventListener("resize", draw); mq.removeEventListener("change", repaint); cancelAnimationFrame(anim); hideTip() }
+		return { data: DATA, redraw: draw, view, setTheme, destroy }
 	}
 
 	function commonPrefix(names) {
@@ -796,139 +850,233 @@ if (typeof globalThis !== "undefined") {
 // ==UserScript==
 // @name         Artificial Analysis 3D Frontier Chart
 // @namespace    local.aa.3d-chart
-// @version      1.0.0
-// @description  Adds Matt's own 3D model chart (intelligence × cost per task × time per task) under the homepage rankings, with the 3D best trade-off models ringed and named.
+// @version      2.0.0
+// @description  Adds Matt's own 3D model chart (intelligence × cost per task × time per task) under the homepage rankings. It shows AA's shared model selection, and quick picks (frontier, one or more makers) change that selection for every chart on the page.
 // @match        https://artificialanalysis.ai/*
 // @grant        GM_addElement
 // @run-at       document-idle
 // ==/UserScript==
 
 // The chart is ~/projects/model-charts/chart/model-chart.js (00-model-chart.js is a link to it).
-// Data comes from the page already open in this browser: the React context that feeds AA's own
-// charts holds every model (allPageModels). Nothing is fetched or stored.
+// Data comes from the page already open in this browser: the React context that feeds AA's own charts
+// (allPageModels, selectedPageModels, setSelectedPageModels). Nothing is fetched or stored.
 ;(function () {
 	"use strict"
 	const TAG = "[AA 3D chart]"
 	const CARD_ID = "aa3d-card"
-	const EVT_ASK = "aa3d:ask", EVT_DATA = "aa3d:data"
+	const EV = { ask: "aa3d:ask", data: "aa3d:data", set: "aa3d:set" }
 
-	// Runs in the page's own JS world (Tampermonkey's world can't see React's fiber expandos).
-	function pageReader(ASK, DATA) {
-		function find() {
-			const start = document.querySelector(".recharts-wrapper") || document.querySelector("#__next") || document.body.firstElementChild
-			if (!start) return null
-			const key = Object.keys(start).find((k) => k.startsWith("__reactFiber"))
+	// ---- page world (Tampermonkey's world can't see React's fiber expandos) ----
+	function pageReader(EV) {
+		let statics = null // release → deprecated, and AA's own "no public API" flags; these don't change
+		function ctx() {
+			const start = document.querySelector(".recharts-wrapper")
+			const key = start && Object.keys(start).find((k) => k.startsWith("__reactFiber"))
 			if (!key) return null
 			let root = start[key]
 			while (root.return) root = root.return
-			let best = null
+			let value = null, releases = null
 			const stack = [root]
-			while (stack.length) {
-				const f = stack.pop()
-				const p = f.memoizedProps
-				const v = p && p.value
-				const cands = []
-				if (v && typeof v === "object" && !Array.isArray(v)) for (const k in v) if (Array.isArray(v[k])) cands.push(v[k])
-				if (p && typeof p === "object") for (const k in p) if (Array.isArray(p[k])) cands.push(p[k])
-				for (const a of cands) {
-					const o = a[0]
-					if (o && typeof o === "object" && "slug" in o && "intelligenceIndex" in o && (!best || a.length > best.length)) best = a
-				}
+			while (stack.length && !(value && (releases || statics))) {
+				const f = stack.pop(), p = f.memoizedProps
+				if (p && p.value && typeof p.value === "object" && Array.isArray(p.value.allPageModels) && typeof p.value.setSelectedPageModels === "function") value = p.value
+				if (p && p.modelsAndReleases && Array.isArray(p.modelsAndReleases.releases)) releases = p.modelsAndReleases.releases
 				if (f.sibling) stack.push(f.sibling)
 				if (f.child) stack.push(f.child)
 			}
-			return best
+			if (!statics && releases) {
+				const flight = (self.__next_f || []).map((x) => (x && x[1]) || "").join("")
+				const checkered = [...flight.matchAll(/\{"id":"([0-9a-f-]{36})","label":"[^"]*","color":"[^"]*","logo":"[^"]*","url":"[^"]*","value":[^,]*,"displayValue":"[^"]*","pattern":"checkered"\}/g)].map((m) => m[1])
+				statics = { deprecated: releases.filter((r) => r.deprecated).map((r) => r.slug), noApi: [...new Set(checkered)] }
+			}
+			return value
 		}
-		document.addEventListener(ASK, () => {
-			let rows = null
+		document.addEventListener(EV.ask, () => {
+			let out = null
 			try {
-				const all = find()
-				if (all) rows = all.map((m) => ({
-					slug: m.slug, shortName: m.shortName || m.name, released: m.releaseDate || null,
-					creator: m.creator ? m.creator.name : "Other",
-					score: m.intelligenceIndex,
-					cost: m.intelligenceIndexCostPerTask ? m.intelligenceIndexCostPerTask.total : null,
-					seconds: m.intelligenceIndexTimePerTask,
-				}))
-			} catch (e) { rows = null }
-			document.dispatchEvent(new CustomEvent(DATA, { detail: JSON.stringify(rows) }))
+				const v = ctx()
+				if (v) {
+					const dep = new Set((statics && statics.deprecated) || [])
+					out = {
+						models: v.allPageModels.map((m) => ({
+							id: m.id, slug: m.slug, shortName: m.shortName || m.name, released: m.releaseDate || null,
+							creator: m.creator ? m.creator.name : "Other",
+							family: m.release && m.release.name, deprecated: !!(m.release && dep.has(m.release.slug)),
+							isDefault: !!m.chartDefaultSelected,
+							score: m.intelligenceIndex,
+							cost: m.intelligenceIndexCostPerTask ? m.intelligenceIndexCostPerTask.total : null,
+							seconds: m.intelligenceIndexTimePerTask,
+						})),
+						selected: v.selectedPageModels.map((m) => m.slug),
+						noApi: (statics && statics.noApi) || [],
+					}
+				}
+			} catch (e) { out = null }
+			document.dispatchEvent(new CustomEvent(EV.data, { detail: JSON.stringify(out) }))
+		})
+		document.addEventListener(EV.set, (e) => {
+			try {
+				const v = ctx(), want = JSON.parse(e.detail)
+				const by = new Map(v.allPageModels.map((m) => [m.slug, m]))
+				v.setSelectedPageModels(want.map((s) => by.get(s)).filter(Boolean))
+			} catch (err) { console.error("[AA 3D chart]", err) }
 		})
 	}
 
 	function installReader() {
-		const code = `(${pageReader})(${JSON.stringify(EVT_ASK)}, ${JSON.stringify(EVT_DATA)})`
+		const code = `(${pageReader})(${JSON.stringify(EV)})`
 		if (typeof GM_addElement === "function") GM_addElement(document.documentElement, "script", { textContent: code })
 		else { const s = document.createElement("script"); s.textContent = code; document.documentElement.appendChild(s) }
 	}
-
-	function readModels() {
+	function ask() {
 		let got
 		const on = (e) => { got = e.detail }
-		document.addEventListener(EVT_DATA, on)
-		document.dispatchEvent(new CustomEvent(EVT_ASK)) // the page answers synchronously
-		document.removeEventListener(EVT_DATA, on)
+		document.addEventListener(EV.data, on)
+		document.dispatchEvent(new CustomEvent(EV.ask)) // the page answers synchronously
+		document.removeEventListener(EV.data, on)
 		try { return got ? JSON.parse(got) : null } catch { return null }
 	}
+	const setSelection = (slugs) => document.dispatchEvent(new CustomEvent(EV.set, { detail: JSON.stringify(slugs) }))
 
+	// ---- data ----
 	const num = (v) => typeof v === "number" && isFinite(v)
 	// AA rows → model-chart rows. "GPT-6 Luna (xhigh)" → family "GPT-6 Luna", effort "xhigh".
-	function toRows(models) {
-		const rows = [], noCost = []
-		for (const m of models) {
-			if (!num(m.score) || !num(m.cost) || !num(m.seconds)) continue
-			if (!(m.cost > 0) || !(m.seconds > 0)) { noCost.push(m.shortName); continue } // can't sit on a log axis
-			const em = /^(.*?)\s*\(([^)]+)\)\s*$/.exec(m.shortName)
-			rows.push({
-				id: m.slug, name: m.shortName, creator: m.creator,
-				family: em ? em[1] : m.shortName, effort: em ? em[2].toLowerCase() : null, released: m.released,
-				score: m.score, cost: m.cost, minutes: m.seconds / 60,
-				url: "/models/" + m.slug,
-			})
+	// No cost per task (0) means AA has no public API price for it: shown grey and kept out of the frontier.
+	function toRow(m, noApi) {
+		if (!num(m.score) || !num(m.cost) || !num(m.seconds) || m.seconds <= 0 || m.cost < 0) return null
+		const em = /^(.*?)\s*\(([^)]+)\)\s*$/.exec(m.shortName)
+		const muted = m.cost === 0 || noApi.has(m.id)
+		return {
+			id: m.slug, name: m.shortName, creator: m.creator,
+			family: em ? em[1] : m.family || m.shortName, effort: em ? em[2].toLowerCase() : null, released: m.released,
+			score: m.score, cost: m.cost, minutes: m.seconds / 60, url: "/models/" + m.slug,
+			muted, mutedNote: muted ? "No publicly available API: left out of the frontier" : undefined,
+			deprecated: m.deprecated, isDefault: m.isDefault,
 		}
-		return { rows, noCost }
 	}
+	// p is "near the frontier" unless some q clearly beats it on all three at once:
+	// q.score ≥ p.score + pts, and q's cost and time are each at most (1 - pct) of p's.
+	function nearFront(rows, pts, pct) {
+		return rows.filter((p) => !rows.some((q) => q !== p && q.score >= p.score + pts && q.cost <= p.cost * (1 - pct) && q.minutes <= p.minutes * (1 - pct)))
+	}
+	const monthsBefore = (iso, n) => { const d = new Date(iso); d.setMonth(d.getMonth() - n); return d.toISOString().slice(0, 10) }
+	// a maker's models worth caring about: not deprecated, released within 6 months of its newest,
+	// and not clearly beaten by another of its own models (that drops superseded versions)
+	function makerPick(all, maker) {
+		const mine = all.filter((r) => r.creator === maker && !r.deprecated)
+		const newest = mine.map((r) => r.released).filter(Boolean).sort().at(-1)
+		const recent = newest ? mine.filter((r) => !r.released || r.released >= monthsBefore(newest, 6)) : mine
+		const live = nearFront(recent.filter((r) => !r.muted), 2, 0.2)
+		return live.concat(recent.filter((r) => r.muted))
+	}
+	const framePick = (all) => nearFront(all.filter((r) => !r.muted && !r.deprecated), 1.5, 0.15)
 
+	// ---- UI ----
 	const CSS = `
 #${CARD_ID}{margin-top:1rem}
 #${CARD_ID} .mc{--bg:#fff;--panel:#fff;--border:rgb(217,217,217)}
 #${CARD_ID} .mc .card{border:0;padding:0;background:transparent}
 #${CARD_ID} .mc .legend{padding:0 10px;font-size:13px}
 #${CARD_ID} .mc h2{font-family:inherit}
-#${CARD_ID} .aa3d-left{color:#8a8c91;font-size:12.5px;margin:4px 0 0}
+#${CARD_ID} .aa3d-picks{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:0 10px 12px;font:14px/1.4 inherit}
+#${CARD_ID} .aa3d-picks .lbl{font-size:13.5px;color:#55575c;margin-right:2px}
+#${CARD_ID} .aa3d-picks button,#${CARD_ID} .aa3d-picks select{font:inherit;font-size:13.5px;padding:6px 12px;border:1px solid rgb(217,217,217);background:#fff;color:#17181a;border-radius:6px;cursor:pointer}
+#${CARD_ID} .aa3d-picks button:hover,#${CARD_ID} .aa3d-picks select:hover{border-color:#8a8c91}
+#${CARD_ID} .aa3d-picks button[aria-pressed=true]{background:#17181a;color:#fff;border-color:#17181a}
+#${CARD_ID} .aa3d-picks button:active{transform:translateY(1px)}
+#${CARD_ID} .aa3d-picks .sep{width:1px;height:22px;background:rgb(217,217,217);margin:0 4px}
+#${CARD_ID} .aa3d-status{color:#55575c;font-size:13px;padding:0 10px 10px;margin:0}
+#${CARD_ID} .aa3d-status b{font-weight:600;color:#17181a}
 html.dark #${CARD_ID} .mc{--bg:#161716;--panel:#161716;--border:#30312e}`
 
-	let card = null, chart = null, mountedFor = 0
+	let card = null, picksEl = null, statusEl = null, host = null, chart = null
+	let lastSig = "", lastData = null, pickedMakers = new Set(), busyTimer = 0
+	const isDark = () => document.documentElement.classList.contains("dark")
+	const sigOf = (slugs) => [...slugs].sort().join(",")
 
-	function isDark() { return document.documentElement.classList.contains("dark") }
-
-	function build(models) {
-		const { rows, noCost } = toRows(models)
-		if (!rows.length) return false
+	function buildCard() {
 		card = document.createElement("div")
 		card.id = CARD_ID
 		card.className = "border rounded-lg p-4 relative"
-		const host = document.createElement("div")
-		card.appendChild(host)
+		card.innerHTML = `<div class="aa3d-picks" role="group" aria-label="Quick model picks"></div><p class="aa3d-status">Reading models from this page…</p><div class="aa3d-host"></div>`
+		picksEl = card.querySelector(".aa3d-picks"); statusEl = card.querySelector(".aa3d-status"); host = card.querySelector(".aa3d-host")
+		picksEl.addEventListener("click", onPick)
+		picksEl.addEventListener("change", (e) => { if (e.target.matches("select") && e.target.value) { togglemaker(e.target.value); e.target.value = "" } })
+	}
+
+	function apply(slugs, label) {
+		statusEl.innerHTML = `Selecting ${slugs.length} models (${label})…`
+		setSelection(slugs)
+		clearTimeout(busyTimer)
+		busyTimer = setTimeout(schedule, 120)
+	}
+	function togglemaker(maker) {
+		pickedMakers.has(maker) ? pickedMakers.delete(maker) : pickedMakers.add(maker)
+		if (!pickedMakers.size) return apply(lastData.defaults, "AA default")
+		const slugs = [...pickedMakers].flatMap((mk) => makerPick(lastData.rows, mk)).sort((a, b) => b.score - a.score).map((r) => r.id)
+		apply(slugs, [...pickedMakers].join(" + "))
+	}
+	function onPick(e) {
+		const b = e.target.closest("button[data-pick]")
+		if (!b || !lastData) return
+		const k = b.dataset.pick
+		if (k === "frontier") { pickedMakers.clear(); apply(framePick(lastData.rows).sort((a, b) => b.score - a.score).map((r) => r.id), "frontier") }
+		else if (k === "default") { pickedMakers.clear(); apply(lastData.defaults, "AA default") }
+		else if (k.startsWith("maker:")) togglemaker(k.slice(6))
+	}
+
+	function renderPicks(d, selSig) {
+		const frontSig = sigOf(framePick(d.rows).map((r) => r.id)), defSig = sigOf(d.defaults)
+		const makersSig = pickedMakers.size ? sigOf([...pickedMakers].flatMap((mk) => makerPick(d.rows, mk)).map((r) => r.id)) : null
+		if (makersSig !== selSig) pickedMakers.clear() // selection was changed elsewhere (AA's own picker)
+		const counts = new Map()
+		d.rows.filter((r) => !r.deprecated).forEach((r) => counts.set(r.creator, (counts.get(r.creator) || 0) + 1))
+		const makers = [...counts.entries()].sort((a, b) => b[1] - a[1]).map((x) => x[0])
+		const top = makers.slice(0, 7), more = makers.slice(7)
+		const btn = (k, txt, on, title) => `<button type="button" data-pick="${k}" aria-pressed="${on}" title="${title}">${txt}</button>`
+		const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c])
+		picksEl.innerHTML = `<span class="lbl">Show</span>` +
+			btn("frontier", "Frontier", selSig === frontSig, "Publicly available models on or close to the 3D frontier, across all makers") +
+			btn("default", "AA default", selSig === defSig && !pickedMakers.size, "Artificial Analysis's default selection") +
+			`<span class="sep"></span><span class="lbl">Makers</span>` +
+			top.map((m) => btn("maker:" + esc(m), esc(m), pickedMakers.has(m), `${esc(m)}'s current models (superseded and deprecated ones left out). Pick several to compare them.`)).join("") +
+			(more.length ? `<select aria-label="More makers"><option value="">More makers…</option>${more.map((m) => `<option value="${esc(m)}">${pickedMakers.has(m) ? "✓ " : ""}${esc(m)}</option>`).join("")}</select>` : "")
+	}
+
+	function mountChart(d, rows) {
+		const old = chart
+		const camera = old && old.view && old.view.yaw != null ? { yaw: old.view.yaw, pitch: old.view.pitch, zoom: old.view.zoom, panX: old.view.panX, panY: old.view.panY, persp: old.view.persp } : null
+		if (old && old.destroy) old.destroy()
+		const oneMaker = new Set(rows.map((r) => r.creator)).size === 1
 		chart = window.ModelChart.mount(host, {
 			rows,
 			spec: {
 				title: "Intelligence, cost and time per task: the 3D frontier",
-				note: "Ringed and named: models no other model beats on all three at once (smarter, cheaper and faster). Drag to rotate, scroll to zoom, click a point to open the model. Near a flat view it snaps into place.",
+				note: "Ringed and named: models no other one beats on all three at once (smarter, cheaper and faster). Grey: no publicly available API, left out of the frontier. Drag to rotate, ⌘-scroll or pinch to zoom, Shift-drag to move, double-click to recentre, click a point to open it.",
 				axes: { x: "cost", y: "score", z: "minutes" },
-				groupBy: "creator", labelBy: "name", lines: false,
-				view: "iso", fronts: ["all"], labels: "front", fade: 0.28,
-				table: false, theme: isDark() ? "dark" : "light",
+				groupBy: oneMaker ? "family" : "creator", labelBy: "name", lines: oneMaker,
+				view: "iso", fronts: ["all"], labels: "front", fade: 0.28, height: 700,
+				table: false, theme: isDark() ? "dark" : "light", camera,
 			},
 			meta: { updated: "live from this page" },
 		})
-		if (noCost.length) {
-			const p = document.createElement("p")
-			p.className = "aa3d-left"
-			p.textContent = `Left out (no cost per task recorded): ${noCost.join(", ")}.`
-			host.querySelector(".mc").appendChild(p)
-		}
-		mountedFor = rows.length
-		console.log(TAG, `plotted ${rows.length} models, ${chart.data.length} drawn, ${noCost.length} without cost`)
+	}
+
+	function refresh(force) {
+		const raw = ask()
+		if (!raw) return false
+		const sel = raw.selected, sig = sigOf(sel)
+		if (!force && sig === lastSig) return true
+		lastSig = sig
+		const noApi = new Set(raw.noApi)
+		const rows = raw.models.map((m) => toRow(m, noApi)).filter(Boolean)
+		lastData = { rows, defaults: raw.models.filter((m) => m.isDefault).map((m) => m.slug) }
+		const selSet = new Set(sel), shown = rows.filter((r) => selSet.has(r.id))
+		renderPicks(lastData, sig)
+		const missing = sel.length - shown.length, grey = shown.filter((r) => r.muted).length
+		statusEl.innerHTML = `Showing <b>${shown.length}</b> of the <b>${sel.length}</b> models selected on this page${missing ? ` (${missing} have no cost or time per task)` : ""}${grey ? `, ${grey} grey` : ""}. Picks here change the selection for every chart on the page, and AA's own model picker changes this one.`
+		mountChart(lastData, shown)
+		console.log(TAG, `showing ${shown.length}/${sel.length} selected (${rows.length} with data)`)
 		return true
 	}
 
@@ -938,12 +1086,12 @@ html.dark #${CARD_ID} .mc{--bg:#161716;--panel:#161716;--border:#30312e}`
 		const grid = document.querySelector("div.grid.gap-4.lg\\:grid-cols-3")
 		if (!grid || !grid.querySelector(":scope > div.border.rounded-lg.p-4.relative")) return
 		document.querySelectorAll("#" + CARD_ID).forEach((n) => { if (n !== card) n.remove() })
-		if (!card) {
-			const models = readModels()
-			if (!models || !build(models)) return
-		}
+		if (!card) buildCard()
+		const moved = grid.nextElementSibling !== card
+		if (moved) grid.after(card)
+		if (!refresh(!chart) && !chart) return
 		// only redraw when the card moved: the chart's own DOM updates also trigger the observer
-		if (grid.nextElementSibling !== card) { grid.after(card); chart.redraw() }
+		if (moved && chart) chart.redraw()
 	}
 
 	let queued = false
@@ -959,7 +1107,8 @@ html.dark #${CARD_ID} .mc{--bg:#161716;--panel:#161716;--border:#30312e}`
 		st.textContent = CSS
 		document.head.appendChild(st)
 		installReader()
-		new MutationObserver(schedule).observe(document.body, { childList: true, subtree: true })
+		// AA re-renders its charts when the selection changes; that's the cue to re-read it
+		new MutationObserver((ms) => { if (ms.some((m) => !card || !card.contains(m.target))) schedule() }).observe(document.body, { childList: true, subtree: true })
 		new MutationObserver(() => chart && chart.setTheme(isDark() ? "dark" : "light")).observe(document.documentElement, { attributes: true, attributeFilter: ["class"] })
 		schedule()
 	}
