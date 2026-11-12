@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Artificial Analysis 3D Frontier Chart
 // @namespace    local.aa.3d-chart
-// @version      2.1.0
+// @version      2.2.0
 // @description  Adds Matt's own 3D model chart (intelligence × cost per task × time per task) under the homepage rankings. It shows AA's shared model selection, and quick picks (frontier, one or more makers) change that selection for every chart on the page.
 // @match        https://artificialanalysis.ai/*
 // @grant        GM_addElement
@@ -147,35 +147,127 @@
 
 	// ---- UI ----
 	const CSS = `
-#${CARD_ID}{margin-top:1rem}
-#${CARD_ID} .mc{--bg:#fff;--panel:#fff;--border:rgb(217,217,217)}
-#${CARD_ID} .mc .card{border:0;padding:0;background:transparent}
-#${CARD_ID} .mc .legend{padding:0 10px;font-size:13px}
-#${CARD_ID} .mc h2{font-family:inherit}
-#${CARD_ID} .aa3d-picks{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:0 10px 12px;font:14px/1.4 inherit}
-#${CARD_ID} .aa3d-picks .lbl{font-size:13.5px;color:#55575c;margin-right:2px}
-#${CARD_ID} .aa3d-picks button,#${CARD_ID} .aa3d-picks select{font:inherit;font-size:13.5px;padding:6px 12px;border:1px solid rgb(217,217,217);background:#fff;color:#17181a;border-radius:6px;cursor:pointer}
-#${CARD_ID} .aa3d-picks button:hover,#${CARD_ID} .aa3d-picks select:hover{border-color:#8a8c91}
-#${CARD_ID} .aa3d-picks button[aria-pressed=true]{background:#17181a;color:#fff;border-color:#17181a}
-#${CARD_ID} .aa3d-picks button:active{transform:translateY(1px)}
-#${CARD_ID} .aa3d-picks .sep{width:1px;height:22px;background:rgb(217,217,217);margin:0 4px}
-#${CARD_ID} .aa3d-picks .brk{flex-basis:100%;height:0}
-#${CARD_ID} .aa3d-picks .hint2{font-size:12.5px;color:#8a8c91;margin-left:4px}
-#${CARD_ID} .aa3d-status{color:#55575c;font-size:13px;padding:0 10px 10px;margin:0}
-#${CARD_ID} .aa3d-status b{font-weight:600;color:#17181a}
-html.dark #${CARD_ID} .mc{--bg:#161716;--panel:#161716;--border:#30312e}`
+#${CARD_ID}{margin-top:1rem;min-width:0}
+.aa3d-panel{--aa-bg:#fff;--aa-fg:#191a1d;--aa-soft:#626672;--aa-line:#e0e2e7;--aa-subtle:#f6f7f9;position:relative;background:var(--aa-bg);color:var(--aa-fg);border:1px solid var(--aa-line);border-radius:12px;min-width:0;font:14px/1.4 system-ui,sans-serif}
+html.dark .aa3d-panel{--aa-bg:#17181b;--aa-fg:#f4f4f6;--aa-soft:#b1b4bd;--aa-line:#353740;--aa-subtle:#22242a}
+.aa3d-panel [hidden]{display:none}
+.aa3d-panel .mc{--bg:var(--aa-subtle);--panel:var(--aa-bg);--border:var(--aa-line);gap:0;min-width:0}
+.aa3d-panel .mc .card{border:0;padding:0;background:transparent;min-width:0}
+.aa3d-panel .mc h2,.aa3d-panel .mc .cap,.aa3d-panel .mc .note{display:none}
+.aa3d-panel .mc .card > p.cap:last-child{display:block;padding:16px 12px}
+.aa3d-panel .mc .legend{padding:0 12px 5px;font-size:12px;gap:4px 13px;max-height:54px;overflow:auto}
+.aa3d-panel .mc .legend i{width:9px;height:9px;border-radius:50%;margin-right:5px}
+.aa3d-panel .mc .views{gap:5px;padding:4px 12px}
+.aa3d-panel .mc .views button{padding:4px 8px;font-size:12px;white-space:nowrap}
+.aa3d-panel .mc .views button:hover{border-color:var(--aa-soft)}
+.aa3d-panel .mc .views label,.aa3d-panel .mc .axkey,.aa3d-panel .mc .fcount{font-size:12px}
+.aa3d-panel .mc .views.fronts{border-bottom:1px solid var(--aa-line);padding-bottom:8px}
+.aa3d-panel .mc .axkey{gap:9px}
+.aa3d-panel .mc .stage{min-height:0;min-width:0}
+.aa3d-panel .mc canvas{height:204px}
+.aa3d-head{display:flex;align-items:center;gap:8px 12px;flex-wrap:wrap;padding:10px 12px;border-bottom:1px solid var(--aa-line)}
+.aa3d-head h2{font-size:17px;line-height:1.25;font-weight:650;margin:0;margin-right:auto}
+.aa3d-head button,.aa3d-head summary,.aa3d-picks button,.aa3d-picks select{font:inherit;font-size:12px;padding:5px 9px;border:1px solid var(--aa-line);background:var(--aa-subtle);color:var(--aa-fg);border-radius:7px;cursor:pointer}
+.aa3d-head button:hover,.aa3d-head summary:hover,.aa3d-picks button:hover,.aa3d-picks select:hover{border-color:var(--aa-soft)}
+.aa3d-head .aa3d-expand{background:var(--aa-fg);color:var(--aa-bg);font-weight:600}
+.aa3d-panel .aa3d-status{color:var(--aa-soft);font-size:12px;padding:0 12px 7px;margin:0}
+.aa3d-panel .aa3d-status b{font-weight:600;color:var(--aa-fg)}
+.aa3d-pick-panel{position:relative}
+.aa3d-pick-panel>div{position:absolute;z-index:5;top:calc(100% + 8px);right:0;width:min(720px,calc(100vw - 24px));max-height:45dvh;overflow:auto;padding:10px 0 0;background:var(--aa-bg);border:1px solid var(--aa-line);border-radius:10px;box-shadow:0 8px 28px #0002}
+.aa3d-picks{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:0 12px 8px}
+.aa3d-picks .lbl,.aa3d-picks .hint2{font-size:12px;color:var(--aa-soft)}
+.aa3d-picks button[aria-pressed=true]{background:var(--aa-fg);color:var(--aa-bg);border-color:var(--aa-fg)}
+.aa3d-picks .sep{width:1px;height:20px;background:var(--aa-line);margin:0 2px}
+.aa3d-picks .brk{flex-basis:100%;height:0}
+.aa3d-guide{color:var(--aa-soft);font-size:11.5px;padding:5px 12px 6px;margin:0}
+.aa3d-panel[data-expanded=true] .aa3d-hidden-badge{display:none}
+.aa3d-panel[data-expanded=false] :is(.aa3d-pick-panel,.mc .views,.mc .legend,.aa3d-guide){display:none}
+.aa3d-panel[data-expanded=false] .mc .stage{pointer-events:none}
+.aa3d-panel[data-expanded=true]{position:fixed;inset:0;z-index:38;border:0;border-radius:0;display:flex;flex-direction:column;padding-top:var(--aa3d-top,120px);box-sizing:border-box;overscroll-behavior:contain}
+.aa3d-panel[data-expanded=true] .aa3d-host{flex:1;min-height:0;min-width:0;display:flex;flex-direction:column;overflow-y:auto}
+.aa3d-panel[data-expanded=true] .mc{flex:1;min-height:0;display:flex;flex-direction:column;padding-top:5px}
+.aa3d-panel[data-expanded=true] .mc .card{flex:1;display:flex;flex-direction:column;min-height:0}
+.aa3d-panel[data-expanded=true] .mc .stage{flex:1;min-height:160px}
+.aa3d-panel[data-expanded=true] .mc canvas{position:absolute;inset:0;height:100%}
+@media(max-width:700px){.aa3d-panel .mc .axkey{display:none}.aa3d-head h2{font-size:15px}.aa3d-panel .mc .views{padding-inline:8px}}
+@media(max-width:460px){.aa3d-pick-panel>div{position:fixed;top:auto;margin-top:8px;right:8px}}
+`
 
-	let card = null, picksEl = null, statusEl = null, host = null, chart = null
+	let card = null, panel = null, picksEl = null, statusEl = null, host = null, chart = null
 	let lastSig = "", lastData = null, pickedMakers = new Set(), pickedFamilies = new Set(), pickedEfforts = new Set(), busyTimer = 0, startedEveryday = false
+	const hidden = new Set()
 	const isDark = () => document.documentElement.classList.contains("dark")
 	const sigOf = (slugs) => [...slugs].sort().join(",")
+	let openTimer = 0, hoverBlocked = false, expanded = false
+
+	function sizePanel() {
+		if (!expanded) return
+		// AA's desktop/mobile nav and sticky section switcher stay above the chart.
+		const bars = document.querySelectorAll(".sticky.z-50, .sticky.z-40")
+		let edge = 0
+		for (const bar of bars) {
+			if (panel.contains(bar)) continue
+			const r = bar.getBoundingClientRect()
+			if (r.width && r.height && r.top < 125 && r.bottom > 0) edge = Math.max(edge, r.bottom)
+		}
+		panel.style.setProperty("--aa3d-top", `${Math.min(edge + 8, innerHeight * 0.25)}px`)
+	}
+
+	function setExpanded(next, focus = false) {
+		clearTimeout(openTimer)
+		if (expanded === next) return
+		expanded = next
+		const button = panel.querySelector(".aa3d-expand")
+		const canvas = host.querySelector("canvas")
+		chart?.hideTip?.()
+		if (next) {
+			card.style.minHeight = `${panel.offsetHeight}px`
+			document.body.appendChild(panel)
+		} else {
+			card.appendChild(panel)
+			card.style.minHeight = ""
+			panel.querySelector(".aa3d-pick-panel").open = false
+		}
+		panel.dataset.expanded = String(next)
+		button.textContent = next ? "Close chart" : "Expand chart"
+		button.setAttribute("aria-expanded", String(next))
+		if (!next) hoverBlocked = card.matches(":hover")
+		if (canvas && chart?.data.length) canvas.tabIndex = next ? 0 : -1
+		sizePanel()
+		chart?.redraw()
+		if (focus) button.focus({ preventScroll: true })
+	}
 
 	function buildCard() {
 		card = document.createElement("div")
 		card.id = CARD_ID
-		card.className = "border rounded-lg p-4 relative"
-		card.innerHTML = `<div class="aa3d-picks" role="group" aria-label="Quick model picks"></div><p class="aa3d-status">Reading models from this page…</p><div class="aa3d-host"></div>`
-		picksEl = card.querySelector(".aa3d-picks"); statusEl = card.querySelector(".aa3d-status"); host = card.querySelector(".aa3d-host")
+		panel = document.createElement("section")
+		panel.className = "aa3d-panel"
+		panel.dataset.expanded = "false"
+		panel.setAttribute("aria-labelledby", "aa3d-title")
+		panel.innerHTML = `<div class="aa3d-head"><h2 id="aa3d-title">Intelligence, cost and time per task</h2><button type="button" class="aa3d-hidden-badge" hidden></button><details class="aa3d-pick-panel"><summary>Model picks</summary><div><div class="aa3d-picks" role="group" aria-label="Quick model picks"></div><p class="aa3d-status">Reading models from this page…</p></div></details><button type="button" class="aa3d-expand" aria-expanded="false">Expand chart</button></div><div class="aa3d-host"></div><p class="aa3d-guide">Drag to rotate · Shift-drag to pan · Scroll to zoom · Right-click a dot to hide it</p>`
+		card.appendChild(panel)
+		picksEl = panel.querySelector(".aa3d-picks"); statusEl = panel.querySelector(".aa3d-status"); host = panel.querySelector(".aa3d-host")
+		const button = panel.querySelector(".aa3d-expand")
+		button.addEventListener("click", () => setExpanded(!expanded, true))
+		panel.querySelector(".aa3d-hidden-badge").addEventListener("click", () => {
+			setExpanded(true)
+			const menu = host.querySelector(".mc-hidden")
+			if (menu) { menu.open = true; menu.querySelector("summary").focus() }
+		})
+		card.addEventListener("pointerenter", (e) => {
+			if (expanded || hoverBlocked || e.pointerType !== "mouse") return
+			openTimer = setTimeout(() => { if (card.matches(":hover")) setExpanded(true) }, 260)
+		})
+		card.addEventListener("pointerleave", () => { clearTimeout(openTimer); if (!expanded) hoverBlocked = false })
+		document.addEventListener("keydown", (e) => {
+			if (e.key !== "Escape" || e.defaultPrevented || !expanded) return
+			const menu = panel.querySelector("details[open]")
+			if (menu) { menu.open = false; menu.querySelector("summary").focus(); return }
+			setExpanded(false, panel.contains(document.activeElement))
+		})
+		addEventListener("resize", sizePanel)
+		addEventListener("scroll", sizePanel, { passive: true })
 		picksEl.addEventListener("click", onPick)
 		picksEl.addEventListener("change", (e) => { if (e.target.matches("select") && e.target.value) { togglemaker(e.target.value); e.target.value = "" } })
 	}
@@ -248,23 +340,30 @@ html.dark #${CARD_ID} .mc{--bg:#161716;--panel:#161716;--border:#30312e}`
 			(pickedFamilies.size || pickedEfforts.size ? "" : `<span class="hint2">Showing the frontier only. Pick a model or effort to see all its levels.</span>`)
 	}
 
-	function mountChart(d, rows) {
+	function mountChart(rows) {
 		const old = chart
-		const camera = old && old.view && old.view.yaw != null ? { yaw: old.view.yaw, pitch: old.view.pitch, zoom: old.view.zoom, panX: old.view.panX, panY: old.view.panY, persp: old.view.persp } : null
+		const camera = old?.view?.yaw != null ? { ...old.view } : null
+		const options = old?.options?.()
 		if (old && old.destroy) old.destroy()
 		const oneMaker = new Set(rows.map((r) => r.creator)).size === 1
 		chart = window.ModelChart.mount(host, {
 			rows,
 			spec: {
 				title: "Intelligence, cost and time per task: the 3D frontier",
-				note: "Ringed and named: models no other one beats on all three at once (smarter, cheaper and faster). Grey: no publicly available API, left out of the frontier. Drag to rotate, ⌘-scroll or pinch to zoom, Shift-drag to move, double-click to recentre, click a point to open it.",
 				axes: { x: "cost", y: "score", z: "minutes" },
 				groupBy: oneMaker ? "family" : "creator", labelBy: "name", lines: oneMaker,
-				view: "iso", fronts: ["all"], labels: "front", fade: 0.28, height: 700,
+				view: "iso", fronts: ["view"], labels: "front", fade: 0.32,
+				...options, interactive: true, tooltipLayer: 39, hidden,
+				onVisibilityChange: (concealed) => {
+					const badge = panel.querySelector(".aa3d-hidden-badge")
+					badge.hidden = !concealed.length
+					badge.textContent = `Hidden (${concealed.length})`
+				},
 				table: false, theme: isDark() ? "dark" : "light", camera,
 			},
 			meta: { updated: "live from this page" },
 		})
+		if (!expanded && chart.data.length) host.querySelector("canvas").tabIndex = -1
 	}
 
 	function refresh(force) {
@@ -289,14 +388,19 @@ html.dark #${CARD_ID} .mc{--bg:#161716;--panel:#161716;--border:#30312e}`
 		renderPicks(lastData, sig)
 		const missing = sel.length - shown.length, grey = shown.filter((r) => r.muted).length
 		statusEl.innerHTML = `Showing <b>${shown.length}</b> of the <b>${sel.length}</b> models selected on this page${missing ? ` (${missing} have no cost or time per task)` : ""}${grey ? `, ${grey} grey` : ""}. Picks here change the selection for every chart on the page, and AA's own model picker changes this one.`
-		mountChart(lastData, shown)
+		panel.querySelector(".aa3d-hidden-badge").hidden = true
+		mountChart(shown)
 		console.log(TAG, `showing ${shown.length}/${sel.length} selected (${rows.length} with data)`)
 		return true
 	}
 
 	// Put the card right after the three ranking cards, full width. Idempotent.
 	function place() {
-		if (location.pathname !== "/") { if (card && card.isConnected) card.remove(); return }
+		if (location.pathname !== "/") {
+			if (expanded) setExpanded(false)
+			if (card?.isConnected) card.remove()
+			return
+		}
 		const grid = document.querySelector("div.grid.gap-4.lg\\:grid-cols-3")
 		if (!grid || !grid.querySelector(":scope > div.border.rounded-lg.p-4.relative")) return
 		document.querySelectorAll("#" + CARD_ID).forEach((n) => { if (n !== card) n.remove() })
@@ -322,7 +426,7 @@ html.dark #${CARD_ID} .mc{--bg:#161716;--panel:#161716;--border:#30312e}`
 		document.head.appendChild(st)
 		installReader()
 		// AA re-renders its charts when the selection changes; that's the cue to re-read it
-		new MutationObserver((ms) => { if (ms.some((m) => !card || !card.contains(m.target))) schedule() }).observe(document.body, { childList: true, subtree: true })
+		new MutationObserver((ms) => { if (ms.some((m) => !card || (!card.contains(m.target) && !panel.contains(m.target)))) schedule() }).observe(document.body, { childList: true, subtree: true })
 		new MutationObserver(() => chart && chart.setTheme(isDark() ? "dark" : "light")).observe(document.documentElement, { attributes: true, attributeFilter: ["class"] })
 		schedule()
 	}

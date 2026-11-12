@@ -266,7 +266,8 @@ if (typeof globalThis !== "undefined") {
 //           view?: "front" | "top" | "side" | "iso", fronts?: ["xy" | "xz" | "zy" | "all"], table?: boolean,
 //           labels?: "all" | "front" (front = only points on a showing trade-off line get a name),
 //           fade?: 0..1 (opacity of points off the showing lines, default 0.45), theme?: "light" | "dark",
-//           height?: canvas px (default 580), camera?: { yaw, pitch, zoom, panX, panY } to start from (e.g. a previous mount's view) }
+//           height?: canvas px (default 580), camera?: previous mount's view, hidden?: Set of hidden row ids,
+//           onVisibilityChange?: callback with the current hidden rows, interactive?: true to enable exploration tools }
 //   Zoom: ⌘/Ctrl + scroll or pinch (plain scroll scrolls the page). Shift-drag moves the chart; double-click recentres.
 //   A row with a `url` opens it when its point is clicked. A row with `muted: true` (e.g. no public API) is drawn grey,
 //   never counts towards a trade-off line, and may have 0 on a log axis: it then sits on that axis's floor. mount() returns { data, redraw, view, setTheme }.
@@ -309,7 +310,23 @@ if (typeof globalThis !== "undefined") {
 .mc .fcount{margin-left:auto;font-size:13px;color:var(--muted)}
 .mc .axkey{margin-left:auto;display:flex;gap:14px;font-size:13px;color:var(--fg2)}
 .mc .axkey i{display:inline-block;width:14px;height:4px;border-radius:2px;margin-right:6px;vertical-align:middle}
-.mc .stage{position:relative}
+.mc .stage{position:relative;min-width:0}
+.mc .views .mc-divider{height:20px;width:1px;background:var(--border);margin:0 2px}
+.mc .views button[data-f]::before{content:"";display:inline-block;width:10px;height:3px;border-radius:2px;margin-right:6px;vertical-align:middle;background:var(--front-color)}
+.mc .views button[data-f=view]::before{display:none}
+.mc .views button[data-f=all]::before{height:9px;width:9px;background:none;border:2px solid currentColor;border-radius:50%}
+.mc .box-zoom{position:absolute;pointer-events:none;border:1px solid #3689e5;background:#3689e522;border-radius:3px}
+.mc .mc-notice{position:absolute;z-index:2;max-width:calc(100% - 16px);display:flex;align-items:center;gap:8px;padding:4px 6px 4px 9px;background:var(--panel);color:var(--fg);border:1px solid var(--border);border-radius:8px;box-shadow:0 3px 14px #0002;font-size:12px}
+.mc .mc-notice span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mc .mc-notice button,.mc .mc-hidden button{color:inherit;background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:3px 8px;cursor:pointer;white-space:nowrap}
+.mc .mc-notice[hidden],.mc .box-zoom[hidden],.mc .mc-hidden[hidden]{display:none}
+.mc .mc-hidden{position:relative;margin-left:auto;font-size:13px}
+.mc .mc-hidden summary{cursor:pointer;color:var(--fg);white-space:nowrap}
+.mc .mc-hidden-menu{position:absolute;z-index:4;right:0;top:calc(100% + 6px);background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:8px;box-shadow:0 6px 22px #0002;width:max-content;max-width:min(340px,75vw)}
+.mc .mc-hidden-list{max-height:180px;overflow:auto;display:grid;gap:4px;margin-top:6px}
+.mc .mc-hidden-list button{white-space:normal;text-align:left}
+.mc canvas:focus-visible{outline:2px solid #3689e5;outline-offset:-2px}
+.mc .mc-empty{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:var(--panel);text-align:center;pointer-events:none}
 .mc canvas{display:block;width:100%;height:580px;touch-action:none;cursor:grab}
 .mc .hint{position:absolute;left:12px;top:10px;display:flex;gap:9px;align-items:center;background:var(--fg);color:var(--bg);padding:8px 14px;border-radius:999px;font-size:13.5px;pointer-events:none;transition:opacity .5s;max-width:calc(100% - 24px);line-height:1.3}
 .mc .hint svg{width:16px;height:16px;flex:none}
@@ -324,7 +341,7 @@ if (typeof globalThis !== "undefined") {
 .mc th:first-child,.mc td:first-child,.mc th:nth-child(2),.mc td:nth-child(2){text-align:left}
 .mc th{color:var(--fg2);font-weight:500;font-size:13px}
 .mc .sw{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:8px}
-.mc-tip{position:fixed;left:0;top:0;pointer-events:none;background:#17181a;color:#fbfbf9;font:14px/1.4 "IBM Plex Sans",system-ui,sans-serif;padding:8px 11px;border-radius:8px;white-space:nowrap;z-index:50;box-shadow:0 2px 10px rgba(0,0,0,.25)}
+.mc-tip{position:fixed;left:0;top:0;pointer-events:none;background:#17181a;color:#fbfbf9;font:14px/1.4 "IBM Plex Sans",system-ui,sans-serif;padding:8px 11px;border-radius:8px;white-space:nowrap;z-index:var(--mc-tip-z,50);box-shadow:0 2px 10px rgba(0,0,0,.25)}
 .mc-tip b{font-weight:600;display:block}
 .mc-tip i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:7px}
 .mc-tip small{display:block;opacity:.75;font-size:12.5px;margin-top:2px}`
@@ -344,7 +361,7 @@ if (typeof globalThis !== "undefined") {
 	}
 
 	// a value can be drawn: a number, and above zero on a log axis (AA uses 0 for "not measured")
-	const usable = (d, k) => typeof d[k] === "number" && (!MEASURES[k].log || d[k] > 0 || (d.muted && d[k] === 0))
+	const usable = (d, k) => Number.isFinite(d[k]) && (!MEASURES[k].log || d[k] > 0 || (d.muted && d[k] === 0))
 	const hasAxes = (d, spec) => !spec.axes || [spec.axes.x, spec.axes.y, spec.axes.z].every((k) => !MEASURES[k] || usable(d, k))
 
 	// keep the rows a spec asks for. Besides plain matching, a filter can trim a big list to a readable one:
@@ -402,6 +419,7 @@ if (typeof globalThis !== "undefined") {
 	}
 	// pad the data range and round it to tidy bounds
 	function range(vals, log) {
+		if (!vals.length) return log ? [0.1, 1] : [0, 1]
 		let lo = Math.min(...vals), hi = Math.max(...vals)
 		if (log) {
 			const L = Math.log10(lo), H = Math.log10(hi), pad = Math.max(0.15, (H - L) * 0.08)
@@ -421,7 +439,10 @@ if (typeof globalThis !== "undefined") {
 		if (!MX || !MY || !MZ) throw new Error(`Unknown measure in axes: ${JSON.stringify(A)}. Known: ${Object.keys(MEASURES).join(", ")}`)
 		const picked = select(rows, spec)
 		const DATA = picked.filter((r) => [A.x, A.y, A.z].every((k) => usable(r, k)))
-		const LIVE = DATA.filter((d) => !d.muted) // muted rows never shape the trade-off lines
+		const LIVE = DATA.filter((d) => !d.muted)
+		const hidden = spec.hidden || new Set()
+		let visible, visibleLive, FR, hover = null
+		const isVisible = (d) => !hidden.has(d.id)
 		const dropped = picked.length - DATA.length
 		const prefix = commonPrefix([...new Set(DATA.map((r) => r.family))])
 		DATA.forEach((d) => { d._group = spec.groupBy === "creator" ? d.creator : d.family.slice(prefix.length) || d.family })
@@ -444,8 +465,18 @@ if (typeof globalThis !== "undefined") {
 		const PAIRS = { xy: [A.x, A.y], zy: [A.z, A.y], xz: [A.x, A.z], all: [A.x, A.y, A.z] }
 		const FNAME = { view: "follow the view", xy: `${MY.short.toLowerCase()} vs ${MX.short.toLowerCase()}`, zy: `${MY.short.toLowerCase()} vs ${MZ.short.toLowerCase()}`, xz: `${MX.short.toLowerCase()} vs ${MZ.short.toLowerCase()}`, all: "all three" }
 		const OBJ = (k) => (d) => (MEASURES[k].better === "high" ? d[k] : -d[k])
-		const front = (keys) => new Set(LIVE.filter((p) => !LIVE.some((q) => q !== p && keys.every((k) => OBJ(k)(q) >= OBJ(k)(p)) && keys.some((k) => OBJ(k)(q) > OBJ(k)(p)))))
-		const FR = Object.fromEntries(Object.entries(PAIRS).map(([k, keys]) => [k, front(keys)]))
+		const front = (keys) => {
+			const objectives = keys.map(OBJ)
+			return new Set(visibleLive.filter((p) => !visibleLive.some((q) => q !== p && objectives.every((f) => f(q) >= f(p)) && objectives.some((f) => f(q) > f(p)))))
+		}
+		function computeFrontiers() {
+			visible = DATA.filter(isVisible)
+			visibleLive = LIVE.filter(isVisible)
+			FR = Object.fromEntries(Object.entries(PAIRS).map(([k, keys]) => [k, front(keys)]))
+		}
+		computeFrontiers()
+		const pairColors = { xy: ["#167c78", "#69d3c6"], zy: ["#ad406d", "#f193bc"], xz: ["#6956a5", "#b9a7fa"] }
+		const frontColor = (k) => pairColors[k][isDark() ? 1 : 0]
 		// "view" shows each pair's line on its wall, faded by how squarely that wall faces you
 		const fon = { view: false, xy: false, zy: false, xz: false, all: false }
 		;(spec.fronts || []).forEach((k) => { if (k in fon) fon[k] = true })
@@ -462,15 +493,22 @@ if (typeof globalThis !== "undefined") {
       <button type="button" data-v="top">${MX.short} × ${MZ.short.toLowerCase()}</button>
       <button type="button" data-v="side">${MY.short} × ${MZ.short.toLowerCase()}</button>
       <label><input type="checkbox" data-r="persp" checked> Perspective</label>
+      ${spec.interactive ? `<span class="mc-divider"></span>
+      <button type="button" data-r="pan" aria-pressed="false" title="Pan · Shift-drag, middle-drag or arrow keys">Pan</button>
+      <button type="button" data-r="box" aria-pressed="false" title="Drag a rectangle to zoom in">Box zoom</button>
+      <button type="button" data-r="fit" title="Fit the current view · double-click or Home">Fit</button>` : ""}
       <span class="axkey"><span><i data-a="x"></i>${MX.short}</span><span><i data-a="z"></i>${MZ.short}</span><span><i data-a="y"></i>${MY.short}</span></span>
     </div>
     <div class="views fronts" data-r="fronts">
-      <span class="fl">Best trade-off lines</span>
-      ${["view", "xy", "zy", "xz", "all"].map((k) => `<button type="button" data-f="${k}" aria-pressed="false">${cap(FNAME[k])}</button>`).join("")}
+      <span class="fl">Pareto frontier</span>
+      ${["view", "xy", "zy", "xz", "all"].map((k) => `<button type="button" data-f="${k}" aria-pressed="false">${k === "all" && spec.interactive ? "3D frontier" : k === "view" && spec.interactive ? "Auto" : cap(FNAME[k])}</button>`).join("")}
+      ${spec.interactive ? `<span class="mc-divider"></span><button type="button" data-r="only" aria-pressed="false" title="Show just the models on the active frontiers">Frontier only</button>` : ""}
       <span class="fcount" data-r="fcount"></span>
+      ${spec.interactive ? `<details class="mc-hidden" data-r="hidden" hidden><summary data-r="hidden-count"></summary><div class="mc-hidden-menu"><button type="button" data-r="restore-all">Restore all</button><div class="mc-hidden-list" data-r="hidden-list"></div></div></details>` : ""}
     </div>
     <div class="stage">
-      <canvas role="img" aria-label="3D chart of ${esc(MY.label)}, ${esc(MX.label)} and ${esc(MZ.label)}"></canvas>
+      <canvas role="img" ${spec.interactive ? 'tabindex="0" aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown Home Escape"' : ""} aria-label="3D chart of ${esc(MY.label)}, ${esc(MX.label)} and ${esc(MZ.label)}"></canvas>
+      ${spec.interactive ? `<div class="box-zoom" data-r="rect" hidden></div><div class="mc-notice" data-r="notice" hidden><span data-r="notice-text" role="status"></span><button type="button" data-r="undo">Undo</button></div><div class="mc-empty" data-r="empty" hidden>All models are hidden. Restore them from the Hidden menu.</div>` : ""}
       <div class="hint"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 4v5h-5"/></svg><span>Drag to rotate: ${esc(MZ.label.toLowerCase())} is the hidden third axis</span></div>
     </div>
   </section>
@@ -481,24 +519,28 @@ if (typeof globalThis !== "undefined") {
 		if (spec.theme) root.dataset.theme = spec.theme
 		const $ = (r) => root.querySelector(`[data-r="${r}"]`)
 		const cv = root.querySelector("canvas")
-		let tip = document.querySelector(".mc-tip")
-		if (!tip) { tip = document.createElement("div"); tip.className = "mc-tip"; tip.hidden = true; document.body.appendChild(tip) }
+		const tip = document.createElement("div")
+		tip.className = "mc-tip"
+		tip.hidden = true
+		if (spec.tooltipLayer) tip.style.setProperty("--mc-tip-z", spec.tooltipLayer)
+		document.body.appendChild(tip)
 		const paintKeys = () => {
 			root.querySelectorAll("[data-g]").forEach((i) => (i.style.background = gcol(i.dataset.g)))
 			root.querySelectorAll("[data-a]").forEach((i) => (i.style.background = acol(i.dataset.a)))
+			Object.keys(pairColors).forEach((k) => root.querySelector(`[data-f="${k}"]`).style.setProperty("--front-color", frontColor(k)))
 		}
 		paintKeys()
 		if (!DATA.length) {
 			const msg = rows.length ? "No models match this chart's filter." : "No model data yet. It appears after the next refresh from Artificial Analysis."
 			root.querySelector(".stage").replaceWith(Object.assign(document.createElement("p"), { className: "cap", textContent: msg }))
 			root.querySelectorAll(".views, .legend").forEach((n) => n.remove())
-			return { data: [], redraw() {}, view: Object.assign({}, spec.camera), setTheme() {}, destroy() {} }
+			return { data: [], redraw() {}, view: Object.assign({}, spec.camera), setTheme() {}, destroy() { tip.remove() } }
 		}
 
 		function showTip(d, e) {
 			const on = Object.keys(FR).filter((f) => FR[f].has(d)).map((f) => FNAME[f])
 			const f = (M, k) => (d.muted && d[k] === 0 && M.log ? `no ${M.short.toLowerCase()} data` : M.fmt(d[k]))
-			tip.innerHTML = `<b><i style="background:${dcol(d)}"></i>${esc(d.name)}</b>${MY.short} ${f(MY, A.y)} · ${f(MX, A.x)} · ${f(MZ, A.z)}<small>${d.muted ? esc(d.mutedNote || "Not publicly available: left out of the trade-off lines") : on.length ? "Best trade-off for: " + on.join(", ") : "Beaten by another model on every pair"}</small>`
+			tip.innerHTML = `<b><i style="background:${dcol(d)}"></i>${esc(d.name)}</b>${MY.short} ${f(MY, A.y)} · ${f(MX, A.x)} · ${f(MZ, A.z)}<small>${d.muted ? esc(d.mutedNote || "Not publicly available: left out of the trade-off lines") : on.length ? "Best trade-off for: " + on.join(", ") : "Dominated on each pair and in 3D"}</small>${spec.interactive ? "<small>Right-click the dot to hide it</small>" : ""}`
 			tip.hidden = false
 			const w = tip.offsetWidth, h = tip.offsetHeight
 			const left = Math.min(Math.max(8, e.clientX - w / 2), innerWidth - w - 8)
@@ -519,7 +561,11 @@ if (typeof globalThis !== "undefined") {
 		const PRESETS = { iso: { yaw: -0.55, pitch: 0.42 }, top: { yaw: 0, pitch: Math.PI / 2 }, front: { yaw: 0, pitch: 0 }, side: { yaw: -Math.PI / 2, pitch: 0 } }
 		Object.values(PRESETS).forEach((p) => Object.assign(p, { zoom: 1, panX: 0, panY: 0 }))
 		const view = Object.assign({ persp: true }, PRESETS[spec.view] || PRESETS.front, spec.camera || {})
-		let proj3 = [], hover = null, anim = null
+		let proj3 = [], anim = null
+		let onlyFrontier = !!spec.onlyFrontier
+		const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v))
+		const pairKeys = ["xy", "zy", "xz"]
+		const front3D = () => fon.all || (spec.interactive && fon.view && Math.max(...pairKeys.map(wallFacing)) < 0.985)
 		const css = (n) => getComputedStyle(root).getPropertyValue(n).trim()
 		const smooth = (a, b, x) => { const u = Math.min(1, Math.max(0, (x - a) / (b - a))); return u * u * (3 - 2 * u) }
 		// 1 when the view is straight down a cardinal axis, fading to 0 about 25 degrees away
@@ -529,55 +575,64 @@ if (typeof globalThis !== "undefined") {
 		}
 		// how squarely each pair's wall faces the camera: the xy wall's normal is the depth axis, and so on
 		const WALL_NORMAL = { xy: [0, 1, 0], zy: [1, 0, 0], xz: [0, 0, 1] }
+		function wallFacing(k) { return Math.abs(rot(WALL_NORMAL[k])[2]) }
 		function curveAlpha(k) {
-			if (!fon[k] && !fon.view) return 0
-			return smooth(0.2, 0.5, Math.abs(rot(WALL_NORMAL[k])[2]))
+			if (fon[k]) return smooth(0.12, 0.36, wallFacing(k))
+			if (!fon.view) return 0
+			return spec.interactive ? smooth(0.94, 0.985, wallFacing(k)) : smooth(0.2, 0.5, wallFacing(k))
 		}
 		function rot(p) {
 			const cy = Math.cos(view.yaw), sy = Math.sin(view.yaw), cp = Math.cos(view.pitch), sp = Math.sin(view.pitch)
 			const x1 = p[0] * cy - p[1] * sy, y1 = p[0] * sy + p[1] * cy
 			return [x1, p[2] * cp + y1 * sp, y1 * cp - p[2] * sp] // right, up, away from the viewer
 		}
-		// scale the box so its rotated outline always fills the same space. This grows smoothly as the
-		// view turns flat, so points glide straight to their place instead of overshooting and coming back
-		// Perspective is included, so corners swung towards the camera don't get cut off at the top or bottom.
-		function fit() {
-			let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity
+		// Fit the projected silhouette in both dimensions. Pan is measured in fitted
+		// plot units so resizing the canvas preserves the part of the plot in view.
+		let frame = null
+		function fit(W, H) {
 			const pf = view.persp ? 1 - flatness() : 0
-			for (const a of [-1, 1]) for (const b of [-1, 1]) for (const c of [-1, 1]) {
-				const q = rot([a, b, c]), m = 1 + (5 / (5 + q[2]) - 1) * pf, x = q[0] * m, y = q[1] * m
-				x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y)
+			const raw = (p) => {
+				const [x, y, depth] = rot(p)
+				const m = 1 + (5 / (5 + depth) - 1) * pf
+				return [x * m, -y * m, depth, m]
 			}
-			// centre the box's real (perspective) outline, not the origin: corners near the camera project
-			// bigger, so a box centred on its origin sits low and loses its bottom edge
-			return { s: 2 / Math.max(x1 - x0, y1 - y0), cx: (x0 + x1) / 2, cy: (y0 + y1) / 2 }
-		}
-		let fitNow = { s: 1, cx: 0, cy: 0 }
-		function project(p, W, H) {
-			const [x1, z2, y2] = rot(p)
-			const pf = view.persp ? 1 - flatness() : 0
-			const m = 1 + (5 / (5 + y2) - 1) * pf // 1 when flat; above 1 for points nearer the camera
-			const k = Math.min(W, H * 1.35) * 0.29 * view.zoom * fitNow.s
-			return [W / 2 + (x1 * m - fitNow.cx) * k + view.panX, H * 0.5 - (z2 * m - fitNow.cy) * k + view.panY, y2, m]
+			const corners = []
+			for (const x of [-1, 1]) for (const y of [-1, 1]) for (const z of [-1, 1]) corners.push(raw([x, y, z]))
+			const xs = corners.map((p) => p[0]), ys = corners.map((p) => p[1])
+			const left = Math.min(...xs), right = Math.max(...xs), top = Math.min(...ys), bottom = Math.max(...ys)
+			const padX = clamp(W * 0.115, 31, 145), padY = clamp(H * 0.13, 33, 85)
+			const scale = Math.max(1, Math.min((W - 2 * padX) / (right - left), (H - 2 * padY) / (bottom - top)))
+			const maxPan = (extent, span) => Math.max(0, (extent * scale * view.zoom - span) / 2) + Math.min(span * 0.22, extent * scale * view.zoom * 0.30)
+			view.panX = clamp(view.panX, -maxPan(right - left, W) / scale, maxPan(right - left, W) / scale)
+			view.panY = clamp(view.panY, -maxPan(bottom - top, H) / scale, maxPan(bottom - top, H) / scale)
+			const cx = (left + right) / 2, cy = (top + bottom) / 2
+			return { W, H, scale, project(p) {
+				const [x, y, depth, m] = raw(p)
+				return [W / 2 + ((x - cx) * view.zoom + view.panX) * scale, H / 2 + ((y - cy) * view.zoom + view.panY) * scale, depth, m]
+			} }
 		}
 		function draw() {
-			paint()
-			updateFronts() // which lines are showing depends on the angle
+			if (!cv.isConnected || !paint()) return
+			updateFronts()
 		}
 		function paint() {
 			const r = cv.getBoundingClientRect(), dpr = window.devicePixelRatio || 1
-			const W = Math.max(320, r.width), H = r.height
-			if (cv.width !== Math.round(W * dpr)) { cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr) }
+			const W = r.width, H = r.height
+			if (W < 1 || H < 1) return false
+			const bw = Math.round(W * dpr), bh = Math.round(H * dpr)
+			if (cv.width !== bw) cv.width = bw
+			if (cv.height !== bh) cv.height = bh
 			const c = cv.getContext("2d")
 			c.setTransform(dpr, 0, 0, dpr, 0, 0)
 			c.clearRect(0, 0, W, H)
-			fitNow = fit()
-			const pr = (p) => project(p, W, H)
+			frame = fit(W, H)
+			const pr = frame.project
+			const quiet = spec.interactive && H < 300
 			const AX = { x: acol("x"), y: acol("z"), z: acol("y") } // keyed by 3D slot: across, depth, up
 			const axis = css("--axis"), panel = css("--panel"), fg = css("--fg"), grid = css("--grid")
 			const MONO = "'IBM Plex Mono', monospace", SANS = "'IBM Plex Sans', sans-serif"
 			const seg = (a, b, col, w, al) => { const P = pr(a), Q = pr(b); c.globalAlpha = al; c.strokeStyle = col; c.lineWidth = w; c.beginPath(); c.moveTo(P[0], P[1]); c.lineTo(Q[0], Q[1]); c.stroke(); c.globalAlpha = 1 }
-			const cen = pr([0, 0, 0])
+			const cen = [W / 2 + view.panX * frame.scale, H / 2 + view.panY * frame.scale]
 			// grid planes: the floor, plus the two walls behind the data, each line tinted by its axis
 			const wy = pr([0, 1, 0])[2] > pr([0, -1, 0])[2] ? 1 : -1, wx = pr([1, 0, 0])[2] > pr([-1, 0, 0])[2] ? 1 : -1
 			T.x.forEach((v) => { seg([X(v), -1, -1], [X(v), 1, -1], AX.x, 1, 0.3); seg([X(v), wy, -1], [X(v), wy, 1], AX.x, 1, 0.3) })
@@ -588,66 +643,102 @@ if (typeof globalThis !== "undefined") {
 			const ey = pr([0, -1, -1])[1] >= pr([0, 1, -1])[1] ? -1 : 1, ex = pr([-1, 0, -1])[1] >= pr([1, 0, -1])[1] ? -1 : 1
 			const zc = [[-1, -1], [-1, 1], [1, -1], [1, 1]].sort((a, b) => pr([a[0], a[1], 0])[0] - pr([b[0], b[1], 0])[0] || pr([a[0], a[1], 0])[2] - pr([b[0], b[1], 0])[2])[0]
 			const len = (a, b) => Math.hypot(pr(a)[0] - pr(b)[0], pr(a)[1] - pr(b)[1])
-			const out = (pt, d) => { const a = pr(pt), dx = a[0] - cen[0], dy = a[1] - cen[1], L = Math.hypot(dx, dy) || 1; return [a[0] + (dx / L) * d, a[1] + (dy / L) * d, dx / L] }
-			const label = (txt, pt, d, col, font) => { const q = out(pt, d); c.font = font; c.fillStyle = col; c.textBaseline = "middle"; c.textAlign = q[2] > 0.45 ? "left" : q[2] < -0.45 ? "right" : "center"; c.fillText(txt, q[0], q[1]) }
+			const axisLabels = []
+			const axisLabel = (txt, pt, normal, distance, col, font) => {
+				const q = pr(pt)
+				c.font = font; c.fillStyle = col; c.textBaseline = "middle"; c.textAlign = "left"
+				const width = c.measureText(txt).width
+				const anchor = normal[0] > 0.58 ? 0 : normal[0] < -0.58 ? 1 : 0.5
+				const x = q[0] + normal[0] * distance - width * anchor, y = q[1] + normal[1] * distance
+				if (y < -9 || y > H + 9 || x + width < 0 || x > W) return
+				const left = clamp(x, 4, W - width - 4), mid = clamp(y, 8, H - 8)
+				const box = [left - 3, mid - 7, left + width + 3, mid + 7]
+				if (axisLabels.some(([l, t, r, b]) => box[0] < r && box[1] < b && box[2] > l && box[3] > t)) return
+				axisLabels.push(box)
+				c.fillText(txt, left, mid)
+			}
 			const lowY = T.y[0]
 			const AXES = [
-				{ col: AX.x, a: [-1, ey, -1], b: [1, ey, -1], ticks: T.x.map((v) => [MX.tick(v), [X(v), ey, -1]]), title: [MX.label + (MX.log ? " (log)" : ""), [0, ey, -1]] },
-				{ col: AX.y, a: [ex, -1, -1], b: [ex, 1, -1], ticks: T.z.filter((v) => Math.abs(Zd(v) - ey) > 1e-9).map((v) => [MZ.tick(v), [ex, Zd(v), -1]]), title: [MZ.label + (MZ.log ? " (log)" : ""), [ex, 0, -1]] },
+				{ col: AX.x, a: [-1, ey, -1], b: [1, ey, -1], ticks: T.x.map((v) => [MX.tick(v), [X(v), ey, -1]]), title: [(W < 560 ? MX.short : MX.label) + (MX.log ? " (log)" : ""), [0, ey, -1]] },
+				{ col: AX.y, a: [ex, -1, -1], b: [ex, 1, -1], ticks: T.z.filter((v) => Math.abs(Zd(v) - ey) > 1e-9).map((v) => [MZ.tick(v), [ex, Zd(v), -1]]), title: [(W < 560 ? MZ.short : MZ.label) + (MZ.log ? " (log)" : ""), [ex, 0, -1]] },
 				{ col: AX.z, a: [zc[0], zc[1], -1], b: [zc[0], zc[1], 1], ticks: T.y.filter((v) => v > lowY).map((v) => [MY.tick(v), [zc[0], zc[1], Y(v)]]), title: [MY.short, [zc[0], zc[1], 1.14]] },
 			]
 			AXES.forEach((ax) => {
-				const al = Math.min(1, Math.max(0, (len(ax.a, ax.b) - 60) / 70)) // fades out when the axis points at the viewer
+				const al = clamp((len(ax.a, ax.b) - 25) / 72, 0, 1) // fades out when the axis points at the viewer
 				if (al < 0.02) return
 				seg(ax.a, ax.b, ax.col, 3, al)
 				c.globalAlpha = al
-				ax.ticks.forEach(([txt, pt]) => label(txt, pt, 12, ax.col, `11px ${MONO}`))
-				const side = Math.abs(out(ax.title[1], 1)[2]) > 0.45
-				label(ax.title[0], ax.title[1], ax === AXES[2] ? 14 : side ? 82 : 38, ax.col, `600 13px ${SANS}`)
+				if (!quiet) {
+					const P = pr(ax.a), Q = pr(ax.b)
+					const dx = Q[0] - P[0], dy = Q[1] - P[1], length = Math.hypot(dx, dy)
+					const nx = -dy / length, ny = dx / length
+					const side = nx * ((P[0] + Q[0]) / 2 - cen[0]) + ny * ((P[1] + Q[1]) / 2 - cen[1]) < 0 ? -1 : 1
+					const normal = [nx * side, ny * side]
+					axisLabel(ax.title[0], ax.title[1], normal, ax === AXES[2] ? 13 : (Math.abs(nx) > 0.58 ? 56 : 42), ax.col, `600 12px ${SANS}`)
+					ax.ticks.forEach(([txt, pt]) => axisLabel(txt, pt, normal, 13, ax.col, `11px ${MONO}`))
+				}
 				c.globalAlpha = 1
 			})
 			// best trade-off lines: each pair is drawn as a curve on the wall where its two measures are the axes
 			const CURVES = [
-				["xy", `Best ${MY.short.toLowerCase()} for the ${MX.short.toLowerCase()}`, (p) => [p[0], wy, p[2]], (a, b) => a.p[0] - b.p[0]],
-				["zy", `Best ${MY.short.toLowerCase()} for the ${MZ.short.toLowerCase()}`, (p) => [wx, p[1], p[2]], (a, b) => a.p[1] - b.p[1]],
-				["xz", `Best ${MX.short.toLowerCase()} for the ${MZ.short.toLowerCase()}`, (p) => [p[0], p[1], -1], (a, b) => a.p[0] - b.p[0]],
+				["xy", (p) => [p[0], wy, p[2]], 0, (a, b) => [b[0], wy, a[2]]],
+				["zy", (p) => [wx, p[1], p[2]], 1, (a, b) => [wx, b[1], a[2]]],
+				["xz", (p) => [p[0], p[1], -1], 0, (a, b) => [b[0], a[1], -1]],
 			]
-			CURVES.forEach(([k, name, wall, cmp]) => {
-				const al = curveAlpha(k)
-				if (al < 0.02) return // its wall is edge-on, so neither the line nor its label would read
-				const pts = P3.filter((o) => FR[k].has(o.d)).sort(cmp)
+			const show3D = front3D()
+			const alphas = Object.fromEntries(pairKeys.map((k) => [k, curveAlpha(k)]))
+			const activePairs = pairKeys.filter((k) => alphas[k] > 0.5)
+			const showFront = show3D || activePairs.length > 0
+			const member = (d) => (show3D && FR.all.has(d)) || activePairs.some((k) => FR[k].has(d))
+			const displayed = P3.filter(({ d }) => isVisible(d) && (!onlyFrontier || !showFront || member(d)))
+			CURVES.forEach(([k, wall, sortAxis, corner]) => {
+				const al = alphas[k]
+				if (al < 0.02) return
+				const pts = displayed.filter(({ d }) => FR[k].has(d)).sort((a, b) => a.p[sortAxis] - b.p[sortAxis])
 				if (!pts.length) return
-				pts.forEach((o) => { const P = pr(o.p), Q = pr(wall(o.p)); c.globalAlpha = 0.3 * al; c.strokeStyle = fg; c.lineWidth = 1; c.setLineDash([1, 3]); c.beginPath(); c.moveTo(P[0], P[1]); c.lineTo(Q[0], Q[1]); c.stroke(); c.setLineDash([]) })
-				c.globalAlpha = al; c.strokeStyle = fg; c.lineWidth = 2.4; c.lineCap = "round"; c.lineJoin = "round"
-				if (pts.length === 1) { const Q = pr(wall(pts[0].p)); c.beginPath(); c.arc(Q[0], Q[1], 5, 0, 7); c.stroke() } // one winner: mark its spot on the wall
-				else { c.setLineDash([7, 5]); c.beginPath(); pts.forEach((o, i) => { const Q = pr(wall(o.p)); i ? c.lineTo(Q[0], Q[1]) : c.moveTo(Q[0], Q[1]) }); c.stroke(); c.setLineDash([]) }
-				const txt = pts.length === 1 ? `${pts[0].d.name.replace(/^Claude /, "")} wins on both` : name
-				const L = pr(wall(pts[pts.length - 1].p))
-				c.font = `600 12.5px ${SANS}`; c.textAlign = "left"; c.textBaseline = "alphabetic"
-				c.lineWidth = 4; c.strokeStyle = panel; c.strokeText(txt, L[0] + 8, L[1] - 10); c.fillStyle = fg; c.fillText(txt, L[0] + 8, L[1] - 10)
+				const color = frontColor(k)
+				if (wallFacing(k) < 0.985 && !quiet) {
+					c.setLineDash([2, 4])
+					pts.forEach(({ p }) => seg(p, wall(p), color, 1, 0.28 * al))
+					c.setLineDash([])
+				}
+				c.globalAlpha = al; c.strokeStyle = color; c.lineWidth = quiet ? 1.5 : 2.5; c.lineCap = "round"; c.lineJoin = "round"
+				c.beginPath()
+				pts.forEach(({ p }, i) => {
+					const [x, y] = pr(wall(p))
+					if (i) {
+						const [cx, cy] = pr(corner(pts[i - 1].p, p))
+						c.lineTo(cx, cy); c.lineTo(x, y)
+					} else if (pts.length === 1) c.arc(x, y, 8, 0, 2 * Math.PI)
+					else c.moveTo(x, y)
+				})
+				c.stroke()
 				c.globalAlpha = 1
 			})
-			// data: a line joins each group's effort levels
-			proj3 = P3.map((o) => ({ o, s: pr(o.p) }))
+			// Plot the actual samples above their projected frontier steps.
+			proj3 = displayed.map((o) => ({ o, s: pr(o.p) }))
 			if (drawLines) groups.forEach((g) => {
 				const rows = proj3.filter((o) => o.o.d._group === g).sort((a, b) => EFFORT_ORDER.indexOf(a.o.d.effort) - EFFORT_ORDER.indexOf(b.o.d.effort))
-				c.strokeStyle = gcol(g); c.lineCap = "round"
+				c.strokeStyle = gcol(g); c.lineCap = "round"; c.globalAlpha = 0.32
 				rows.forEach((o, i) => { if (!i) return; const p = rows[i - 1]; c.lineWidth = (3 * (o.s[3] + p.s[3])) / 2; c.beginPath(); c.moveTo(p.s[0], p.s[1]); c.lineTo(o.s[0], o.s[1]); c.stroke() })
+				c.globalAlpha = 1
 			})
 			const order = [...proj3].sort((a, b) => b.s[2] - a.s[2]) // far to near
-			const dotR = (o) => 6 * Math.pow(o.s[3], 1.8)
+			const dotR = (o) => (quiet ? 3.3 : order.length > 45 ? 4.3 : 5.4) * Math.pow(o.s[3], 1.2)
 			const hit = (p, q) => p[0] < q[2] && q[0] < p[2] && p[1] < q[3] && q[1] < p[3]
-			const ringed = (o) => ["xy", "zy", "xz"].some((k) => curveAlpha(k) > 0.5 && FR[k].has(o.o.d)) || (fon.all && FR.all.has(o.o.d))
-			const anyOn = fon.all || ["xy", "zy", "xz"].some((k) => curveAlpha(k) > 0.5)
+			const ringed = (o) => member(o.o.d)
+			const anyOn = showFront
 			// front-only labels may cover faded points, and get more (farther) spots to try
 			const onlyFront = spec.labels === "front"
 			const taken = order.filter((o) => !onlyFront || ringed(o)).map((o) => { const r = dotR(o) + (ringed(o) ? (onlyFront ? 5 : 9) : 2); return [o.s[0] - r, o.s[1] - r, o.s[0] + r, o.s[1] + r] })
 			const CAND = [[11, -7, "l"], [11, 14, "l"], [-11, -7, "r"], [-11, 14, "r"], [0, -15, "c"], [0, 25, "c"], [17, 4, "l"], [-17, 4, "r"]]
 			if (onlyFront) CAND.push([20, -16, "l"], [-20, 22, "r"], [24, 4, "l"], [-24, 4, "r"], [26, 22, "l"], [-26, -14, "r"], [0, -27, "c"], [0, 37, "c"])
 			const lab = new Map()
+			const labelBudget = spec.interactive ? Math.max(4, Math.floor(W * H / 34000)) : Infinity
 			// near points pick their label spot first; a label that fits nowhere is left out (hover shows it)
 			;[...order].reverse().forEach((o) => {
-				if (spec.labels === "front" && (!anyOn || !ringed(o))) return
+				if (quiet || lab.size >= labelBudget || (spec.labels === "front" && (!anyOn || !ringed(o)))) return
+				if (o.s[0] < 0 || o.s[0] > W || o.s[1] < 0 || o.s[1] > H) return
 				const m = o.s[3], txt = o.o.d._label
 				c.font = `${11.5 * m}px ${MONO}`
 				const w = c.measureText(txt).width
@@ -660,18 +751,20 @@ if (typeof globalThis !== "undefined") {
 				}
 			})
 			order.forEach((o) => {
-				{
+				if (hover === o.o.d && !quiet) {
 					const f = pr([o.o.p[0], o.o.p[1], -1])
 					c.globalAlpha = 1 - flatness(); c.strokeStyle = grid; c.lineWidth = 1; c.setLineDash([2, 3])
 					c.beginPath(); c.moveTo(o.s[0], o.s[1]); c.lineTo(f[0], f[1]); c.stroke(); c.setLineDash([]); c.globalAlpha = 1
 				}
 				const on = hover === o.o.d, rg = ringed(o)
-				c.globalAlpha = anyOn && !rg ? spec.fade ?? 0.45 : 1
+				c.globalAlpha = anyOn && !rg && !on ? spec.fade ?? 0.45 : 1
 				c.fillStyle = dcol(o.o.d); c.strokeStyle = panel
 				c.lineWidth = 2 * o.s[3]; c.beginPath(); c.arc(o.s[0], o.s[1], on ? dotR(o) * 1.3 : dotR(o), 0, 7); c.fill(); c.stroke()
 				if (rg) {
-					c.strokeStyle = fg; c.lineWidth = 2; c.beginPath(); c.arc(o.s[0], o.s[1], dotR(o) + 4 * o.s[3], 0, 7); c.stroke()
-					if (fon.all && FR.all.has(o.o.d) && spec.labels !== "front") { c.beginPath(); c.arc(o.s[0], o.s[1], dotR(o) + 8 * o.s[3], 0, 7); c.stroke() }
+					const pair = activePairs.find((k) => FR[k].has(o.o.d))
+					c.strokeStyle = show3D && FR.all.has(o.o.d) ? fg : frontColor(pair)
+					c.lineWidth = quiet ? 1 : 1.5
+					c.beginPath(); c.arc(o.s[0], o.s[1], dotR(o) + (quiet ? 2 : 3), 0, 2 * Math.PI); c.stroke()
 				}
 				c.globalAlpha = anyOn && !rg ? 0.6 : 1
 				const l = lab.get(o)
@@ -682,10 +775,10 @@ if (typeof globalThis !== "undefined") {
 				c.globalAlpha = 1
 			})
 			// corner gizmo: shows all three axes, so the hidden one is visible in a flat view
-			if (W >= 520) {
-				const ox = W - 72, oy = 64, L = 30
+			if (!quiet && W >= 560) {
+				const ox = W - 62, oy = 55, L = 25
 				c.globalAlpha = 0.9; c.fillStyle = panel; c.strokeStyle = css("--border"); c.lineWidth = 1
-				c.beginPath(); c.arc(ox, oy, 50, 0, 7); c.fill(); c.stroke(); c.globalAlpha = 1
+				c.beginPath(); c.arc(ox, oy, 43, 0, 7); c.fill(); c.stroke(); c.globalAlpha = 1
 				;[[MX.short, [1, 0, 0], AX.x], [MZ.short, [0, 1, 0], AX.y], [MY.short, [0, 0, 1], AX.z]]
 					.map((a) => ({ n: a[0], col: a[2], r: rot(a[1]) }))
 					.sort((a, b) => b.r[2] - a.r[2])
@@ -700,6 +793,7 @@ if (typeof globalThis !== "undefined") {
 						} else { const ux = dx / ln, uy = dy / ln; c.textAlign = ux > 0.4 ? "left" : ux < -0.4 ? "right" : "center"; c.fillText(a.n, ox + dx + ux * 7, oy + dy + uy * 9) }
 					})
 			}
+			return true
 		}
 		const reduced = () => matchMedia("(prefers-reduced-motion: reduce)").matches
 		function tween(p, ms) {
@@ -717,9 +811,12 @@ if (typeof globalThis !== "undefined") {
 			}
 			anim = requestAnimationFrame(step)
 		}
-		const viewBtns = () => root.querySelectorAll('[data-r="views"] button')
+		const viewBtns = () => root.querySelectorAll("[data-v]")
 		const markView = (name) => viewBtns().forEach((b) => b.classList.toggle("on", b.dataset.v === name))
-		markView(spec.view in PRESETS ? spec.view : "front")
+		markView(Object.keys(PRESETS).find((k) => {
+			const p = PRESETS[k]
+			return Math.abs(view.pitch - p.pitch) < 0.01 && Math.abs(Math.sin((view.yaw - p.yaw) / 2)) < 0.01
+		}))
 		function goto(name) { touch(); markView(name); tween(PRESETS[name], 450) }
 		// let go within about 10 degrees of a straight-on view and it eases onto that view exactly
 		function snap() {
@@ -731,95 +828,250 @@ if (typeof globalThis !== "undefined") {
 		}
 		viewBtns().forEach((b) => b.addEventListener("click", () => goto(b.dataset.v)))
 		function updateFronts() {
-			root.querySelectorAll('[data-r="fronts"] button').forEach((b) => b.setAttribute("aria-pressed", String(fon[b.dataset.f])))
-			const act = ["xy", "zy", "xz"].filter((k) => curveAlpha(k) > 0.5).concat(fon.all ? ["all"] : [])
-			$("fcount").textContent = act.length ? "On the line: " + act.map((k) => `${FNAME[k]} ${FR[k].size} of ${DATA.length}`).join(" · ") : ""
+			const act = pairKeys.filter((k) => curveAlpha(k) > 0.5).concat(front3D() ? ["all"] : [])
+			const names = { xy: MY.short + "/" + MX.short, zy: MY.short + "/" + MZ.short, xz: MX.short + "/" + MZ.short, all: "3D" }
+			const count = act.length ? act.map((k) => `${names[k]} ${FR[k].size}/${visibleLive.length}`).join(" · ") : ""
+			if ($("fcount").textContent !== count) $("fcount").textContent = count
 		}
-		root.querySelectorAll('[data-r="fronts"] button').forEach((b) => b.addEventListener("click", () => { fon[b.dataset.f] = !fon[b.dataset.f]; updateFronts(); draw() }))
-		updateFronts()
+		root.querySelectorAll("[data-f]").forEach((b) => {
+			b.setAttribute("aria-pressed", String(fon[b.dataset.f]))
+			b.addEventListener("click", () => {
+				b.setAttribute("aria-pressed", String(fon[b.dataset.f] = !fon[b.dataset.f]))
+				clearHover()
+				draw()
+			})
+		})
+		$("persp").checked = view.persp
 		$("persp").addEventListener("change", (e) => { view.persp = e.target.checked; draw() })
-		function pick(e) {
+		function pick(e, radius = 14) {
 			const r = cv.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top
-			let best = null, bd = 18
-			proj3.forEach((o) => { const d = Math.hypot(o.s[0] - x, o.s[1] - y) - 6 * (o.s[3] - 1); if (d < bd) { bd = d; best = o.o.d } })
+			let best = null, distance = radius, depth = Infinity
+			proj3.forEach(({ o, s }) => {
+				const d = Math.hypot(s[0] - x, s[1] - y)
+				if (d < distance || (best && d === distance && s[2] < depth)) {
+					distance = d; depth = s[2]; best = o.d
+				}
+			})
 			return best
 		}
-		let drag = null, touched = false
+		let drag = null, touched = false, mode = "rotate", hintTimer = 0, noticeTimer = 0, lastHidden = null
 		const touch = () => { touched = true; root.querySelector(".hint").classList.add("gone") }
-		// one pointer rotates (Shift: moves); two touch pointers pinch to zoom
+		const clearHover = () => { hover = null; hideTip() }
+		const fitView = () => { touch(); clearHover(); tween({ zoom: 1, panX: 0, panY: 0 }, 240) }
+		function setMode(next) {
+			mode = next
+			$("pan")?.setAttribute("aria-pressed", String(mode === "pan"))
+			$("box")?.setAttribute("aria-pressed", String(mode === "box"))
+			cv.style.cursor = mode === "box" ? "crosshair" : mode === "pan" ? "move" : "grab"
+		}
+		function updateHidden() {
+			const concealed = DATA.filter((d) => !isVisible(d))
+			const menu = $("hidden")
+			menu.hidden = !concealed.length
+			if (!concealed.length) menu.open = false
+			$("hidden-count").textContent = `Hidden (${concealed.length})`
+			$("hidden-list").replaceChildren(...concealed.map((d) => {
+				const b = document.createElement("button")
+				b.type = "button"; b.textContent = `Restore ${d.name}`
+				b.addEventListener("click", () => restore([d.id]))
+				return b
+			}))
+			$("empty").hidden = !!visible.length
+			spec.onVisibilityChange?.(concealed)
+		}
+		function dismissNotice() {
+			$("notice").hidden = true
+			clearTimeout(noticeTimer)
+		}
+		function restore(ids) {
+			ids.forEach((id) => hidden.delete(id))
+			if (ids.includes(lastHidden)) { dismissNotice(); lastHidden = null }
+			computeFrontiers()
+			updateHidden()
+			draw()
+		}
+		if (spec.interactive) {
+			$("pan").addEventListener("click", () => setMode(mode === "pan" ? "rotate" : "pan"))
+			$("box").addEventListener("click", () => setMode(mode === "box" ? "rotate" : "box"))
+			$("fit").addEventListener("click", fitView)
+			$("only").setAttribute("aria-pressed", String(onlyFrontier))
+			$("only").addEventListener("click", () => {
+				$("only").setAttribute("aria-pressed", String(onlyFrontier = !onlyFrontier))
+				clearHover()
+				draw()
+			})
+			$("undo").addEventListener("click", () => restore([lastHidden]))
+			$("restore-all").addEventListener("click", () => restore(DATA.map((d) => d.id)))
+			const notice = $("notice")
+			const expire = () => {
+				clearTimeout(noticeTimer)
+				noticeTimer = setTimeout(() => {
+					if (!notice.matches(":hover, :focus-within")) dismissNotice()
+				}, 5500)
+			}
+			notice.addEventListener("pointerleave", expire)
+			notice.addEventListener("focusout", expire)
+			cv.addEventListener("contextmenu", (e) => {
+				const d = pick(e, 10)
+				if (!d) return
+				e.preventDefault()
+				clearHover()
+				hidden.add(d.id); lastHidden = d.id
+				computeFrontiers()
+				updateHidden()
+				const r = cv.getBoundingClientRect()
+				$("notice-text").textContent = `Hidden: ${d.name}`
+				notice.hidden = false
+				const x = clamp(e.clientX - r.left + 9, 8, r.width - notice.offsetWidth - 8)
+				const y = clamp(e.clientY - r.top + 10, 8, r.height - notice.offsetHeight - 8)
+				notice.style.left = `${x}px`; notice.style.top = `${y}px`
+				expire()
+				draw()
+			})
+			cv.addEventListener("keydown", (e) => {
+				const arrows = { ArrowLeft: [-32, 0], ArrowRight: [32, 0], ArrowUp: [0, -32], ArrowDown: [0, 32] }
+				if (e.key in arrows && frame) {
+					e.preventDefault(); cancelAnimationFrame(anim); touch(); clearHover()
+					const [dx, dy] = arrows[e.key]
+					view.panX += dx / frame.scale; view.panY += dy / frame.scale
+					draw()
+				} else if (e.key === "Home") { e.preventDefault(); fitView() }
+				else if (e.key === "Escape" && (drag?.mode === "box" || mode === "box")) {
+					e.preventDefault(); $("rect").hidden = true; drag = null; setMode("rotate")
+				}
+			})
+			updateHidden()
+		}
 		const ptrs = new Map()
 		let pinch = null
-		const zoomAt = (f, cx, cy) => {
-			const r = cv.getBoundingClientRect(), nz = Math.max(0.5, Math.min(4, view.zoom * f)), g = nz / view.zoom
-			const ox = cx - r.left - r.width / 2, oy = cy - r.top - r.height / 2 // keep the spot under the cursor still
-			view.panX = ox - (ox - view.panX) * g; view.panY = oy - (oy - view.panY) * g; view.zoom = nz
+		const minZoom = 0.5, maxZoom = spec.interactive ? 12 : 4
+		function zoomAt(factor, clientX, clientY, moveToCenter = false) {
+			if (!frame) return
+			const r = cv.getBoundingClientRect(), zoom = clamp(view.zoom * factor, minZoom, maxZoom), ratio = zoom / view.zoom
+			const x = (clientX - r.left - r.width / 2) / frame.scale, y = (clientY - r.top - r.height / 2) / frame.scale
+			view.panX = (moveToCenter ? 0 : x) - (x - view.panX) * ratio
+			view.panY = (moveToCenter ? 0 : y) - (y - view.panY) * ratio
+			view.zoom = zoom
+		}
+		function boxAt(e) {
+			const r = cv.getBoundingClientRect()
+			const x = clamp(e.clientX - r.left, 0, r.width), y = clamp(e.clientY - r.top, 0, r.height)
+			return { left: Math.min(drag.x0, x), top: Math.min(drag.y0, y), width: Math.abs(x - drag.x0), height: Math.abs(y - drag.y0) }
 		}
 		cv.addEventListener("pointerdown", (e) => {
+			if (e.button !== 0 && !(spec.interactive && e.button === 1)) return
+			if (e.button === 1) e.preventDefault()
 			ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY })
 			cv.setPointerCapture(e.pointerId)
-			if (ptrs.size === 2) { const [p, q] = [...ptrs.values()]; pinch = { d: Math.hypot(p.x - q.x, p.y - q.y) }; drag = null; return }
-			drag = { x: e.clientX, y: e.clientY, pan: e.shiftKey }; cv.style.cursor = e.shiftKey ? "move" : "grabbing"
+			if (ptrs.size === 2) {
+				const [p, q] = [...ptrs.values()]
+				pinch = { d: Math.hypot(p.x - q.x, p.y - q.y) }; drag = null
+				if ($("rect")) $("rect").hidden = true
+				return
+			}
+			const r = cv.getBoundingClientRect()
+			const action = e.shiftKey || e.button === 1 ? "pan" : mode
+			drag = { id: e.pointerId, x: e.clientX, y: e.clientY, x0: e.clientX - r.left, y0: e.clientY - r.top, mode: action, moved: false }
+			cv.style.cursor = action === "box" ? "crosshair" : action === "pan" ? "move" : "grabbing"
 		})
 		cv.addEventListener("pointermove", (e) => {
 			if (ptrs.has(e.pointerId)) ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY })
 			if (pinch && ptrs.size === 2) {
 				const [p, q] = [...ptrs.values()], d = Math.hypot(p.x - q.x, p.y - q.y)
-				touch(); cancelAnimationFrame(anim); zoomAt(d / pinch.d, (p.x + q.x) / 2, (p.y + q.y) / 2); pinch.d = d; draw(); return
+				touch(); clearHover(); cancelAnimationFrame(anim)
+				if (pinch.d > 0 && d > 0) zoomAt(d / pinch.d, (p.x + q.x) / 2, (p.y + q.y) / 2)
+				pinch.d = d; draw(); return
 			}
-			if (drag && (e.buttons || e.pointerType === "touch")) {
-				touch(); cancelAnimationFrame(anim)
-				if (drag.pan || e.shiftKey) { view.panX += e.clientX - drag.x; view.panY += e.clientY - drag.y }
-				else {
-					viewBtns().forEach((x) => x.classList.remove("on"))
-					view.yaw += (e.clientX - drag.x) * 0.008
-					view.pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, view.pitch + (e.clientY - drag.y) * 0.008))
+			if (drag && drag.id === e.pointerId && frame) {
+				const dx = e.clientX - drag.x, dy = e.clientY - drag.y
+				if (!drag.moved && Math.hypot(dx, dy) < 4) return
+				drag.moved = true
+				touch(); clearHover(); cancelAnimationFrame(anim)
+				if (drag.mode === "box") {
+					const box = boxAt(e), rect = $("rect")
+					Object.entries(box).forEach(([key, value]) => { rect.style[key] = `${value}px` })
+					rect.hidden = false
+				} else if (drag.mode === "pan") {
+					view.panX += dx / frame.scale; view.panY += dy / frame.scale
+				} else {
+					markView(null)
+					view.yaw += dx * 0.008
+					view.pitch = clamp(view.pitch + dy * 0.008, -Math.PI / 2, Math.PI / 2)
 				}
-				drag = { x: e.clientX, y: e.clientY, pan: drag.pan, moved: true, rotated: drag.rotated || !(drag.pan || e.shiftKey) }
+				drag.x = e.clientX; drag.y = e.clientY
+				draw()
+				return
 			}
-			hover = pick(e)
-			hover ? showTip(hover, e) : hideTip()
-			if (!drag) cv.style.cursor = hover && hover.url ? "pointer" : "grab"
-			draw()
+			const next = pick(e)
+			if (next) showTip(next, e)
+			else hideTip()
+			if (mode === "rotate") cv.style.cursor = next?.url ? "pointer" : "grab"
+			if (next !== hover) { hover = next; draw() }
 		})
-		const release = (e) => { ptrs.delete(e.pointerId); if (ptrs.size < 2) pinch = null }
-		cv.addEventListener("pointercancel", (e) => { release(e); drag = null })
+		function release(e) {
+			ptrs.delete(e.pointerId)
+			if (ptrs.size < 2) pinch = null
+		}
+		cv.addEventListener("lostpointercapture", (e) => {
+			release(e)
+			if (drag?.id !== e.pointerId) return
+			drag = null; setMode(mode)
+			if ($("rect")) $("rect").hidden = true
+		})
 		cv.addEventListener("pointerup", (e) => {
-			const wasPinch = !!pinch; release(e)
-			const d0 = drag; drag = null; cv.style.cursor = "grab"
-			if (wasPinch || !d0) return
-			if (d0.moved) return d0.rotated ? snap() : undefined
-			const d = pick(e)
-			if (d && d.url) location.href = d.url
+			if (!ptrs.has(e.pointerId)) return
+			const wasPinch = !!pinch
+			release(e)
+			if (wasPinch || drag?.id !== e.pointerId) return
+			const action = drag.mode, moved = drag.moved
+			if (action === "box") {
+				const box = boxAt(e), r = cv.getBoundingClientRect()
+				$("rect").hidden = true
+				if (box.width >= 12 && box.height >= 12) {
+					cancelAnimationFrame(anim)
+					zoomAt(Math.min((r.width - 24) / box.width, (r.height - 24) / box.height),
+						r.left + box.left + box.width / 2, r.top + box.top + box.height / 2, true)
+					setMode("rotate")
+					draw()
+				}
+			} else if (moved && action === "rotate") snap()
+			else if (!moved && action === "rotate") {
+				const d = pick(e)
+				if (d?.url) location.href = d.url
+			}
+			drag = null
+			setMode(mode)
 		})
-		cv.addEventListener("dblclick", () => { touch(); tween({ zoom: 1, panX: 0, panY: 0 }, 350) })
-		cv.addEventListener("pointerleave", () => { hover = null; hideTip(); draw() })
-		// plain scroll keeps scrolling the page; ⌘/Ctrl + scroll (a trackpad pinch arrives as Ctrl + scroll) zooms
-		let hintTimer = 0
+		cv.addEventListener("dblclick", fitView)
+		cv.addEventListener("pointerleave", () => { clearHover(); draw() })
 		cv.addEventListener("wheel", (e) => {
-			if (!e.ctrlKey && !e.metaKey) {
+			if (!e.ctrlKey && !e.metaKey && !cv.closest("[data-expanded=true]")) {
 				const h = root.querySelector(".hint")
-				h.querySelector("span").textContent = "Hold ⌘ and scroll, or pinch, to zoom"
+				h.querySelector("span").textContent = "Hold Ctrl or ⌘ and scroll, or pinch, to zoom"
 				h.classList.remove("gone"); clearTimeout(hintTimer); hintTimer = setTimeout(() => h.classList.add("gone"), 1400)
 				return
 			}
-			e.preventDefault(); touch(); cancelAnimationFrame(anim)
-			zoomAt(Math.exp(-Math.max(-50, Math.min(50, e.deltaY)) * 0.01), e.clientX, e.clientY); draw()
+			e.preventDefault(); touch(); clearHover(); cancelAnimationFrame(anim)
+			zoomAt(Math.exp(-clamp(e.deltaY, -50, 50) * 0.009), e.clientX, e.clientY); draw()
 		}, { passive: false })
+		const resize = new ResizeObserver(draw)
+		resize.observe(cv)
 		addEventListener("resize", draw)
 		if (spec.height) cv.style.height = spec.height + "px"
-		if (spec.camera) touch()
+		if (spec.camera || spec.interactive) touch()
 		// once the chart scrolls into view, tilt it briefly and spring back, so the hidden third axis is noticed
+		let io, tiltTimer, resetTimer
 		if (window.IntersectionObserver && !reduced() && spec.view !== "iso") {
-			const io = new IntersectionObserver((es) => {
+			io = new IntersectionObserver((es) => {
 				if (!es[0].isIntersecting) return
 				io.disconnect()
 				const home = PRESETS[spec.view] || PRESETS.front
-				setTimeout(() => { if (touched) return; tween({ yaw: home.yaw - 0.5, pitch: home.pitch + (home.pitch > 1 ? -0.3 : 0.3) }, 600)
-					setTimeout(() => { if (!touched) tween(home, 900) }, 1300) }, 700)
+				tiltTimer = setTimeout(() => { if (touched) return; tween({ yaw: home.yaw - 0.5, pitch: home.pitch + (home.pitch > 1 ? -0.3 : 0.3) }, 600)
+					resetTimer = setTimeout(() => { if (!touched) tween(home, 900) }, 1300) }, 700)
 			}, { threshold: 0.6 })
 			io.observe(cv)
 		}
-		const repaint = () => setTimeout(() => { paintKeys(); draw() }, 50)
+		const repaint = () => { paintKeys(); draw() }
 		const mq = matchMedia("(prefers-color-scheme: dark)")
 		mq.addEventListener("change", repaint)
 		draw()
@@ -834,8 +1086,15 @@ if (typeof globalThis !== "undefined") {
 		}
 		const setTheme = (t) => { if (t) root.dataset.theme = t; else delete root.dataset.theme; paintKeys(); draw() }
 		// remove the window-level listeners when the host drops this chart (e.g. to mount a new selection)
-		const destroy = () => { removeEventListener("resize", draw); mq.removeEventListener("change", repaint); cancelAnimationFrame(anim); hideTip() }
-		return { data: DATA, redraw: draw, view, setTheme, destroy }
+		const destroy = () => {
+			resize.disconnect(); io?.disconnect()
+			removeEventListener("resize", draw); mq.removeEventListener("change", repaint)
+			cancelAnimationFrame(anim)
+			;[hintTimer, noticeTimer, tiltTimer, resetTimer].forEach(clearTimeout)
+			tip.remove()
+		}
+		return { data: DATA, redraw: draw, view, setTheme, destroy, hideTip, fit: fitView,
+			options: () => ({ onlyFrontier, fronts: Object.keys(fon).filter((k) => fon[k]) }) }
 	}
 
 	function commonPrefix(names) {
@@ -855,7 +1114,7 @@ if (typeof globalThis !== "undefined") {
 // ==UserScript==
 // @name         Artificial Analysis 3D Frontier Chart
 // @namespace    local.aa.3d-chart
-// @version      2.1.0
+// @version      2.2.0
 // @description  Adds Matt's own 3D model chart (intelligence × cost per task × time per task) under the homepage rankings. It shows AA's shared model selection, and quick picks (frontier, one or more makers) change that selection for every chart on the page.
 // @match        https://artificialanalysis.ai/*
 // @grant        GM_addElement
@@ -1001,35 +1260,127 @@ if (typeof globalThis !== "undefined") {
 
 	// ---- UI ----
 	const CSS = `
-#${CARD_ID}{margin-top:1rem}
-#${CARD_ID} .mc{--bg:#fff;--panel:#fff;--border:rgb(217,217,217)}
-#${CARD_ID} .mc .card{border:0;padding:0;background:transparent}
-#${CARD_ID} .mc .legend{padding:0 10px;font-size:13px}
-#${CARD_ID} .mc h2{font-family:inherit}
-#${CARD_ID} .aa3d-picks{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:0 10px 12px;font:14px/1.4 inherit}
-#${CARD_ID} .aa3d-picks .lbl{font-size:13.5px;color:#55575c;margin-right:2px}
-#${CARD_ID} .aa3d-picks button,#${CARD_ID} .aa3d-picks select{font:inherit;font-size:13.5px;padding:6px 12px;border:1px solid rgb(217,217,217);background:#fff;color:#17181a;border-radius:6px;cursor:pointer}
-#${CARD_ID} .aa3d-picks button:hover,#${CARD_ID} .aa3d-picks select:hover{border-color:#8a8c91}
-#${CARD_ID} .aa3d-picks button[aria-pressed=true]{background:#17181a;color:#fff;border-color:#17181a}
-#${CARD_ID} .aa3d-picks button:active{transform:translateY(1px)}
-#${CARD_ID} .aa3d-picks .sep{width:1px;height:22px;background:rgb(217,217,217);margin:0 4px}
-#${CARD_ID} .aa3d-picks .brk{flex-basis:100%;height:0}
-#${CARD_ID} .aa3d-picks .hint2{font-size:12.5px;color:#8a8c91;margin-left:4px}
-#${CARD_ID} .aa3d-status{color:#55575c;font-size:13px;padding:0 10px 10px;margin:0}
-#${CARD_ID} .aa3d-status b{font-weight:600;color:#17181a}
-html.dark #${CARD_ID} .mc{--bg:#161716;--panel:#161716;--border:#30312e}`
+#${CARD_ID}{margin-top:1rem;min-width:0}
+.aa3d-panel{--aa-bg:#fff;--aa-fg:#191a1d;--aa-soft:#626672;--aa-line:#e0e2e7;--aa-subtle:#f6f7f9;position:relative;background:var(--aa-bg);color:var(--aa-fg);border:1px solid var(--aa-line);border-radius:12px;min-width:0;font:14px/1.4 system-ui,sans-serif}
+html.dark .aa3d-panel{--aa-bg:#17181b;--aa-fg:#f4f4f6;--aa-soft:#b1b4bd;--aa-line:#353740;--aa-subtle:#22242a}
+.aa3d-panel [hidden]{display:none}
+.aa3d-panel .mc{--bg:var(--aa-subtle);--panel:var(--aa-bg);--border:var(--aa-line);gap:0;min-width:0}
+.aa3d-panel .mc .card{border:0;padding:0;background:transparent;min-width:0}
+.aa3d-panel .mc h2,.aa3d-panel .mc .cap,.aa3d-panel .mc .note{display:none}
+.aa3d-panel .mc .card > p.cap:last-child{display:block;padding:16px 12px}
+.aa3d-panel .mc .legend{padding:0 12px 5px;font-size:12px;gap:4px 13px;max-height:54px;overflow:auto}
+.aa3d-panel .mc .legend i{width:9px;height:9px;border-radius:50%;margin-right:5px}
+.aa3d-panel .mc .views{gap:5px;padding:4px 12px}
+.aa3d-panel .mc .views button{padding:4px 8px;font-size:12px;white-space:nowrap}
+.aa3d-panel .mc .views button:hover{border-color:var(--aa-soft)}
+.aa3d-panel .mc .views label,.aa3d-panel .mc .axkey,.aa3d-panel .mc .fcount{font-size:12px}
+.aa3d-panel .mc .views.fronts{border-bottom:1px solid var(--aa-line);padding-bottom:8px}
+.aa3d-panel .mc .axkey{gap:9px}
+.aa3d-panel .mc .stage{min-height:0;min-width:0}
+.aa3d-panel .mc canvas{height:204px}
+.aa3d-head{display:flex;align-items:center;gap:8px 12px;flex-wrap:wrap;padding:10px 12px;border-bottom:1px solid var(--aa-line)}
+.aa3d-head h2{font-size:17px;line-height:1.25;font-weight:650;margin:0;margin-right:auto}
+.aa3d-head button,.aa3d-head summary,.aa3d-picks button,.aa3d-picks select{font:inherit;font-size:12px;padding:5px 9px;border:1px solid var(--aa-line);background:var(--aa-subtle);color:var(--aa-fg);border-radius:7px;cursor:pointer}
+.aa3d-head button:hover,.aa3d-head summary:hover,.aa3d-picks button:hover,.aa3d-picks select:hover{border-color:var(--aa-soft)}
+.aa3d-head .aa3d-expand{background:var(--aa-fg);color:var(--aa-bg);font-weight:600}
+.aa3d-panel .aa3d-status{color:var(--aa-soft);font-size:12px;padding:0 12px 7px;margin:0}
+.aa3d-panel .aa3d-status b{font-weight:600;color:var(--aa-fg)}
+.aa3d-pick-panel{position:relative}
+.aa3d-pick-panel>div{position:absolute;z-index:5;top:calc(100% + 8px);right:0;width:min(720px,calc(100vw - 24px));max-height:45dvh;overflow:auto;padding:10px 0 0;background:var(--aa-bg);border:1px solid var(--aa-line);border-radius:10px;box-shadow:0 8px 28px #0002}
+.aa3d-picks{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:0 12px 8px}
+.aa3d-picks .lbl,.aa3d-picks .hint2{font-size:12px;color:var(--aa-soft)}
+.aa3d-picks button[aria-pressed=true]{background:var(--aa-fg);color:var(--aa-bg);border-color:var(--aa-fg)}
+.aa3d-picks .sep{width:1px;height:20px;background:var(--aa-line);margin:0 2px}
+.aa3d-picks .brk{flex-basis:100%;height:0}
+.aa3d-guide{color:var(--aa-soft);font-size:11.5px;padding:5px 12px 6px;margin:0}
+.aa3d-panel[data-expanded=true] .aa3d-hidden-badge{display:none}
+.aa3d-panel[data-expanded=false] :is(.aa3d-pick-panel,.mc .views,.mc .legend,.aa3d-guide){display:none}
+.aa3d-panel[data-expanded=false] .mc .stage{pointer-events:none}
+.aa3d-panel[data-expanded=true]{position:fixed;inset:0;z-index:38;border:0;border-radius:0;display:flex;flex-direction:column;padding-top:var(--aa3d-top,120px);box-sizing:border-box;overscroll-behavior:contain}
+.aa3d-panel[data-expanded=true] .aa3d-host{flex:1;min-height:0;min-width:0;display:flex;flex-direction:column;overflow-y:auto}
+.aa3d-panel[data-expanded=true] .mc{flex:1;min-height:0;display:flex;flex-direction:column;padding-top:5px}
+.aa3d-panel[data-expanded=true] .mc .card{flex:1;display:flex;flex-direction:column;min-height:0}
+.aa3d-panel[data-expanded=true] .mc .stage{flex:1;min-height:160px}
+.aa3d-panel[data-expanded=true] .mc canvas{position:absolute;inset:0;height:100%}
+@media(max-width:700px){.aa3d-panel .mc .axkey{display:none}.aa3d-head h2{font-size:15px}.aa3d-panel .mc .views{padding-inline:8px}}
+@media(max-width:460px){.aa3d-pick-panel>div{position:fixed;top:auto;margin-top:8px;right:8px}}
+`
 
-	let card = null, picksEl = null, statusEl = null, host = null, chart = null
+	let card = null, panel = null, picksEl = null, statusEl = null, host = null, chart = null
 	let lastSig = "", lastData = null, pickedMakers = new Set(), pickedFamilies = new Set(), pickedEfforts = new Set(), busyTimer = 0, startedEveryday = false
+	const hidden = new Set()
 	const isDark = () => document.documentElement.classList.contains("dark")
 	const sigOf = (slugs) => [...slugs].sort().join(",")
+	let openTimer = 0, hoverBlocked = false, expanded = false
+
+	function sizePanel() {
+		if (!expanded) return
+		// AA's desktop/mobile nav and sticky section switcher stay above the chart.
+		const bars = document.querySelectorAll(".sticky.z-50, .sticky.z-40")
+		let edge = 0
+		for (const bar of bars) {
+			if (panel.contains(bar)) continue
+			const r = bar.getBoundingClientRect()
+			if (r.width && r.height && r.top < 125 && r.bottom > 0) edge = Math.max(edge, r.bottom)
+		}
+		panel.style.setProperty("--aa3d-top", `${Math.min(edge + 8, innerHeight * 0.25)}px`)
+	}
+
+	function setExpanded(next, focus = false) {
+		clearTimeout(openTimer)
+		if (expanded === next) return
+		expanded = next
+		const button = panel.querySelector(".aa3d-expand")
+		const canvas = host.querySelector("canvas")
+		chart?.hideTip?.()
+		if (next) {
+			card.style.minHeight = `${panel.offsetHeight}px`
+			document.body.appendChild(panel)
+		} else {
+			card.appendChild(panel)
+			card.style.minHeight = ""
+			panel.querySelector(".aa3d-pick-panel").open = false
+		}
+		panel.dataset.expanded = String(next)
+		button.textContent = next ? "Close chart" : "Expand chart"
+		button.setAttribute("aria-expanded", String(next))
+		if (!next) hoverBlocked = card.matches(":hover")
+		if (canvas && chart?.data.length) canvas.tabIndex = next ? 0 : -1
+		sizePanel()
+		chart?.redraw()
+		if (focus) button.focus({ preventScroll: true })
+	}
 
 	function buildCard() {
 		card = document.createElement("div")
 		card.id = CARD_ID
-		card.className = "border rounded-lg p-4 relative"
-		card.innerHTML = `<div class="aa3d-picks" role="group" aria-label="Quick model picks"></div><p class="aa3d-status">Reading models from this page…</p><div class="aa3d-host"></div>`
-		picksEl = card.querySelector(".aa3d-picks"); statusEl = card.querySelector(".aa3d-status"); host = card.querySelector(".aa3d-host")
+		panel = document.createElement("section")
+		panel.className = "aa3d-panel"
+		panel.dataset.expanded = "false"
+		panel.setAttribute("aria-labelledby", "aa3d-title")
+		panel.innerHTML = `<div class="aa3d-head"><h2 id="aa3d-title">Intelligence, cost and time per task</h2><button type="button" class="aa3d-hidden-badge" hidden></button><details class="aa3d-pick-panel"><summary>Model picks</summary><div><div class="aa3d-picks" role="group" aria-label="Quick model picks"></div><p class="aa3d-status">Reading models from this page…</p></div></details><button type="button" class="aa3d-expand" aria-expanded="false">Expand chart</button></div><div class="aa3d-host"></div><p class="aa3d-guide">Drag to rotate · Shift-drag to pan · Scroll to zoom · Right-click a dot to hide it</p>`
+		card.appendChild(panel)
+		picksEl = panel.querySelector(".aa3d-picks"); statusEl = panel.querySelector(".aa3d-status"); host = panel.querySelector(".aa3d-host")
+		const button = panel.querySelector(".aa3d-expand")
+		button.addEventListener("click", () => setExpanded(!expanded, true))
+		panel.querySelector(".aa3d-hidden-badge").addEventListener("click", () => {
+			setExpanded(true)
+			const menu = host.querySelector(".mc-hidden")
+			if (menu) { menu.open = true; menu.querySelector("summary").focus() }
+		})
+		card.addEventListener("pointerenter", (e) => {
+			if (expanded || hoverBlocked || e.pointerType !== "mouse") return
+			openTimer = setTimeout(() => { if (card.matches(":hover")) setExpanded(true) }, 260)
+		})
+		card.addEventListener("pointerleave", () => { clearTimeout(openTimer); if (!expanded) hoverBlocked = false })
+		document.addEventListener("keydown", (e) => {
+			if (e.key !== "Escape" || e.defaultPrevented || !expanded) return
+			const menu = panel.querySelector("details[open]")
+			if (menu) { menu.open = false; menu.querySelector("summary").focus(); return }
+			setExpanded(false, panel.contains(document.activeElement))
+		})
+		addEventListener("resize", sizePanel)
+		addEventListener("scroll", sizePanel, { passive: true })
 		picksEl.addEventListener("click", onPick)
 		picksEl.addEventListener("change", (e) => { if (e.target.matches("select") && e.target.value) { togglemaker(e.target.value); e.target.value = "" } })
 	}
@@ -1102,23 +1453,30 @@ html.dark #${CARD_ID} .mc{--bg:#161716;--panel:#161716;--border:#30312e}`
 			(pickedFamilies.size || pickedEfforts.size ? "" : `<span class="hint2">Showing the frontier only. Pick a model or effort to see all its levels.</span>`)
 	}
 
-	function mountChart(d, rows) {
+	function mountChart(rows) {
 		const old = chart
-		const camera = old && old.view && old.view.yaw != null ? { yaw: old.view.yaw, pitch: old.view.pitch, zoom: old.view.zoom, panX: old.view.panX, panY: old.view.panY, persp: old.view.persp } : null
+		const camera = old?.view?.yaw != null ? { ...old.view } : null
+		const options = old?.options?.()
 		if (old && old.destroy) old.destroy()
 		const oneMaker = new Set(rows.map((r) => r.creator)).size === 1
 		chart = window.ModelChart.mount(host, {
 			rows,
 			spec: {
 				title: "Intelligence, cost and time per task: the 3D frontier",
-				note: "Ringed and named: models no other one beats on all three at once (smarter, cheaper and faster). Grey: no publicly available API, left out of the frontier. Drag to rotate, ⌘-scroll or pinch to zoom, Shift-drag to move, double-click to recentre, click a point to open it.",
 				axes: { x: "cost", y: "score", z: "minutes" },
 				groupBy: oneMaker ? "family" : "creator", labelBy: "name", lines: oneMaker,
-				view: "iso", fronts: ["all"], labels: "front", fade: 0.28, height: 700,
+				view: "iso", fronts: ["view"], labels: "front", fade: 0.32,
+				...options, interactive: true, tooltipLayer: 39, hidden,
+				onVisibilityChange: (concealed) => {
+					const badge = panel.querySelector(".aa3d-hidden-badge")
+					badge.hidden = !concealed.length
+					badge.textContent = `Hidden (${concealed.length})`
+				},
 				table: false, theme: isDark() ? "dark" : "light", camera,
 			},
 			meta: { updated: "live from this page" },
 		})
+		if (!expanded && chart.data.length) host.querySelector("canvas").tabIndex = -1
 	}
 
 	function refresh(force) {
@@ -1143,14 +1501,19 @@ html.dark #${CARD_ID} .mc{--bg:#161716;--panel:#161716;--border:#30312e}`
 		renderPicks(lastData, sig)
 		const missing = sel.length - shown.length, grey = shown.filter((r) => r.muted).length
 		statusEl.innerHTML = `Showing <b>${shown.length}</b> of the <b>${sel.length}</b> models selected on this page${missing ? ` (${missing} have no cost or time per task)` : ""}${grey ? `, ${grey} grey` : ""}. Picks here change the selection for every chart on the page, and AA's own model picker changes this one.`
-		mountChart(lastData, shown)
+		panel.querySelector(".aa3d-hidden-badge").hidden = true
+		mountChart(shown)
 		console.log(TAG, `showing ${shown.length}/${sel.length} selected (${rows.length} with data)`)
 		return true
 	}
 
 	// Put the card right after the three ranking cards, full width. Idempotent.
 	function place() {
-		if (location.pathname !== "/") { if (card && card.isConnected) card.remove(); return }
+		if (location.pathname !== "/") {
+			if (expanded) setExpanded(false)
+			if (card?.isConnected) card.remove()
+			return
+		}
 		const grid = document.querySelector("div.grid.gap-4.lg\\:grid-cols-3")
 		if (!grid || !grid.querySelector(":scope > div.border.rounded-lg.p-4.relative")) return
 		document.querySelectorAll("#" + CARD_ID).forEach((n) => { if (n !== card) n.remove() })
@@ -1176,7 +1539,7 @@ html.dark #${CARD_ID} .mc{--bg:#161716;--panel:#161716;--border:#30312e}`
 		document.head.appendChild(st)
 		installReader()
 		// AA re-renders its charts when the selection changes; that's the cue to re-read it
-		new MutationObserver((ms) => { if (ms.some((m) => !card || !card.contains(m.target))) schedule() }).observe(document.body, { childList: true, subtree: true })
+		new MutationObserver((ms) => { if (ms.some((m) => !card || (!card.contains(m.target) && !panel.contains(m.target)))) schedule() }).observe(document.body, { childList: true, subtree: true })
 		new MutationObserver(() => chart && chart.setTheme(isDark() ? "dark" : "light")).observe(document.documentElement, { attributes: true, attributeFilter: ["class"] })
 		schedule()
 	}
