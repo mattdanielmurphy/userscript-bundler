@@ -92,7 +92,7 @@
 			return null;
 		}
 
-		function release(doc, url) {
+	function release(doc, url) {
 			const title = doc.querySelector(".album_title");
 			if (!title) return null;
 			// The title node also holds the shortcut input and a small-screen "By …" block; take only its own text.
@@ -107,10 +107,18 @@
 			const count = ratingCount(text(doc.querySelector(".album_info .num_ratings b")) || text(doc.querySelector(".num_ratings")));
 			const rating = num(text(doc.querySelector(".album_info .avg_rating")) || text(doc.querySelector(".avg_rating")));
 			const typeText = text(info.type);
-			const tracks = Array.from(doc.querySelectorAll("#tracks .track")).map((li) => ({
-				title: text(li.querySelector(".tracklist_title .rendered_text")) || text(li.querySelector(".tracklist_title")),
-				rating: num(text(li.querySelector(".track_rating_avg"))),
-			})).filter((t) => t.title);
+			// Track ratings show to RYM subscribers (checked 2026-11-21: "4.7" and "15k" in the track's stats).
+			const tracks = Array.from(doc.querySelectorAll("#tracks .track")).map((li) => {
+				const tt = li.querySelector(".tracklist_title");
+				const title = text(li.querySelector(".tracklist_title a.song")) || text(li.querySelector(".tracklist_title .rendered_text")) ||
+					(tt ? text(tt).replace(/\s*\d+:\d\d(:\d\d)?\s*$/, "") : "");
+				return {
+					n: text(li.querySelector(".tracklist_num")) || null,
+					title,
+					rating: num(text(li.querySelector(".page_release_section_tracks_track_stats_rating, .track_rating_avg"))),
+					count: ratingCount(text(li.querySelector(".page_release_section_tracks_track_stats_count"))),
+				};
+			}).filter((t) => t.title);
 			return {
 				rymId: idFrom(doc.querySelector(".album_shortcut")?.value),
 				title: own || text(title),
