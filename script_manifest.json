@@ -317,6 +317,7 @@
     ],
     "noframes": true,
     "files": [
+      "aa-3d-chart/00-chart3d.js",
       "aa-3d-chart/00-model-chart.js",
       "aa-3d-chart/01-aa-3d-chart.js"
     ],

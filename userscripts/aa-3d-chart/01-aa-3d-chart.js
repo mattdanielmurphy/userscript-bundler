@@ -1,14 +1,16 @@
 // ==UserScript==
 // @name         Artificial Analysis 3D Frontier Chart
 // @namespace    local.aa.3d-chart
-// @version      2.1.0
+// @version      2.2.0
 // @description  Adds Matt's own 3D model chart (intelligence × cost per task × time per task) under the homepage rankings. It shows AA's shared model selection, and quick picks (frontier, one or more makers) change that selection for every chart on the page.
 // @match        https://artificialanalysis.ai/*
 // @grant        GM_addElement
 // @run-at       document-idle
 // ==/UserScript==
 
-// The chart is ~/projects/model-charts/chart/model-chart.js (00-model-chart.js is a link to it).
+// The chart is hud-kit's Chart3D component (00-chart3d.js links to ~/projects/hud-kit/dist/chart3d.js, built by
+// hud-kit bin/export-web), dressed for models by ~/projects/model-charts/chart/model-chart.js (00-model-chart.js links to it).
+// The model-charts site uses the same two files, so the chart here and there is one component.
 // Data comes from the page already open in this browser: the React context that feeds AA's own charts
 // (allPageModels, selectedPageModels, setSelectedPageModels). Nothing is fetched or stored.
 ;(function () {
@@ -148,10 +150,7 @@
 	// ---- UI ----
 	const CSS = `
 #${CARD_ID}{margin-top:1rem}
-#${CARD_ID} .mc{--bg:#fff;--panel:#fff;--border:rgb(217,217,217)}
-#${CARD_ID} .mc .card{border:0;padding:0;background:transparent}
-#${CARD_ID} .mc .legend{padding:0 10px;font-size:13px}
-#${CARD_ID} .mc h2{font-family:inherit}
+#${CARD_ID} .aa3d-host{--chart3d-bg:#fff;--chart3d-panel:#fff;--chart3d-border:rgb(217,217,217)}
 #${CARD_ID} .aa3d-picks{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:0 10px 12px;font:14px/1.4 inherit}
 #${CARD_ID} .aa3d-picks .lbl{font-size:13.5px;color:#55575c;margin-right:2px}
 #${CARD_ID} .aa3d-picks button,#${CARD_ID} .aa3d-picks select{font:inherit;font-size:13.5px;padding:6px 12px;border:1px solid rgb(217,217,217);background:#fff;color:#17181a;border-radius:6px;cursor:pointer}
@@ -163,7 +162,9 @@
 #${CARD_ID} .aa3d-picks .hint2{font-size:12.5px;color:#8a8c91;margin-left:4px}
 #${CARD_ID} .aa3d-status{color:#55575c;font-size:13px;padding:0 10px 10px;margin:0}
 #${CARD_ID} .aa3d-status b{font-weight:600;color:#17181a}
-html.dark #${CARD_ID} .mc{--bg:#161716;--panel:#161716;--border:#30312e}`
+html.dark #${CARD_ID} .aa3d-host{--chart3d-bg:#161716;--chart3d-panel:#161716;--chart3d-border:#30312e}`
+	// inside the chart's own shadow root: no card frame (AA's card is the frame), legend lined up with the title
+	const CHART_CSS = ".card{border:0;padding:0;background:transparent}.legend{padding:0 10px;font-size:13px}"
 
 	let card = null, picksEl = null, statusEl = null, host = null, chart = null
 	let lastSig = "", lastData = null, pickedMakers = new Set(), pickedFamilies = new Set(), pickedEfforts = new Set(), busyTimer = 0, startedEveryday = false
@@ -261,7 +262,7 @@ html.dark #${CARD_ID} .mc{--bg:#161716;--panel:#161716;--border:#30312e}`
 				axes: { x: "cost", y: "score", z: "minutes" },
 				groupBy: oneMaker ? "family" : "creator", labelBy: "name", lines: oneMaker,
 				view: "iso", fronts: ["all"], labels: "front", fade: 0.28, height: 700,
-				table: false, theme: isDark() ? "dark" : "light", camera,
+				table: false, theme: isDark() ? "dark" : "light", camera, css: CHART_CSS,
 			},
 			meta: { updated: "live from this page" },
 		})
@@ -316,7 +317,7 @@ html.dark #${CARD_ID} .mc{--bg:#161716;--panel:#161716;--border:#30312e}`
 	}
 
 	function start() {
-		if (!window.ModelChart) return console.error(TAG, "ModelChart missing from bundle")
+		if (!window.ModelChart) return console.error(TAG, "ModelChart missing from bundle (00-chart3d.js, 00-model-chart.js)")
 		const st = document.createElement("style")
 		st.textContent = CSS
 		document.head.appendChild(st)
