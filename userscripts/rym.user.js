@@ -108,6 +108,11 @@
 			const rating = num(text(doc.querySelector(".album_info .avg_rating")) || text(doc.querySelector(".avg_rating")));
 			const typeText = text(info.type);
 			// Track ratings show to RYM subscribers (checked 2026-11-21: "4.7" and "15k" in the track's stats).
+			const boldTitle = (li) => {
+				const a = li.querySelector(".tracklist_title a.song, .tracklist_title .rendered_text");
+				const v = a && doc.defaultView && doc.defaultView.getComputedStyle ? doc.defaultView.getComputedStyle(a) : null;
+				return !!v && parseInt(v.fontWeight, 10) >= 600;
+			};
 			const tracks = Array.from(doc.querySelectorAll("#tracks .track")).map((li) => {
 				const tt = li.querySelector(".tracklist_title");
 				const title = text(li.querySelector(".tracklist_title a.song")) || text(li.querySelector(".tracklist_title .rendered_text")) ||
@@ -117,6 +122,10 @@
 					title,
 					rating: num(text(li.querySelector(".page_release_section_tracks_track_stats_rating, .track_rating_avg"))),
 					count: ratingCount(text(li.querySelector(".page_release_section_tracks_track_stats_count"))),
+					// RYM's marks: "significant" (enough ratings to count; the rest are faded) and "recommended" (RYM's
+					// CSS makes it bold). On a live page the title's real weight counts too, in case RYM marks it some other way.
+					sig: !!li.querySelector(".significant") && !li.querySelector(".not_significant"),
+					bold: !!li.querySelector('.recommended, [class*="recommend"]') || boldTitle(li),
 				};
 			}).filter((t) => t.title);
 			return {
