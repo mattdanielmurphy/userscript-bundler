@@ -125,7 +125,8 @@
 					// RYM's marks: "significant" (enough ratings to count; the rest are faded) and "recommended" (RYM's
 					// CSS makes it bold). On a live page the title's real weight counts too, in case RYM marks it some other way.
 					sig: !!li.querySelector(".significant") && !li.querySelector(".not_significant"),
-					bold: !!li.querySelector('.recommended, [class*="recommend"]') || boldTitle(li),
+					// RYM's bold standout tracks: the title link "bolded", the stats "bold", the bold star (found 2026-11-21).
+					bold: !!li.querySelector('a.song.bolded, .page_release_section_tracks_track_stats_scores.bold, img.metadata-star-bold, .recommended') || boldTitle(li),
 				};
 			}).filter((t) => t.title);
 			return {
